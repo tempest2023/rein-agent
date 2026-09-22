@@ -1,12 +1,23 @@
-# Rein Agent character identity
+# Rein Agent · Grokbot-style character candidates
 
-Brief: a cute, extremely simple Grokbot-style robot with a calm, approachable personality for a Foundation administrator, secretary and online facilitator. Original character treatment; no affiliation with Grok or xAI implied.
+用户已确认六张候选，并指定 [Grokbot Icon Studio](https://grokbot-icon-studio.serio-ai.chatgpt.site/) 为风格参考。视觉特征：大面积奶白脸、两条胶囊眼、简洁头部色块和角落探出的构图。三个方向分别对应管理员、秘书、线上主持人。
 
-Workflow: ip-as-logo; square full-bleed raster artwork, two character colors and one solid background, rounded dominant silhouette, tiny simple facial features, lower-corner emergence. No SVG substitute.
+每张独立生成一次，完整保留原始结果，不修图、不重采样、不筛选。当前均为候选，尚未选定正式头像。
 
-Proposed directions pending generation confirmation:
-- A — administrator: rounded-square head and broad visor; steadiness.
-- B — secretary: capsule head and friendly widely spaced eyes; attentiveness.
-- C — facilitator: broad bean-like silhouette and large face panel; sociability.
+[六图预览](gallery.html) · [完整提示词、配色和生成记录](generation-report.json)
 
-Proposed batch: two independent candidates per direction, A1/B1/C1 lower-left and A2/B2/C2 lower-right. All generated originals and prompts will be preserved. No final avatar selected yet.
+| 编号 | 方向与气质 | 构图 | 原始尺寸 | 文件 |
+| --- | --- | --- | --- | --- |
+| A1 | 管理员 · 沉稳可靠 | lower-left | 1254 × 1254 | [原图](candidates/A1.png) |
+| A2 | 管理员 · 沉稳可靠 | lower-right | 1254 × 1254 | [原图](candidates/A2.png) |
+| B1 | 秘书 · 细心亲切 | lower-left | 1254 × 1254 | [原图](candidates/B1.png) |
+| B2 | 秘书 · 细心亲切 | lower-right | 1254 × 1254 | [原图](candidates/B2.png) |
+| C1 | 主持人 · 开放友好 | lower-left | 1254 × 1254 | [原图](candidates/C1.png) |
+| C2 | 主持人 · 开放友好 | lower-right | 1254 × 1254 | [原图](candidates/C2.png) |
+
+![A1](candidates/A1.png)
+![A2](candidates/A2.png)
+![B1](candidates/B1.png)
+![B2](candidates/B2.png)
+![C1](candidates/C1.png)
+![C2](candidates/C2.png)
