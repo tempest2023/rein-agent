@@ -14,7 +14,7 @@ Rein Protocol Foundation 的组织运营 Agent：管理员、秘书与线上主�
 - [架构与集成边界](docs/architecture.md)
 - [P0 实施与验收清单](docs/roadmap.md)
 - [部署准备](docs/setup.md) · [待决事项](docs/decisions.md)
-- [角色形象设计：六张 Grokbot 风格候选](assets/brand/README.md)
+- [角色形象设计：猫耳娘新版与历史候选](assets/brand/README.md)
 
 ## 三种工作角色
 

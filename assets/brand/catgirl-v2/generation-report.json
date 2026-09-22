@@ -1,0 +1,67 @@
+{
+  "brief": "User-requested cute cat-eared anime woman, large eyes, cyberpunk asymmetric facial plate and crown antenna. Richer colors override initial two-color constraint.",
+  "reference": "User supplied Pasted Image 1.jpg; visual reference only, not redistributed.",
+  "selection": "Unselected candidates, each generated once. Original files unmodified.",
+  "composition": "Two lower-left candidates (N1/N3), one lower-right (N2), intentionally imbalanced for three outputs.",
+  "constraintDelivery": "main-prompt constraints",
+  "candidates": [
+    {
+      "label": "N1",
+      "path": "N1.png",
+      "prompt": "Create exactly ONE original 1:1 square character portrait, approximately 1536x1536. The provided sheet is a reference ONLY for rounded graphic simplicity, cute friendly proportions, strong silhouettes, broad flat color masses and extremely restrained detail. Do not reproduce the sheet: a single character fills the canvas. Subject is a very cute young adult human anime cat-eared woman, head and shoulders, upright emerging from lower-left corner, fills 85–95% of canvas, both cat ears and top antenna entirely visible with breathing room. Stylish mint bob haircut in a few large rounded locks with one broad coral-pink forelock, rounded mint cat ears with pink interiors. Warm cream human face, HUGE adorable expressive deep-teal eyes with pale-aqua irises and one small simple glint each, tiny cheerful inquisitive smile. Clearly a charming anime woman with cat ears, not an animal mascot and not a robot helmet. Her RIGHT temple and cheek have one broad asymmetrical porcelain-white cybernetic facial plate with a single coral luminous seam; tasteful cyberpunk half-mechanical face decoration, no exposed anatomy, no detailed machinery. One short thick coral antenna with round ball tip projects from crown between ears. Only a small simple dark-teal high collar at bottom, no props. Memorable silhouette and delightful color blocking. Palette: mint #89E2C1, coral pink #FF7797, warm cream #FFF0D8, porcelain white #F7FAF0, pale aqua #BEF7EA, deep teal #123C43. Full canvas perfectly solid midnight teal #123C43 background and square outer corners. Large broad clean shapes, flat pared-down rendering; no hair strand detail, no wires, no busy scenery, no extra objects, no text, no labels, no watermarks, no borders, no inset cards, no grid. Add an extremely, extremely subtle, almost imperceptible sense of depth through a barely-there neo-skeuomorphic treatment.",
+      "corner": "lower-left",
+      "palette": [
+        "#89E2C1",
+        "#FF7797",
+        "#FFF0D8",
+        "#F7FAF0",
+        "#BEF7EA",
+        "#123C43"
+      ],
+      "provider": "built-in image_gen",
+      "model": "undisclosed",
+      "width": 1254,
+      "height": 1254,
+      "direction": "薄荷信号"
+    },
+    {
+      "label": "N2",
+      "path": "N2.png",
+      "prompt": "Create ONE independent square 1:1 image approximately 1536x1536 of an original cute young adult anime cat-eared woman, head and shoulders, upright emerging from the LOWER RIGHT corner, filling 85–95% of the canvas with both cat ears and the antenna fully visible. The attached sheet is reference ONLY for rounded graphic simplicity, friendly proportions, broad color masses and minimal rendering; never reproduce its sheet or grid. She is clearly a human anime girl, soft, curious and endearing, with a cream face, very large vivid violet eyes with large irises and one simple glint each, little nose and a tiny friendly smile. Silver-white short rounded bob in broad sculpted masses, a broad vivid violet side fringe, two rounded cat ears with lilac interiors. A dark indigo broad curved cybernetic plate follows her left temple and cheek with one inset cyan luminous seam; tasteful cyberpunk half-mechanical facial decoration without exposed anatomy. One short thick violet antenna at the crown, tipped with a round cyan end. A little simple indigo high collar visible at the bottom only, no props. Deliberate rich palette of silver-white, warm cream, vivid violet, lilac, deep indigo and a crisp cyan accent; memorable strong silhouette, clean broad rounded shapes. Full canvas flat solid muted lilac #BEB0DB background, square outer corners. Add an extremely, extremely subtle, almost imperceptible sense of depth through a barely-there neo-skeuomorphic treatment. Pared-down graphic anime rendering; no photorealism, no detailed machinery, no excessive wires, no individual hair strands, no neon city, no text, no watermark, no border, no card framing. Exactly one character in one standalone square image.",
+      "corner": "lower-right",
+      "palette": [
+        "#BEB0DB",
+        "silver-white",
+        "cream",
+        "vivid violet",
+        "lilac",
+        "dark indigo",
+        "cyan"
+      ],
+      "provider": "built-in image_gen",
+      "model": "undisclosed",
+      "width": 1254,
+      "height": 1254,
+      "direction": "银月电紫"
+    },
+    {
+      "label": "N3",
+      "path": "N3.png",
+      "prompt": "Create exactly ONE original character image, not a grid or sheet. Use the attached sheet ONLY as a reference for rounded graphic simplicity, friendly proportions, and broad color masses. A very cute, welcoming young adult human anime cat-eared woman, head and shoulders closeup emerging upright from the LOWER-LEFT corner. Peach-pink short fluffy bob sculpted in just a few broad rounded locks with one broad electric blue side lock. A pair of peach cat ears with raspberry interiors, rounded tips. Cream face, oversized expressive sapphire-blue eyes with big irises and one simple glint each, a warm confident sweet small smile. Cyberpunk half-mechanical decoration: one broad white rounded asymmetric plate over her right temple and cheek, with a bold electric blue inset stripe, without covering the eye; no exposed anatomy. A short, thick, curved antenna rises from the crown with a golden yellow round tip. A small simple cream and blue high collar peeks from the bottom, no props. Strong memorable silhouette, clearly a human anime girl rather than an animal mascot or robot helmet. Rich but clean multicolor palette: peach pink, cream, electric blue, raspberry, golden yellow. Full canvas solid muted cobalt/periwinkle background #596EAF. Flat, pared-down rendering, clean rounded heavy shapes and almost no outlines, delightful sophisticated simplicity. Add an extremely, extremely subtle, almost imperceptible sense of depth through a barely-there neo-skeuomorphic treatment. One square 1:1 image approximately 1536 by 1536 pixels with square outer corners. Character fills 85–95% of the composition, cropped shoulders at bottom, but keep BOTH ears and the entire antenna fully visible with breathing room at top. Avoid detailed machinery, wires, excessive hair strands, photorealism, neon scenery, tiny decorative markings, or complex clothing. No text, watermark, borders, frames, cards, or other characters.",
+      "corner": "lower-left",
+      "palette": [
+        "peach pink",
+        "cream",
+        "electric blue",
+        "raspberry",
+        "golden yellow",
+        "#596EAF"
+      ],
+      "provider": "built-in image_gen",
+      "model": "undisclosed",
+      "width": 1254,
+      "height": 1254,
+      "direction": "蜜桃脉冲"
+    }
+  ]
+}

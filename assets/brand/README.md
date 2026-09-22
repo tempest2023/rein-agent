@@ -1,4 +1,8 @@
-# Rein Agent · Grokbot-style character candidates
+# Rein Agent · Character explorations
+
+**最新方案：[猫耳娘候选 v2](catgirl-v2/README.md)** — 三张，大眼睛、半机械脸饰、头顶天线与多色设计。
+
+以下为第一轮历史候选。
 
 用户已确认六张候选，并指定 [Grokbot Icon Studio](https://grokbot-icon-studio.serio-ai.chatgpt.site/) 为风格参考。视觉特征：大面积奶白脸、两条胶囊眼、简洁头部色块和角落探出的构图。三个方向分别对应管理员、秘书、线上主持人。
 
