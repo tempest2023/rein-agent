@@ -1,0 +1,34 @@
+{
+  "status": "draft-unapproved",
+  "automationEnabled": false,
+  "platform": null,
+  "timezone": null,
+  "identitySource": null,
+  "zeroBudgetPolicy": null,
+  "governance": {
+    "policyVersion": null,
+    "boardRegistry": null,
+    "cadence": null,
+    "windowMinutes": null,
+    "quorumRule": null,
+    "approvalRule": null,
+    "conflictRule": null,
+    "allocationRule": null
+  },
+  "finance": {
+    "currency": null,
+    "availableFundsSource": null,
+    "owner": null
+  },
+  "publication": {
+    "mode": null,
+    "websiteAdapter": null,
+    "rightsPolicy": null
+  },
+  "reminders": {
+    "cadence": null,
+    "quietHours": null
+  },
+  "exceptionOwners": null,
+  "retentionPolicy": null
+}
