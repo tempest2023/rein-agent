@@ -1,5 +1,7 @@
 # Rein Agent
 
+<img src="workspace/avatars/rein-agent.png" alt="Rein Agent Bot Icon" width="192" height="192">
+
 Rein Protocol Foundation 的组织运营 Agent：管理员、秘书与线上主持人。
 
 帮助成员把活动想法变成真实行动：受理提案、整理材料、主持 Board 经费评选、推进筹备、收集成果、协助发布，并让组织负责人集中处理真正需要决策的事项。
@@ -14,7 +16,7 @@ Rein Protocol Foundation 的组织运营 Agent：管理员、秘书与线上主�
 - [架构与集成边界](docs/architecture.md)
 - [P0 实施与验收清单](docs/roadmap.md)
 - [部署准备](docs/setup.md) · [待决事项](docs/decisions.md)
-- [角色形象设计：猫耳娘新版与历史候选](assets/brand/README.md)
+- [正式 Bot Icon 与设计历史](assets/brand/README.md)
 
 ## 三种工作角色
 

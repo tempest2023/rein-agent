@@ -1,5 +1,7 @@
 # Rein Agent
 
+<img src="workspace/avatars/rein-agent.png" alt="Rein Agent Bot Icon" width="192" height="192">
+
 [中文说明](README-zh.md)
 
 Rein Protocol Foundation's operations agent: an administrator, secretary, and online facilitator.
@@ -16,7 +18,7 @@ Rein Agent helps members turn activity ideas into real-world action. It receives
 - [Architecture and integration boundaries](docs/architecture.md)
 - [P0 implementation and acceptance checklist](docs/roadmap.md)
 - [Deployment preparation](docs/setup.md) · [Open decisions](docs/decisions.md)
-- [Character identity: latest catgirl design and earlier candidates](assets/brand/README.md)
+- [Official Bot Icon and design history](assets/brand/README.md)
 
 ## Three operating roles
 
