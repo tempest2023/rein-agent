@@ -1,32 +1,34 @@
 # Rein Agent
 
-Rein Protocol Foundation 的组织运营 Agent：管理员、秘书与线上主持人。
+[中文说明](README-zh.md)
 
-帮助成员把活动想法变成真实行动：受理提案、整理材料、主持 Board 经费评选、推进筹备、收集成果、协助发布，并让组织负责人集中处理真正需要决策的事项。
+Rein Protocol Foundation's operations agent: an administrator, secretary, and online facilitator.
 
-**状态：初始化 / 开发前准备。** 已确定采用 OpenClaw；此仓库提供工作区模板、双语需求与实施计划。尚未接入 Slack、Discord、官网或真实成员数据，尚未实现投票、持久化和自动发布。
+Rein Agent helps members turn activity ideas into real-world action. It receives proposals, organizes materials, facilitates Board funding decisions, coordinates preparation, collects outcomes, and supports publishing—so organizational leaders can focus on decisions that truly require their attention.
 
-## 产品与设计
+**Status: repository initialized; implementation preparation in progress.** OpenClaw has been selected as the runtime. This repository currently contains the agent workspace template, bilingual requirements, and implementation plan. Slack, Discord, the Foundation website, and real member data are not connected. Voting, durable storage, and automated publishing are not yet implemented.
 
-- [中文 PRD](docs/PRD-agent-community-operations-zh.md) · [English PRD](docs/PRD-agent-community-operations.md)
-- [组织使命与治理蓝图（源项目快照）](PROJECT.md)
-- [文档来源与上下文](docs/provenance.md)
-- [架构与集成边界](docs/architecture.md)
-- [P0 实施与验收清单](docs/roadmap.md)
-- [部署准备](docs/setup.md) · [待决事项](docs/decisions.md)
-- [角色形象设计：猫耳娘新版与历史候选](assets/brand/README.md)
+## Product and design
 
-## 三种工作角色
+- [English PRD](docs/PRD-agent-community-operations.md) · [中文 PRD](docs/PRD-agent-community-operations-zh.md)
+- [Foundation mission and governance blueprint](PROJECT.md)
+- [Source provenance and context](docs/provenance.md)
+- [Architecture and integration boundaries](docs/architecture.md)
+- [P0 implementation and acceptance checklist](docs/roadmap.md)
+- [Deployment preparation](docs/setup.md) · [Open decisions](docs/decisions.md)
+- [Character identity: latest catgirl design and earlier candidates](assets/brand/README.md)
 
-| 角色 | 工作 |
+## Three operating roles
+
+| Role | Responsibilities |
 | --- | --- |
-| 管理员 | 核验身份、追踪活动与权限、维护异常和审计记录 |
-| 秘书 | 整理提案、议程、任务与成果；提醒缺项；生成运营周报 |
-| 线上主持人 | 按已授权规则介绍提案、开启与关闭投票、解释结果与下一步 |
+| Administrator | Verify identity, track activities and permissions, and maintain exception and audit records |
+| Secretary | Organize proposals, agendas, tasks, and outcomes; follow up on missing items; prepare weekly operations summaries |
+| Online facilitator | Present proposals under approved rules, open and close voting, and explain results and next steps |
 
-Agent 不替 Board 作资源分配决定，不执行真实付款，不自动授予身份；线下活动仍由人负责。
+Rein Agent does not make resource-allocation decisions for the Board, execute real payments, or grant organizational roles. People remain responsible for offline activity execution.
 
-## 本地开始
+## Getting started locally
 
 ```sh
 git clone https://github.com/tempest2023/rein-agent.git
@@ -34,16 +36,16 @@ cd rein-agent
 node scripts/check.mjs
 ```
 
-需要 Node.js 22 或更新版本进行仓库检查，无 npm 依赖。检查通过只代表文档与模板结构完整，不代表可上线。
+The repository check requires Node.js 22 or later and has no npm dependencies. A passing check confirms that the documentation and templates are structurally complete; it does not mean the agent is production-ready.
 
-`workspace/` 是可用于 OpenClaw 的 Agent 工作区模板。连接运行时之前，完成 [部署准备](docs/setup.md)。`config/operations.example.json` 是拟定的业务配置结构，**不是 OpenClaw 原生配置，也尚无执行器加载它**。治理参数留空，未经明确授权不启动真实业务。
+`workspace/` is an OpenClaw-compatible agent workspace template. Complete the [deployment preparation](docs/setup.md) before connecting a runtime. `config/operations.example.json` is a proposed business-configuration structure; **it is not native OpenClaw configuration, and no executor currently loads it**. Governance parameters remain unset, and real operations must not start without explicit authorization.
 
-## P0 闭环
+## P0 operating loop
 
-Contributor 提案 → 信息确认与评估 → 零预算授权快速通道 / Board 经费评选 → 活动空间与筹备 → 人执行 → 成果验收 → 已授权官网发布与结算记录。
+Contributor proposal → information confirmation and evaluation → authorized zero-budget fast track / Board funding decision → activity space and preparation → human execution → outcome acceptance → authorized website publication and settlement record.
 
-活动状态、资金状态和发布状态独立保存。第二聊天平台、社交媒体图文与 DAO 接入属于后续阶段。
+Activity, finance, and publication states are tracked independently. A second chat platform, social-media image and text publishing, and DAO integration belong to later phases.
 
-## 协作
+## Contributing
 
-需求建议不等于组织政策；实现必须追溯到 PRD 的 R / US / AC 编号。参见 [贡献指南](CONTRIBUTING.md)。许可尚未选定，当前未授予开源许可。
+Product suggestions are not organizational policy. Every implementation must trace back to a PRD requirement, user story, or acceptance criterion (`R`, `US`, or `AC`). See the [contribution guide](CONTRIBUTING.md). A license has not yet been selected, so no open-source license is currently granted.

@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const read = p => readFileSync(resolve(root, p), 'utf8');
-for (const p of ['README.md', 'AGENTS.md', 'workspace/AGENTS.md', 'workspace/SOUL.md', 'workspace/IDENTITY.md', 'docs/architecture.md', 'docs/roadmap.md', 'docs/setup.md', 'docs/decisions.md', 'assets/brand/README.md', 'templates/proposal.md', 'templates/board-brief.md', 'templates/outcome.md', 'templates/weekly-summary.md']) {
+for (const p of ['README.md', 'README-zh.md', 'AGENTS.md', 'workspace/AGENTS.md', 'workspace/SOUL.md', 'workspace/IDENTITY.md', 'docs/architecture.md', 'docs/roadmap.md', 'docs/setup.md', 'docs/decisions.md', 'assets/brand/README.md', 'templates/proposal.md', 'templates/board-brief.md', 'templates/outcome.md', 'templates/weekly-summary.md']) {
   assert.ok(existsSync(resolve(root, p)) && read(p).trim(), `Missing/empty: ${p}`);
 }
 const config = JSON.parse(read('config/operations.example.json'));
