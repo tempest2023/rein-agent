@@ -1,0 +1,19 @@
+{
+  "name": "rein-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.16.0 <25 || >=26.1.0"
+  },
+  "packageManager": "pnpm@12.4.2",
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "openclaw": "node scripts/openclaw.mjs",
+    "setup:local": "node scripts/init-local.mjs",
+    "upstream:update": "node scripts/update-openclaw.mjs",
+    "verify:plugin": "node scripts/verify-plugin.mjs",
+    "smoke:gateway": "node scripts/smoke-gateway.mjs"
+  }
+}

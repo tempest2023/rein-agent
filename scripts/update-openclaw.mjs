@@ -1,0 +1,13 @@
+import { execFileSync } from 'node:child_process';
+import { requireSource, upstream, run } from './runtime-env.mjs';
+requireSource();
+const ref = process.argv[2] ?? 'main';
+if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref)) throw new Error('Use a branch, tag or commit ref.');
+const git = (...args) => execFileSync('git', ['-C', upstream, ...args], { encoding: 'utf8' }).trim();
+if (git('status', '--porcelain')) throw new Error('OpenClaw checkout has local changes. Preserve them before updating.');
+const previous = git('rev-parse', 'HEAD');
+run('git', ['fetch', '--depth=1', 'origin', ref], upstream);
+run('git', ['checkout', '--detach', 'FETCH_HEAD'], upstream);
+console.log(`Previous: ${previous}\nCandidate: ${git('rev-parse', 'HEAD')}`);
+console.log('Review upstream changes, install with its pinned pnpm, rebuild, run Rein tests and runtime inspection before committing the vendor/openclaw pointer. No service restarted.');
+console.log(`Rollback: git -C vendor/openclaw checkout --detach ${previous}`);

@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Everything below is planned, not completed software. Initialization delivers documentation, workspace templates and structural checks only.
+Everything below is planned, not completed software. Initialization delivers documentation, workspace templates, the official OpenClaw source submodule, and a local read-only plugin with integration checks.
 
 | Milestone | Deliverable | Acceptance |
 | --- | --- | --- |

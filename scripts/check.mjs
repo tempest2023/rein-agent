@@ -28,4 +28,11 @@ for (const [source, expected] of Object.entries(hashes)) {
 for (const p of ['docs/PRD-agent-community-operations-zh.md', 'docs/PRD-agent-community-operations.md']) {
   for (let i = 1; i <= 20; i++) assert.ok(read(p).includes(`AC${String(i).padStart(2, '0')}`), `${p}: missing acceptance criterion ${i}`);
 }
+const manifest = JSON.parse(read('plugins/rein-operations/openclaw.plugin.json'));
+const pluginPackage = JSON.parse(read('plugins/rein-operations/package.json'));
+assert.equal(manifest.id, 'rein-operations');
+assert.deepEqual(manifest.contracts.tools, ['rein_status']);
+for (const entry of pluginPackage.openclaw.extensions) assert.ok(existsSync(resolve(root, 'plugins/rein-operations', entry)));
+assert.ok(read('.gitmodules').includes('https://github.com/openclaw/openclaw.git'));
+assert.ok(existsSync(resolve(root, 'workspace/avatars/rein-agent.png')));
 console.log('Scaffold OK: required files, unapproved example policy, source hashes, AC01–AC20. No production integration tested.');

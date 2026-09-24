@@ -1,0 +1,53 @@
+name: OpenClaw integration
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - vendor/openclaw
+      - .gitmodules
+      - plugins/**
+      - scripts/**
+      - tests/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/openclaw.yml
+  pull_request:
+    paths:
+      - vendor/openclaw
+      - .gitmodules
+      - plugins/**
+      - scripts/**
+      - tests/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/openclaw.yml
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+      - name: Install upstream dependencies
+        working-directory: vendor/openclaw
+        run: pnpm install --frozen-lockfile
+      - name: Build upstream
+        working-directory: vendor/openclaw
+        run: pnpm build
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm setup:local
+      - name: Validate runtime plugin loading
+        run: pnpm verify:plugin
+      - name: Confirm upstream tracked files remain unchanged
+        run: test -z "$(git -C vendor/openclaw status --porcelain)"
