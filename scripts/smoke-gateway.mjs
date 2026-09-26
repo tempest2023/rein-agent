@@ -15,5 +15,5 @@ assert.equal(response.status, 200, 'Start the local gateway and confirm rein_sta
 const body = await response.json();
 assert.equal(body.ok, true);
 assert.equal(body.result.details.automationEnabled, false);
-assert.deepEqual(body.result.details.implemented, ['rein_status']);
+assert.deepEqual(body.result.details.implemented, ['rein_status', 'rein_simulate_vote', 'rein_simulate_proposal']);
 console.log('Live gateway verified: authenticated rein_status invocation succeeded; no business automation enabled.');

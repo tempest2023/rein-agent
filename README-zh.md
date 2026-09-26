@@ -9,17 +9,29 @@ Rein Protocol Foundation 的组织运营 Agent：管理员、秘书与线上主�
 帮助成员把活动想法变成真实行动：受理提案、整理材料、主持 Board 经费评选、推进筹备、收集成果、
 协助发布，并让组织负责人集中处理真正需要决策的事项。
 
-**状态：运行时源码已纳入，插件骨架已就位，尚未接入线上系统。** 官方 OpenClaw 源码以 git submodule
-形式固定在经过评审的 commit 上，仓库内已有首个 Rein 自有插件包，目前只提供一个只读工具。尚未接入
-Slack、Discord、官网或真实成员数据，尚未实现投票、持久化和自动发布。源码构建、真实插件加载、
-本地网关认证后的 `rein_status` 调用均已验证通过。
+**状态：本地业务核心已实现，尚未接入线上系统。** 官方 OpenClaw 源码以 git submodule
+形式固定在经过评审的 commit 上。Rein 插件默认提供状态、合成提案及合成投票三个只读工具；
+只有在明确配置唯一平台、批准的原生频道及本地存储后才会注册四个提案工具。另有提案、治理、
+活动和本地账本模块。
+
+已确认的 P0 MVP 是一条 Slack 纵向切片：把 Slack 帐号关联到社群记录、提交简单的 Contributor 提案、
+完成一次简单的 Board 投票并公布结果、读取资金快照。切片已落地 6 个工具，对接组织自有数据库：
+`rein_mvp_my_status` 与 `rein_mvp_funds` 只读，`rein_mvp_proposal_submit`、`rein_mvp_poll_open`、
+`rein_mvp_vote`、`rein_mvp_poll_result` 会写入提案、投票与选票。它们**只在显式启用 `mvp` 配置块时注册**，
+且启用后会隐藏合成模拟器与旧提案工具。该切片对应的两个数据库迁移目前只存在于姊妹仓库本地，
+均未应用到线上环境。
+
+尚未接入任何 Slack 工作区、Discord、官网或真实成员数据，也尚未连上真实数据库。通过投票只是决策记录：
+付款、预留与发布均未启用；加权投票、法定人数、回避、预算竞争、活动空间、提醒、文章与监督仍属延后项。
+参见[开发与部署记录](docs/implementation-and-deployment-zh.md)。
+逐项验收状态见 [P0 验收矩阵](docs/p0-acceptance-matrix.md)。
 
 ## 仓库结构
 
 | 路径 | 用途 |
 | --- | --- |
 | `vendor/openclaw` | 官方 OpenClaw 源码（git submodule，固定在单个 commit）。属于上游，可直接使用，不要修改。 |
-| `plugins/rein-operations` | Rein 功能的唯一实现位置。目前注册只读工具 `rein_status`。 |
+| `plugins/rein-operations` | Rein 功能的唯一实现位置；含确定性业务模块、三个默认只读工具、四个提案工具，以及 6 个需显式配置的 MVP Slack 工具（2 读 4 写）。 |
 | `workspace/` | 与 OpenClaw 兼容的 Agent 工作区模板：身份、策略与头像。 |
 | `config/operations.example.json` | 拟定的业务配置。它不是 OpenClaw 原生配置，也没有任何执行器加载它。 |
 | `scripts/` | 本地初始化、CLI 包装与上游更新脚本。 |
