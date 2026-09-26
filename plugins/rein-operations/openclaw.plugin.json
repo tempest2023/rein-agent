@@ -1,13 +1,28 @@
 {
   "id": "rein-operations",
   "name": "Rein Operations",
-  "description": "Foundation operations extension; initial read-only capability status.",
+  "description": "Foundation operations extension; status, synthetic rehearsals and explicitly configured proposal tools, plus the database-backed Slack MVP slice for identity status, available funds, Contributor proposals and Board polls.",
   "categories": [
     "other"
   ],
   "contracts": {
     "tools": [
-      "rein_status"
+      "rein_status",
+      "rein_simulate_vote",
+      "rein_simulate_proposal",
+      "rein_proposal_create",
+      "rein_proposal_revise",
+      "rein_proposal_confirm",
+      "rein_proposal_submit",
+      "rein_mvp_my_status",
+      "rein_mvp_funds",
+      "rein_mvp_proposal_submit",
+      "rein_mvp_poll_open",
+      "rein_mvp_vote",
+      "rein_mvp_poll_result",
+      "rein_mvp_proposal_comment_suggest",
+      "rein_mvp_revision_approve",
+      "rein_mvp_revision_apply"
     ]
   },
   "activation": {
@@ -15,7 +30,58 @@
   },
   "configSchema": {
     "type": "object",
-    "properties": {},
+    "properties": {
+      "proposalTools": {
+        "type": "object",
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "platform": { "enum": ["discord", "slack"] },
+          "allowedNativeChannelIds": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "statePath": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      },
+      "mvp": {
+        "type": "object",
+        "description": "Database-backed Slack MVP slice: identity status and available funds reads, plus Contributor proposal submission, Board poll, ballot and result writes, and post-result feedback on a proposal that passed. One installation serves exactly one Slack workspace: OpenClaw tool context carries no team ID, so the team is fixed configuration. Enabling this block registers rein_mvp_my_status, rein_mvp_funds, rein_mvp_proposal_submit, rein_mvp_poll_open, rein_mvp_vote, rein_mvp_poll_result, rein_mvp_proposal_comment_suggest, rein_mvp_revision_approve and rein_mvp_revision_apply instead of the synthetic simulators and the legacy proposal tools. After a result the Board may still comment or suggest a revision on a proposal that passed. An ordinary revision of the title or the summary is accepted and made effective by the Agent itself, with no separate Board approval. A revision that moves budget, location, schedule, personnel or the major event flow is refused until a current director records an approval; schedule is material in the current implementation. Feedback is limited to the approved Board channel and to current directors, who are the voters; the database row also permits an active Contributor author. A recorded vote outcome, a comment, an approval and an applied revision never reserve, approve or pay money, and no tool posts a message.",
+        "properties": {
+          "enabled": { "type": "boolean", "description": "Explicit opt-in. Nothing registers while this is false or absent." },
+          "platform": { "enum": ["slack"], "description": "P0 uses exactly one chat platform; this slice is Slack-only." },
+          "slackTeamId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The one Slack team this installation serves, for example T01234567. Not a credential; never echoed to callers."
+          },
+          "environment": {
+            "enum": ["dev", "prod"],
+            "description": "Selects the dev_ or prod_ database table set. Required, with no implicit default."
+          },
+          "proposalChannelIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "description": "Approved native Slack channel IDs where a member may ask about their own status, and where an active Contributor may submit a proposal."
+          },
+          "boardChannelIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "description": "Approved native Slack channel IDs for the Board; funds reads, poll creation, ballots and results are limited to these channels and to current directors."
+          },
+          "supabaseUrlEnvVar": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of the server environment variable that holds the Supabase project URL. The value is read from the server process environment, never from this config."
+          },
+          "supabaseServiceKeyEnvVar": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of the server environment variable that holds the server-only Supabase key. The key is never stored in config, status, results or error messages."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "additionalProperties": false
   }
 }
