@@ -17,7 +17,7 @@ import {
 // inside the approved Board channel, and the proposal the revision names must be in its selected
 // state.
 //
-// The two sides of the rule differ. `rein_mvp_revision_apply` is the Agent accepting a reasonable
+// The two sides of the rule differ. `rein_revision_apply` is the Agent accepting a reasonable
 // ordinary suggestion in the caller's turn, so a title or summary revision becomes effective with no
 // further approval and reports `ordinaryRevisionApplicationDecision: 'agent_accepts_ordinary'`. A
 // material revision keeps the hard gate and is refused with `revision_not_approved` until a current
@@ -263,9 +263,9 @@ test('no feedback tool registers without an explicit enabled block', () => {
     assert.equal(registration.contextVersion, 2);
   }
   assert.deepEqual([...MVP_FEEDBACK_TOOL_NAMES], [
-    'rein_mvp_proposal_comment_suggest',
-    'rein_mvp_revision_approve',
-    'rein_mvp_revision_apply',
+    'rein_proposal_comment_suggest',
+    'rein_revision_approve',
+    'rein_revision_apply',
   ]);
 });
 
@@ -361,11 +361,11 @@ test('enabled email matching names the bot token variable and never echoes its v
 
   assert.throws(
     () => resolve(enabled, {}),
-    /mvp\.slackBotTokenEnvVar must name a server environment variable/,
+    /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
   );
   assert.throws(
     () => resolve({ ...enabled, slackBotTokenEnvVar: 'NOT A NAME' }, {}),
-    /mvp\.slackBotTokenEnvVar must name a server environment variable/,
+    /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
   );
   const named = { ...enabled, slackBotTokenEnvVar: BOT_TOKEN_ENV };
   assert.throws(
@@ -420,7 +420,7 @@ test('enabled email matching builds one lookup in this slice and presents the to
       assertInvocationCurrent() {},
     });
     const result = await tools
-      .find(tool => tool.name === 'rein_mvp_revision_approve')
+      .find(tool => tool.name === 'rein_revision_approve')
       .execute('call-1', { revisionId: REVISION });
 
     // The sender resolves as unlinked, so the approval is refused before any writer call.
@@ -454,14 +454,14 @@ test('an enabled-but-incomplete block fails loudly instead of registering part o
 });
 
 // ---------------------------------------------------------------------------------------------
-// rein_mvp_proposal_comment_suggest
+// rein_proposal_comment_suggest
 // ---------------------------------------------------------------------------------------------
 
 test('a current director records one comment on a proposal that passed', async () => {
   const fakes = createFakes({ member: director() });
   const { tool, calls, guard } = build({ fakes });
 
-  const result = await tool('rein_mvp_proposal_comment_suggest').execute('call-1', {
+  const result = await tool('rein_proposal_comment_suggest').execute('call-1', {
     proposalId: PROPOSAL,
     note: 'Could the venue be nearer the station?',
   });
@@ -498,7 +498,7 @@ test('an ordinary title or summary suggestion carries exactly its named fields',
   const fakes = createFakes({ member: director() });
   const { tool, calls } = build({ fakes });
 
-  const result = await tool('rein_mvp_proposal_comment_suggest').execute('call-2', {
+  const result = await tool('rein_proposal_comment_suggest').execute('call-2', {
     proposalId: PROPOSAL,
     changedFields: ['title', 'summary'],
     title: '  Repair workshop, second session  ',
@@ -532,7 +532,7 @@ test('a material suggestion names its gate and still writes only the named field
   const fakes = createFakes({ member: director() });
   const { tool, calls } = build({ fakes });
 
-  const result = await tool('rein_mvp_proposal_comment_suggest').execute('call-3', {
+  const result = await tool('rein_proposal_comment_suggest').execute('call-3', {
     proposalId: PROPOSAL,
     changedFields: ['schedule', 'budget'],
     schedule: 'Saturdays 18:00, 90 minutes',
@@ -580,7 +580,7 @@ test('a field value without its name is refused, and a named field without its v
   ]) {
     const fakes = createFakes({ member: director() });
     const result = await build({ fakes })
-      .tool('rein_mvp_proposal_comment_suggest')
+      .tool('rein_proposal_comment_suggest')
       .execute('call-4', args);
     assert.equal(result.details.ok, false, JSON.stringify(args));
     assert.equal(result.details.error, code, JSON.stringify(args));
@@ -591,7 +591,7 @@ test('a field value without its name is refused, and a named field without its v
 test('a suggestion for an unknown proposal is refused and writes no revision', async () => {
   const fakes = createFakes({ member: director() });
   const result = await build({ fakes })
-    .tool('rein_mvp_proposal_comment_suggest')
+    .tool('rein_proposal_comment_suggest')
     .execute('call-5', { proposalId: OTHER_PROPOSAL, note: 'Anything about it' });
   assert.equal(result.details.ok, false);
   assert.equal(result.details.error, 'proposal_not_found');
@@ -603,8 +603,8 @@ test('a same-turn retry of the feedback call is the same record, and a later tur
   const fakes = createFakes({ member: director() });
   const { tool, calls } = build({ fakes });
 
-  await tool('rein_mvp_proposal_comment_suggest').execute('call-7', { proposalId: PROPOSAL, note: 'Same note' });
-  await tool('rein_mvp_proposal_comment_suggest').execute('call-7', { proposalId: PROPOSAL, note: 'Same note' });
+  await tool('rein_proposal_comment_suggest').execute('call-7', { proposalId: PROPOSAL, note: 'Same note' });
+  await tool('rein_proposal_comment_suggest').execute('call-7', { proposalId: PROPOSAL, note: 'Same note' });
   assert.equal(calls.recordProposalRevision.length, 2);
   assert.equal(
     calls.recordProposalRevision[0].id,
@@ -614,7 +614,7 @@ test('a same-turn retry of the feedback call is the same record, and a later tur
 
   const second = createFakes({ member: director() });
   await build({ fakes: second })
-    .tool('rein_mvp_proposal_comment_suggest')
+    .tool('rein_proposal_comment_suggest')
     .execute('call-7', { proposalId: PROPOSAL, note: 'Same note' });
   assert.notEqual(
     calls.recordProposalRevision[0].id,
@@ -626,8 +626,8 @@ test('a same-turn retry of the feedback call is the same record, and a later tur
 test('the record identifier is minted per tool call, so two different calls stay distinct', async () => {
   const fakes = createFakes({ member: director() });
   const { tool, calls } = build({ fakes });
-  await tool('rein_mvp_proposal_comment_suggest').execute('call-a', { proposalId: PROPOSAL, note: 'One' });
-  await tool('rein_mvp_proposal_comment_suggest').execute('call-b', { proposalId: PROPOSAL, note: 'Two' });
+  await tool('rein_proposal_comment_suggest').execute('call-a', { proposalId: PROPOSAL, note: 'One' });
+  await tool('rein_proposal_comment_suggest').execute('call-b', { proposalId: PROPOSAL, note: 'Two' });
   assert.notEqual(calls.recordProposalRevision[0].id, calls.recordProposalRevision[1].id);
 });
 
@@ -635,7 +635,7 @@ test('a missing host tool call id is refused instead of inventing a record ident
   for (const toolCallId of [undefined, '', '   ']) {
     const fakes = createFakes({ member: director() });
     const result = await build({ fakes })
-      .tool('rein_mvp_proposal_comment_suggest')
+      .tool('rein_proposal_comment_suggest')
       .execute(toolCallId, { proposalId: PROPOSAL, note: 'Note' });
     assert.equal(result.details.error, 'tool_call_id_required', String(toolCallId));
     assert.deepEqual(fakes.calls.recordProposalRevision, []);
@@ -643,7 +643,7 @@ test('a missing host tool call id is refused instead of inventing a record ident
 });
 
 // ---------------------------------------------------------------------------------------------
-// rein_mvp_revision_apply
+// rein_revision_apply
 // ---------------------------------------------------------------------------------------------
 
 test('an ordinary revision is applied and the database version comes back', async () => {
@@ -651,7 +651,7 @@ test('an ordinary revision is applied and the database version comes back', asyn
   const fakes = createFakes({ member: director(), revision });
   const { tool, calls, guard } = build({ fakes });
 
-  const result = await tool('rein_mvp_revision_apply').execute('call-1', { revisionId: REVISION });
+  const result = await tool('rein_revision_apply').execute('call-1', { revisionId: REVISION });
 
   assert.equal(result.details.ok, true);
   assert.equal(result.details.applied, true);
@@ -686,7 +686,7 @@ test('a material revision is refused before approval with the approval gate name
   const fakes = createFakes({ member: director(), revision });
   const { tool, calls, guard } = build({ fakes });
 
-  const result = await tool('rein_mvp_revision_apply').execute('call-2', { revisionId: REVISION });
+  const result = await tool('rein_revision_apply').execute('call-2', { revisionId: REVISION });
 
   assert.equal(result.details.ok, false);
   assert.equal(result.details.error, 'revision_not_approved');
@@ -717,10 +717,10 @@ test('a material revision takes effect only after a director records an approval
     }),
   });
 
-  const refused = await approveBuild.tool('rein_mvp_revision_apply').execute('call-3', { revisionId: REVISION });
+  const refused = await approveBuild.tool('rein_revision_apply').execute('call-3', { revisionId: REVISION });
   assert.equal(refused.details.error, 'revision_not_approved');
 
-  const accepted = await applied.tool('rein_mvp_revision_apply').execute('call-4', { revisionId: REVISION });
+  const accepted = await applied.tool('rein_revision_apply').execute('call-4', { revisionId: REVISION });
   assert.equal(accepted.details.ok, true);
   assert.equal(accepted.details.applied, true);
   assert.equal(accepted.details.approved, true, 'the recorded approval is what let it take effect');
@@ -739,7 +739,7 @@ test('a stored material revision that carries an approval is applied without a s
     approvedAt: APPROVED_AT,
   });
   const fakes = createFakes({ member: director(), revision });
-  const result = await build({ fakes }).tool('rein_mvp_revision_apply').execute('call-5', { revisionId: REVISION });
+  const result = await build({ fakes }).tool('rein_revision_apply').execute('call-5', { revisionId: REVISION });
   assert.equal(result.details.ok, true);
   assert.equal(result.details.applied, true);
   assert.deepEqual(fakes.calls.approveProposalRevision, [], 'applying never records an approval of its own');
@@ -752,12 +752,12 @@ test('a comment is refused and an already applied revision is reported instead o
   // An ordinary revision is applied once, and a later call reports the stored version instead of
   // writing a second one.
   const firstApply = createFakes({ member: director(), revision: pending });
-  const first = await build({ fakes: firstApply }).tool('rein_mvp_revision_apply').execute('call-5', {
+  const first = await build({ fakes: firstApply }).tool('rein_revision_apply').execute('call-5', {
     revisionId: REVISION,
   });
   assert.equal(first.details.applied, true);
   const appliedTwice = createFakes({ member: director(), revision: { ...pending, version: 2 } });
-  const second = await build({ fakes: appliedTwice }).tool('rein_mvp_revision_approve').execute('call-6', {
+  const second = await build({ fakes: appliedTwice }).tool('rein_revision_approve').execute('call-6', {
     revisionId: REVISION,
   });
   assert.equal(second.details.error, 'revision_already_applied');
@@ -765,14 +765,14 @@ test('a comment is refused and an already applied revision is reported instead o
 
   const commentApplyFakes = createFakes({ member: director(), revision: comment });
   const commentApply = await build({ fakes: commentApplyFakes })
-    .tool('rein_mvp_revision_apply')
+    .tool('rein_revision_apply')
     .execute('call-7', { revisionId: REVISION });
   assert.equal(commentApply.details.error, 'revision_is_comment');
   assert.deepEqual(commentApplyFakes.calls.applyProposalRevision, []);
 
   const commentApproveFakes = createFakes({ member: director(), revision: comment });
   const commentApprove = await build({ fakes: commentApproveFakes })
-    .tool('rein_mvp_revision_approve')
+    .tool('rein_revision_approve')
     .execute('call-8', { revisionId: REVISION });
   assert.equal(commentApprove.details.error, 'revision_is_comment');
   assert.deepEqual(commentApproveFakes.calls.approveProposalRevision, []);
@@ -780,13 +780,13 @@ test('a comment is refused and an already applied revision is reported instead o
 
 test('an unknown revision is refused and applies nothing', async () => {
   const fakes = createFakes({ member: director() });
-  const result = await build({ fakes }).tool('rein_mvp_revision_apply').execute('call-8', { revisionId: REVISION });
+  const result = await build({ fakes }).tool('rein_revision_apply').execute('call-8', { revisionId: REVISION });
   assert.equal(result.details.error, 'revision_not_found');
   assert.deepEqual(fakes.calls.applyProposalRevision, []);
 });
 
 // ---------------------------------------------------------------------------------------------
-// rein_mvp_revision_approve
+// rein_revision_approve
 // ---------------------------------------------------------------------------------------------
 
 test('a current director records the approval a material revision needs', async () => {
@@ -799,7 +799,7 @@ test('a current director records the approval a material revision needs', async 
   const fakes = createFakes({ member: director(), revision });
   const { tool, calls, guard } = build({ fakes });
 
-  const result = await tool('rein_mvp_revision_approve').execute('call-1', { revisionId: REVISION });
+  const result = await tool('rein_revision_approve').execute('call-1', { revisionId: REVISION });
 
   assert.equal(result.details.ok, true);
   assert.equal(result.details.approved, true);
@@ -835,7 +835,7 @@ test('a repeat approval by the same director is the recorded one, never a second
       }),
     },
   });
-  const result = await build({ fakes }).tool('rein_mvp_revision_approve').execute('call-2', { revisionId: REVISION });
+  const result = await build({ fakes }).tool('rein_revision_approve').execute('call-2', { revisionId: REVISION });
   assert.equal(result.details.ok, true);
   assert.equal(result.details.repeated, true);
   assert.equal(result.details.approved, true);
@@ -846,7 +846,7 @@ test('a comment carries nothing to approve and an applied revision takes no furt
   const comment = revisionRecord({ changedFields: [], title: null, note: 'Nice work' });
   const commentFakes = createFakes({ member: director(), revision: comment });
   const commentResult = await build({ fakes: commentFakes })
-    .tool('rein_mvp_revision_approve')
+    .tool('rein_revision_approve')
     .execute('call-3', { revisionId: REVISION });
   assert.equal(commentResult.details.error, 'revision_is_comment');
   assert.deepEqual(commentFakes.calls.approveProposalRevision, []);
@@ -854,7 +854,7 @@ test('a comment carries nothing to approve and an applied revision takes no furt
   const applied = revisionRecord({ version: 2 });
   const appliedFakes = createFakes({ member: director(), revision: applied });
   const appliedResult = await build({ fakes: appliedFakes })
-    .tool('rein_mvp_revision_approve')
+    .tool('rein_revision_approve')
     .execute('call-4', { revisionId: REVISION });
   assert.equal(appliedResult.details.error, 'revision_already_applied');
   assert.deepEqual(appliedFakes.calls.approveProposalRevision, []);
@@ -866,10 +866,10 @@ test('a comment carries nothing to approve and an applied revision takes no furt
 
 test('a non-director cannot comment, suggest, approve or apply', async () => {
   for (const [name, args] of [
-    ['rein_mvp_proposal_comment_suggest', { proposalId: PROPOSAL, note: 'Note' }],
-    ['rein_mvp_proposal_comment_suggest', { proposalId: PROPOSAL, changedFields: ['title'], title: 'T', note: 'N' }],
-    ['rein_mvp_revision_approve', { revisionId: REVISION }],
-    ['rein_mvp_revision_apply', { revisionId: REVISION }],
+    ['rein_proposal_comment_suggest', { proposalId: PROPOSAL, note: 'Note' }],
+    ['rein_proposal_comment_suggest', { proposalId: PROPOSAL, changedFields: ['title'], title: 'T', note: 'N' }],
+    ['rein_revision_approve', { revisionId: REVISION }],
+    ['rein_revision_apply', { revisionId: REVISION }],
   ]) {
     const fakes = createFakes({ member: contributor({ isActiveContributor: true }) });
     const result = await build({ fakes }).tool(name).execute('call-1', args);
@@ -886,7 +886,7 @@ test('feedback on a proposal that did not pass is refused before any write', asy
     const proposal = proposalRecord({ status });
     const commentFakes = createFakes({ member: director(), proposal });
     const comment = await build({ fakes: commentFakes })
-      .tool('rein_mvp_proposal_comment_suggest')
+      .tool('rein_proposal_comment_suggest')
       .execute('call-1', { proposalId: PROPOSAL, note: 'Note' });
     assert.equal(comment.details.error, 'proposal_not_selected', status);
     assert.deepEqual(commentFakes.calls.recordProposalRevision, [], status);
@@ -897,7 +897,7 @@ test('feedback on a proposal that did not pass is refused before any write', asy
       revision: revisionRecord({ changedFields: ['title'] }),
     });
     const applied = await build({ fakes: revisionFakes })
-      .tool('rein_mvp_revision_apply')
+      .tool('rein_revision_apply')
       .execute('call-2', { revisionId: REVISION });
     assert.equal(applied.details.error, 'proposal_not_selected', status);
     assert.deepEqual(revisionFakes.calls.applyProposalRevision, [], status);
@@ -908,7 +908,7 @@ test('feedback on a proposal that did not pass is refused before any write', asy
       revision: revisionRecord({ changedFields: ['budget'] }),
     });
     const approve = await build({ fakes: approveFakes })
-      .tool('rein_mvp_revision_approve')
+      .tool('rein_revision_approve')
       .execute('call-3', { revisionId: REVISION });
     assert.equal(approve.details.error, 'proposal_not_selected', status);
     assert.deepEqual(approveFakes.calls.approveProposalRevision, [], status);
@@ -922,7 +922,7 @@ test('a feedback tool refuses an unlinked account, an unknown account and a revo
     [{ status: 'identity_link_revoked', reason: 'revoked', contactId: null, isActiveContributor: false, isDirector: false, httpStatus: null }, 'identity_link_required'],
   ]) {
     const fakes = createFakes({ member });
-    const result = await build({ fakes }).tool('rein_mvp_revision_apply').execute('call-1', { revisionId: REVISION });
+    const result = await build({ fakes }).tool('rein_revision_apply').execute('call-1', { revisionId: REVISION });
     assert.equal(result.details.error, code);
     assert.deepEqual(fakes.calls.applyProposalRevision, []);
   }
@@ -931,7 +931,7 @@ test('a feedback tool refuses an unlinked account, an unknown account and a revo
 test('a linked active Contributor who is not a director cannot leave feedback', async () => {
   const fakes = createFakes({ member: contributor({ isActiveContributor: true, isDirector: false }) });
   const result = await build({ fakes })
-    .tool('rein_mvp_proposal_comment_suggest')
+    .tool('rein_proposal_comment_suggest')
     .execute('call-1', { proposalId: PROPOSAL, note: 'Note' });
   assert.equal(result.details.error, 'board_membership_required');
   assert.deepEqual(fakes.calls.recordProposalRevision, []);
@@ -939,9 +939,9 @@ test('a linked active Contributor who is not a director cannot leave feedback', 
 
 test('every tool refuses an out-of-scope platform, channel or missing sender before any call', async () => {
   for (const [name, args] of [
-    ['rein_mvp_proposal_comment_suggest', { proposalId: PROPOSAL, note: 'Note' }],
-    ['rein_mvp_revision_approve', { revisionId: REVISION }],
-    ['rein_mvp_revision_apply', { revisionId: REVISION }],
+    ['rein_proposal_comment_suggest', { proposalId: PROPOSAL, note: 'Note' }],
+    ['rein_revision_approve', { revisionId: REVISION }],
+    ['rein_revision_apply', { revisionId: REVISION }],
   ]) {
     for (const [overrides, code] of [
       [{ messageChannel: 'discord' }, 'platform_out_of_scope'],
@@ -967,9 +967,9 @@ test('every tool refuses an out-of-scope platform, channel or missing sender bef
 
 test('every feedback tool is limited to the Board channel', async () => {
   for (const [name, args] of [
-    ['rein_mvp_proposal_comment_suggest', { proposalId: PROPOSAL, note: 'Note' }],
-    ['rein_mvp_revision_approve', { revisionId: REVISION }],
-    ['rein_mvp_revision_apply', { revisionId: REVISION }],
+    ['rein_proposal_comment_suggest', { proposalId: PROPOSAL, note: 'Note' }],
+    ['rein_revision_approve', { revisionId: REVISION }],
+    ['rein_revision_apply', { revisionId: REVISION }],
   ]) {
     const fakes = createFakes({ member: director() });
     const refused = await build({ fakes, channel: PROPOSAL_CHANNEL }).tool(name).execute('call-1', args);
@@ -984,7 +984,7 @@ test('a missing or stale host invocation guard produces no write and no apply', 
     fakes: noGuard,
     ctx: { assertInvocationCurrent: undefined },
   })
-    .tool('rein_mvp_proposal_comment_suggest')
+    .tool('rein_proposal_comment_suggest')
     .execute('call-1', { proposalId: PROPOSAL, note: 'Note' });
   assert.equal(comment.details.error, 'current_invocation_guard_unavailable');
   assert.deepEqual(noGuard.calls.recordProposalRevision, []);
@@ -1001,7 +1001,7 @@ test('a missing or stale host invocation guard produces no write and no apply', 
       },
     },
   })
-    .tool('rein_mvp_revision_apply')
+    .tool('rein_revision_apply')
     .execute('call-2', { revisionId: REVISION });
   assert.equal(applied.details.error, 'invocation_not_current');
   assert.deepEqual(stale.calls.applyProposalRevision, [], 'a stale turn cannot apply a revision');
@@ -1015,7 +1015,7 @@ test('a missing or stale host invocation guard produces no write and no apply', 
       },
     },
   })
-    .tool('rein_mvp_revision_approve')
+    .tool('rein_revision_approve')
     .execute('call-3', { revisionId: REVISION });
   assert.equal(approve.details.error, 'invocation_not_current');
   assert.deepEqual(approveFakes.calls.approveProposalRevision, [], 'a stale turn cannot approve');
@@ -1023,14 +1023,14 @@ test('a missing or stale host invocation guard produces no write and no apply', 
 
 test('an actor, a role or a policy argument is refused and never reaches a write', async () => {
   for (const [name, args] of [
-    ['rein_mvp_proposal_comment_suggest', { proposalId: PROPOSAL, note: 'n', authorContactId: OTHER_CONTACT }],
-    ['rein_mvp_proposal_comment_suggest', { proposalId: PROPOSAL, note: 'n', role: 'director' }],
-    ['rein_mvp_proposal_comment_suggest', { proposalId: PROPOSAL, note: 'n', material: false }],
-    ['rein_mvp_revision_approve', { revisionId: REVISION, approverContactId: OTHER_CONTACT }],
-    ['rein_mvp_revision_approve', { revisionId: REVISION, isDirector: true }],
-    ['rein_mvp_revision_apply', { revisionId: REVISION, approved: true }],
-    ['rein_mvp_revision_apply', { revisionId: REVISION, version: 99 }],
-    ['rein_mvp_revision_apply', { revisionId: REVISION, skipApproval: true }],
+    ['rein_proposal_comment_suggest', { proposalId: PROPOSAL, note: 'n', authorContactId: OTHER_CONTACT }],
+    ['rein_proposal_comment_suggest', { proposalId: PROPOSAL, note: 'n', role: 'director' }],
+    ['rein_proposal_comment_suggest', { proposalId: PROPOSAL, note: 'n', material: false }],
+    ['rein_revision_approve', { revisionId: REVISION, approverContactId: OTHER_CONTACT }],
+    ['rein_revision_approve', { revisionId: REVISION, isDirector: true }],
+    ['rein_revision_apply', { revisionId: REVISION, approved: true }],
+    ['rein_revision_apply', { revisionId: REVISION, version: 99 }],
+    ['rein_revision_apply', { revisionId: REVISION, skipApproval: true }],
   ]) {
     const fakes = createFakes({ member: director() });
     for (const channel of [BOARD_CHANNEL]) {
@@ -1050,14 +1050,14 @@ test('an actor, a role or a policy argument is refused and never reaches a write
 test('the acting account is never taken from an argument', async () => {
   const fakes = createFakes({ member: director({ contactId: OTHER_CONTACT }) });
   const result = await build({ fakes })
-    .tool('rein_mvp_proposal_comment_suggest')
+    .tool('rein_proposal_comment_suggest')
     .execute('call-1', { proposalId: PROPOSAL, note: 'Mine', author: CONTACT });
   assert.equal(result.details.error, 'actor_argument_rejected');
   assert.deepEqual(fakes.calls.recordProposalRevision, []);
 
   const resolved = createFakes({ member: director({ contactId: OTHER_CONTACT }) });
   await build({ fakes: resolved })
-    .tool('rein_mvp_proposal_comment_suggest')
+    .tool('rein_proposal_comment_suggest')
     .execute('call-2', { proposalId: PROPOSAL, note: 'Mine' });
   assert.equal(
     resolved.calls.recordProposalRevision[0].authorContactId,
@@ -1086,12 +1086,12 @@ test('no tool result leaks a private contact id, the team id, a credential or th
   });
   const board = build({ fakes: boardFakes });
   const outputs = [
-    await comment.tool('rein_mvp_proposal_comment_suggest').execute('call-1', {
+    await comment.tool('rein_proposal_comment_suggest').execute('call-1', {
       proposalId: PROPOSAL,
       note: 'A note',
     }),
-    await board.tool('rein_mvp_revision_approve').execute('call-2', { revisionId: REVISION }),
-    await board.tool('rein_mvp_revision_apply').execute('call-3', { revisionId: REVISION }),
+    await board.tool('rein_revision_approve').execute('call-2', { revisionId: REVISION }),
+    await board.tool('rein_revision_apply').execute('call-3', { revisionId: REVISION }),
   ];
   const serialized = JSON.stringify(outputs.map(output => output.details));
   for (const secret of [CONTACT, OTHER_CONTACT, TEAM, SECRET, 'project-ref.supabase.co', SENDER]) {
@@ -1111,7 +1111,7 @@ test('an unavailable provider is never reported as a missing proposal or revisio
     },
   });
   const comment = await build({ fakes: proposalFakes })
-    .tool('rein_mvp_proposal_comment_suggest')
+    .tool('rein_proposal_comment_suggest')
     .execute('call-1', { proposalId: PROPOSAL, note: 'Note' });
   assert.equal(comment.details.error, 'proposal_lookup_unavailable');
   assert.deepEqual(proposalFakes.calls.recordProposalRevision, []);
@@ -1123,7 +1123,7 @@ test('an unavailable provider is never reported as a missing proposal or revisio
     },
   });
   const applied = await build({ fakes: revisionFakes })
-    .tool('rein_mvp_revision_apply')
+    .tool('rein_revision_apply')
     .execute('call-2', { revisionId: REVISION });
   assert.equal(applied.details.error, 'revision_lookup_unavailable');
   assert.deepEqual(revisionFakes.calls.applyProposalRevision, []);
@@ -1143,7 +1143,7 @@ test('a database refusal is reported with its own reason code, never as success'
     },
   });
   const comment = await build({ fakes: commentFakes })
-    .tool('rein_mvp_proposal_comment_suggest')
+    .tool('rein_proposal_comment_suggest')
     .execute('call-1', { proposalId: PROPOSAL, note: 'Note' });
   assert.equal(comment.details.ok, false);
   assert.equal(comment.details.error, 'revision_rejected');
@@ -1163,7 +1163,7 @@ test('a database refusal is reported with its own reason code, never as success'
       }),
     },
   });
-  const applied = await build({ fakes: applyFakes }).tool('rein_mvp_revision_apply').execute('call-2', {
+  const applied = await build({ fakes: applyFakes }).tool('rein_revision_apply').execute('call-2', {
     revisionId: REVISION,
   });
   assert.equal(applied.details.ok, false);
@@ -1186,8 +1186,8 @@ test('a same-turn retry of apply answers with the record it already wrote', asyn
     },
   });
   const { tool, calls } = build({ fakes });
-  const first = await tool('rein_mvp_revision_apply').execute('call-9', { revisionId: REVISION });
-  const second = await tool('rein_mvp_revision_apply').execute('call-9', { revisionId: REVISION });
+  const first = await tool('rein_revision_apply').execute('call-9', { revisionId: REVISION });
+  const second = await tool('rein_revision_apply').execute('call-9', { revisionId: REVISION });
   assert.equal(first.details.version, second.details.version);
   assert.equal(calls.applyProposalRevision.length, 2, 'the retry reaches the same request');
   assert.deepEqual(calls.applyProposalRevision[0], calls.applyProposalRevision[1]);

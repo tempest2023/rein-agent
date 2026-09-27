@@ -92,7 +92,7 @@ becomes relevant. The confirmed MVP is:
 
 Local read-only building blocks for steps 1 and 4 are covered by tests, with no live database
 connected yet. Registered write tools for steps 2 and 3 exist but register only under an explicit
-`mvp` configuration block. The round tool takes its candidate cap from the stored vote type and
+`foundationDb` configuration block. The round tool takes its candidate cap from the stored vote type and
 assembles the candidate pool itself from stored proposals, re-offering recently unselected ones, so
 no caller supplies candidates, a cap or an option label; the ballot tool accepts approvals bounded
 by the poll's own approval limit, and an empty list is the abstention. The database freezes the
@@ -101,13 +101,13 @@ gaps are the unapproved concrete cap and approval-budget values plus the absence
 database or Slack workspace.
 
 **C15 now has a registered Agent-facing path, exercised only by local tests.** The writer
-`foundation-db-writer.ts` exposes revision recording and the `rein_mvp_approve_revision` call, and a
+`foundation-db-writer.ts` exposes revision recording and the `<env>_rein_approve_revision` call, and a
 database trigger refuses to make a revision effective when it moves a material field — budget,
 location, personnel or the major event flow — until a current director's approval is recorded.
-`mvp-feedback-tools.ts` registers three tools from the same explicit `mvp` block, so the workflow is
-no longer database-only: `rein_mvp_proposal_comment_suggest` records a comment or a suggested
-revision, `rein_mvp_revision_approve` records a current director's approval, and
-`rein_mvp_revision_apply` makes a recorded revision the effective version. Applying is where the two
+`mvp-feedback-tools.ts` registers three tools from the same explicit `foundationDb` block, so the workflow is
+no longer database-only: `rein_proposal_comment_suggest` records a comment or a suggested
+revision, `rein_revision_approve` records a current director's approval, and
+`rein_revision_apply` makes a recorded revision the effective version. Applying is where the two
 sides of the rule separate. A revision that moves only the title or the summary is **ordinary**: the
 Agent may accept a reasonable one and make it effective itself, with no separate Board approval. A
 revision that moves budget, location, schedule, personnel or the major event flow is **material** and
@@ -115,8 +115,12 @@ is refused with `revision_not_approved` until a current director's approval is r
 material in the current implementation. Comments and suggested revisions both require a current
 director inside the approved Board channel, and a stored row additionally permits an active
 Contributor as its author — a database-level allowance the registered tools do not currently expose.
-Everything above is exercised by local synthetic tests only: no migration has been applied, no live
-database is connected and no Slack workspace has run it, so nothing here is an end-to-end result.
+Everything above is exercised by local synthetic tests only. The two base governance migrations are
+**committed and applied** to the linked `BeneficenceProtocol` project (the committed clock migration
+`20260927103000` and the rename migration `20260927110000_rein_governance_names.sql`, both committed
+in PR #13 at head `f15c7ea`, are still unapplied there), but no live database is connected to the
+Agent and no Slack workspace has run any of
+it, so nothing here is an end-to-end result.
 
 A funding approval is a decision record only. It does not move money, does not commit a payment, and
 does not by itself authorize spending.

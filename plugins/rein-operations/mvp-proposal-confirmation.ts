@@ -21,7 +21,9 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export const CONFIRMATION_TOKEN_VERSION = 'rpc1';
-export const CONFIRMATION_TOKEN_PREFIX = 'rein_mvp_confirm';
+// The token guards a long-lived write interface, so its prefix names the proposal confirmation
+// itself rather than the MVP stage that first introduced it.
+export const CONFIRMATION_TOKEN_PREFIX = 'rein_proposal_confirm';
 
 /** How long a prepared proposal stays confirmable, in milliseconds. */
 export const CONFIRMATION_TTL_MS = 15 * 60 * 1000;

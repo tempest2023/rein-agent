@@ -95,7 +95,7 @@ test('no MVP read tool registers without an explicit enabled block', () => {
     assert.equal(registration.create({ messageChannel: 'slack' }), null);
     assert.equal(registration.contextVersion, 2);
   }
-  assert.deepEqual([...MVP_READ_TOOL_NAMES], ['rein_mvp_my_status', 'rein_mvp_funds']);
+  assert.deepEqual([...MVP_READ_TOOL_NAMES], ['rein_member_status', 'rein_funds']);
 });
 
 test('an enabled but incomplete MVP block fails loudly instead of registering silently', () => {
@@ -187,13 +187,13 @@ test('email identity matching names the bot token variable and never echoes its 
   // No variable name at all: enabling the option without it is an operator error.
   assert.throws(
     () => createMvpReadToolRegistration({ config: enabled, env: {} }),
-    /mvp\.slackBotTokenEnvVar must name a server environment variable/,
+    /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
   );
   // A name that is present but malformed fails the same way, without quoting the value.
   assert.throws(
     () =>
       createMvpReadToolRegistration({ config: { ...enabled, slackBotTokenEnvVar: 'NOT A NAME' }, env: {} }),
-    /mvp\.slackBotTokenEnvVar must name a server environment variable/,
+    /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
   );
   // The name is valid but the server environment holds no value: the failure names the variable,
   // never a credential.
@@ -256,7 +256,7 @@ test('enabled email matching builds one lookup that presents the bot token only 
       requesterSenderId: SENDER,
       assertInvocationCurrent() {},
     });
-    const result = await tools.find(tool => tool.name === 'rein_mvp_my_status').execute('call-1', {});
+    const result = await tools.find(tool => tool.name === 'rein_member_status').execute('call-1', {});
 
     assert.equal(result.details.status, 'identity_not_linked');
     assert.equal(result.details.reason, 'identity_email_user_not_found');
@@ -274,10 +274,10 @@ test('my status reports the trusted sender without leaking the private contact I
   const { reader, calls } = createFakeReader();
   const { tool, guard } = build({ reader });
 
-  const result = await tool('rein_mvp_my_status').execute('call-1', {});
+  const result = await tool('rein_member_status').execute('call-1', {});
 
   assert.deepEqual(result.details, {
-    tool: 'rein_mvp_my_status',
+    tool: 'rein_member_status',
     ok: true,
     linked: true,
     status: 'resolved',
@@ -298,7 +298,7 @@ test('my status answers in an approved proposal or Board channel and refuses eve
   for (const channel of [PROPOSAL_CHANNEL, BOARD_CHANNEL]) {
     const { reader, calls } = createFakeReader();
     const { tool } = build({ reader, ctx: { nativeChannelId: channel } });
-    const result = await tool('rein_mvp_my_status').execute('call-1', {});
+    const result = await tool('rein_member_status').execute('call-1', {});
     assert.equal(result.details.ok, true);
     assert.deepEqual(calls.member, [SENDER]);
   }
@@ -312,7 +312,7 @@ test('my status answers in an approved proposal or Board channel and refuses eve
   for (const [overrides, code] of refused) {
     const { reader, calls } = createFakeReader();
     const { tool, guard } = build({ reader, ctx: overrides });
-    const result = await tool('rein_mvp_my_status').execute('call-1', {});
+    const result = await tool('rein_member_status').execute('call-1', {});
     assert.equal(result.details.ok, false, code);
     assert.equal(result.details.error, code);
     assert.equal(result.details.authorizesSpending, undefined);
@@ -327,7 +327,7 @@ test('my status reports an unlinked sender without inventing a role', async () =
   });
   const { tool } = build({ reader });
 
-  const result = await tool('rein_mvp_my_status').execute('call-1', {});
+  const result = await tool('rein_member_status').execute('call-1', {});
 
   assert.equal(result.details.ok, true);
   assert.equal(result.details.linked, false);
@@ -339,8 +339,8 @@ test('my status reports an unlinked sender without inventing a role', async () =
 
 test('both tools reject an impersonation argument and never read the database for it', async () => {
   for (const [name, args] of [
-    ['rein_mvp_my_status', { requesterSenderId: 'U_FAKE' }],
-    ['rein_mvp_funds', { currency: 'USD', memberId: 'm1' }],
+    ['rein_member_status', { requesterSenderId: 'U_FAKE' }],
+    ['rein_funds', { currency: 'USD', memberId: 'm1' }],
   ]) {
     const { reader, calls } = createFakeReader();
     const { tool } = build({ reader });
@@ -355,7 +355,7 @@ test('both tools reject an impersonation argument and never read the database fo
 test('a missing or stale host invocation guard produces no answer', async () => {
   const { reader } = createFakeReader();
   const { tool } = build({ reader, ctx: { assertInvocationCurrent: undefined } });
-  const missing = await tool('rein_mvp_my_status').execute('call-1', {});
+  const missing = await tool('rein_member_status').execute('call-1', {});
   assert.equal(missing.details.ok, false);
   assert.equal(missing.details.error, 'current_invocation_guard_unavailable');
 
@@ -366,7 +366,7 @@ test('a missing or stale host invocation guard produces no answer', async () => 
         throw Object.assign(new Error('turn closed'), { code: 'invocation_not_current' });
       },
     },
-  }).tool('rein_mvp_funds').execute('call-1', { currency: 'USD' });
+  }).tool('rein_funds').execute('call-1', { currency: 'USD' });
   assert.equal(stale.details.ok, false);
   assert.equal(stale.details.error, 'invocation_not_current');
 });
@@ -375,10 +375,10 @@ test('funds reads the latest snapshot for a current director in the Board channe
   const { reader, calls } = createFakeReader();
   const { tool, guard } = build({ reader });
 
-  const result = await tool('rein_mvp_funds').execute('call-1', { currency: 'usd' });
+  const result = await tool('rein_funds').execute('call-1', { currency: 'usd' });
 
   assert.deepEqual(result.details, {
-    tool: 'rein_mvp_funds',
+    tool: 'rein_funds',
     ok: true,
     status: 'snapshot',
     reason: 'snapshot',
@@ -400,7 +400,7 @@ test('funds reports an explicit unknown instead of guessing a figure', async () 
   });
   const { tool } = build({ reader });
 
-  const result = await tool('rein_mvp_funds').execute('call-1', { currency: 'EUR' });
+  const result = await tool('rein_funds').execute('call-1', { currency: 'EUR' });
 
   assert.equal(result.details.ok, false);
   assert.equal(result.details.status, 'unknown');
@@ -413,7 +413,7 @@ test('funds reports an explicit unknown instead of guessing a figure', async () 
 test('funds is limited to the trusted Board channel and to current directors', async () => {
   const outOfScope = createFakeReader();
   const nonBoard = await build({ reader: outOfScope.reader, ctx: { nativeChannelId: PROPOSAL_CHANNEL } })
-    .tool('rein_mvp_funds')
+    .tool('rein_funds')
     .execute('call-1', { currency: 'USD' });
   assert.equal(nonBoard.details.error, 'channel_out_of_scope');
   assert.deepEqual(outOfScope.calls.member, [], 'a non-Board channel is refused before any read');
@@ -426,7 +426,7 @@ test('funds is limited to the trusted Board channel and to current directors', a
     memberResult({ status: 'unavailable', reason: 'transport_error', contactId: null, isActiveContributor: false, isDirector: false, httpStatus: null }),
   ]) {
     const fake = createFakeReader({ member });
-    const result = await build({ reader: fake.reader }).tool('rein_mvp_funds').execute('call-1', { currency: 'USD' });
+    const result = await build({ reader: fake.reader }).tool('rein_funds').execute('call-1', { currency: 'USD' });
     assert.equal(result.details.ok, false);
     assert.equal(result.details.error, 'board_membership_required');
     assert.deepEqual(fake.calls.funds, [], 'a non-director never reaches the funds read');
@@ -440,7 +440,7 @@ test('funds passes a closed reader failure through without inventing a balance',
   });
   const { tool } = build({ reader });
 
-  const result = await tool('rein_mvp_funds').execute('call-1', { currency: 'USD' });
+  const result = await tool('rein_funds').execute('call-1', { currency: 'USD' });
 
   assert.equal(result.details.ok, false);
   assert.equal(result.details.status, 'unavailable');

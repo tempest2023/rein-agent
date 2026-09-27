@@ -1,18 +1,20 @@
 // Server-side writer for the Rein MVP governance tables: proposal intake, approval-only polls and
 // ballots, as the sibling phase-2 migration
-// `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql` defines them.
+// `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql` defines them. A later
+// sibling migration gives them the stable `<env>_rein_*` names used below, keeping the old
+// `<env>_rein_mvp_*` names as compatibility aliases.
 //
 // Table contract, read-only from here:
 //
-//   public.<env>_rein_mvp_vote_types(vote_type, max_candidates, max_approvals_per_voter, updated_at)
-//   public.<env>_rein_mvp_proposals(id, proposer_contact_id, title, summary, vote_type,
+//   public.<env>_rein_vote_types(vote_type, max_candidates, max_approvals_per_voter, updated_at)
+//   public.<env>_rein_proposals(id, proposer_contact_id, title, summary, vote_type,
 //     requested_minor, currency, location, schedule, personnel, event_flow, status, version,
 //     effective_revision_id, created_at, updated_at)  -- status: submitted|selected|unselected|withdrawn
-//   public.<env>_rein_mvp_polls(id, creator_contact_id, title, vote_type, candidate_proposal_ids,
+//   public.<env>_rein_polls(id, creator_contact_id, title, vote_type, candidate_proposal_ids,
 //     candidate_limit, max_approvals_per_voter, status, opens_at, closes_at, created_at,
 //     finalized_at, finalized_by_contact_id, winning_proposal_id)
-//   public.<env>_rein_mvp_ballots(id, poll_id, voter_contact_id, approved_proposal_ids, cast_at)
-//   public.<env>_rein_mvp_proposal_revisions(id, proposal_id, version, author_contact_id,
+//   public.<env>_rein_ballots(id, poll_id, voter_contact_id, approved_proposal_ids, cast_at)
+//   public.<env>_rein_proposal_revisions(id, proposal_id, version, author_contact_id,
 //     changed_fields, title, summary, requested_minor, currency, location, schedule, personnel,
 //     event_flow, note, approved_by_contact_id, approved_at, recorded_at)
 //
@@ -30,9 +32,9 @@
 // placed in a URL or returned to a caller, and a provider response body is never propagated.
 //
 // This module also reaches the two service-only deterministic RPCs the same migration defines:
-// `<env>_rein_mvp_finalize_poll(p_poll_id uuid, p_actor_contact_id uuid)`, which counts the ballots,
+// `<env>_rein_finalize_poll(p_poll_id uuid, p_actor_contact_id uuid)`, which counts the ballots,
 // refuses a poll that is not past its deadline, closes it, and writes the outcome the database
-// computed, and `<env>_rein_mvp_approve_revision(p_revision_id uuid, p_approver_contact_id uuid)`,
+// computed, and `<env>_rein_approve_revision(p_revision_id uuid, p_approver_contact_id uuid)`,
 // which records one approval from a contact who is a current director. Post-vote feedback is
 // append-only: a comment or suggested revision is one insert into the revisions table, and applying a
 // revision is a single guarded update of the proposal row that the trigger verifies field by field.
@@ -1259,7 +1261,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
       return proposalFailure('invalid_request', 'proposal_request_incomplete', null);
     }
 
-    const table = `${tablePrefix}rein_mvp_proposals`;
+    const table = `${tablePrefix}rein_proposals`;
     const body = {
       id,
       proposer_contact_id: proposerContactId,
@@ -1351,7 +1353,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
       return pollFailure('invalid_request', 'poll_candidate_proposal_ids_invalid', null);
     }
 
-    const table = `${tablePrefix}rein_mvp_polls`;
+    const table = `${tablePrefix}rein_polls`;
     // `candidate_limit` and `max_approvals_per_voter` are deliberately absent: the database freezes
     // them from the vote type, so a caller cannot widen its own poll.
     const body = {
@@ -1408,7 +1410,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     }
     const approvals = resolveApprovals(input);
     if (!approvals.ok) return ballotWriteFailure('invalid_request', approvals.reason, null);
-    const table = `${tablePrefix}rein_mvp_ballots`;
+    const table = `${tablePrefix}rein_ballots`;
     // The database clock is the only source of `cast_at`. The column has a `now()` default and the
     // window guard compares it against the poll's own window, so no caller may backfill a time to
     // place a ballot inside a window that has already closed.
@@ -1479,7 +1481,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
   const getProposal = async (id: string): Promise<ProposalReadResult> => {
     const proposalId = asUuid(id);
     if (proposalId === null) return proposalFailure('invalid_request', 'proposal_id_invalid', null);
-    const read = await request('GET', `${tablePrefix}rein_mvp_proposals`, {
+    const read = await request('GET', `${tablePrefix}rein_proposals`, {
       select: PROPOSAL_COLUMNS,
       id: `eq.${proposalId}`,
       limit: '2',
@@ -1495,7 +1497,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
   const getPoll = async (id: string): Promise<PollReadResult> => {
     const pollId = asUuid(id);
     if (pollId === null) return pollFailure('invalid_request', 'poll_id_invalid', null);
-    const read = await request('GET', `${tablePrefix}rein_mvp_polls`, {
+    const read = await request('GET', `${tablePrefix}rein_polls`, {
       select: POLL_COLUMNS,
       id: `eq.${pollId}`,
       limit: '2',
@@ -1511,7 +1513,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
   const listBallots = async (pollId: string): Promise<BallotListResult> => {
     const id = asUuid(pollId);
     if (id === null) return ballotListFailure('invalid_request', 'poll_id_invalid', null);
-    const read = await request('GET', `${tablePrefix}rein_mvp_ballots`, {
+    const read = await request('GET', `${tablePrefix}rein_ballots`, {
       select: BALLOT_COLUMNS,
       poll_id: `eq.${id}`,
       order: 'cast_at.asc,id.asc',
@@ -1534,7 +1536,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
   const getVoteType = async (voteType: string): Promise<VoteTypeReadResult> => {
     const name = asVoteType(voteType);
     if (name === null) return voteTypeFailure('invalid_request', 'vote_type_invalid', null);
-    const read = await request('GET', `${tablePrefix}rein_mvp_vote_types`, {
+    const read = await request('GET', `${tablePrefix}rein_vote_types`, {
       select: VOTE_TYPE_COLUMNS,
       vote_type: `eq.${name}`,
       limit: '2',
@@ -1561,7 +1563,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     if (limit === null || limit > MAX_CANDIDATE_PAGE) {
       return voteTypeListFailure('invalid_request', 'vote_type_limit_invalid', null);
     }
-    const read = await request('GET', `${tablePrefix}rein_mvp_vote_types`, {
+    const read = await request('GET', `${tablePrefix}rein_vote_types`, {
       select: 'vote_type',
       order: 'vote_type.asc',
       limit: String(limit),
@@ -1613,7 +1615,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     // a proposal that lost, and the pool would otherwise hide it behind every older submission.
     const recent: ProposalRecord[] = [];
     if (recentlyUnselected) {
-      const unselected = await request('GET', `${tablePrefix}rein_mvp_proposals`, {
+      const unselected = await request('GET', `${tablePrefix}rein_proposals`, {
         select: PROPOSAL_COLUMNS,
         vote_type: `eq.${voteType}`,
         status: 'eq.unselected',
@@ -1639,7 +1641,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
       limit: String(pageSize),
     };
     if (submittedSince !== null) baseParams.created_at = `gte.${submittedSince}`;
-    const read = await request('GET', `${tablePrefix}rein_mvp_proposals`, baseParams);
+    const read = await request('GET', `${tablePrefix}rein_proposals`, baseParams);
     if (!read.ok) return candidateFailure('unavailable', read.reason, read.httpStatus);
     const fetched: ProposalRecord[] = [];
     for (const row of read.rows) {
@@ -1670,7 +1672,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     }
     // The outcome, the winner and the version are the database's: this call carries only the poll
     // and the director who finalizes it.
-    const called = await rpc(`${tablePrefix}rein_mvp_finalize_poll`, {
+    const called = await rpc(`${tablePrefix}rein_finalize_poll`, {
       p_poll_id: pollId,
       p_actor_contact_id: actorContactId,
     });
@@ -1703,7 +1705,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     if (!resolved.ok) return revisionWriteFailure('invalid_request', resolved.reason, null);
     const body = resolved.value;
     const id = body.id as string;
-    const table = `${tablePrefix}rein_mvp_proposal_revisions`;
+    const table = `${tablePrefix}rein_proposal_revisions`;
     const written = await request('POST', table, { select: REVISION_COLUMNS }, body);
     if (written.ok) {
       const stored = written.rows.length === 1 ? revisionFromRow(written.rows[0]) : null;
@@ -1753,7 +1755,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
   const getRevision = async (id: string): Promise<ProposalRevisionReadResult> => {
     const revisionId = asUuid(id);
     if (revisionId === null) return revisionReadFailure('invalid_request', 'revision_id_invalid', null);
-    const read = await request('GET', `${tablePrefix}rein_mvp_proposal_revisions`, {
+    const read = await request('GET', `${tablePrefix}rein_proposal_revisions`, {
       select: REVISION_COLUMNS,
       id: `eq.${revisionId}`,
       limit: '2',
@@ -1783,11 +1785,11 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     }
     // The approver and the recording time are the database's: this call carries only the revision
     // and the contact claiming to be a current director. An approval is final and never replaced.
-    const called = await rpc(`${tablePrefix}rein_mvp_approve_revision`, {
+    const called = await rpc(`${tablePrefix}rein_approve_revision`, {
       p_revision_id: revisionId,
       p_approver_contact_id: approverContactId,
     });
-    const table = `${tablePrefix}rein_mvp_proposal_revisions`;
+    const table = `${tablePrefix}rein_proposal_revisions`;
     if (called.ok) {
       const read = await request('GET', table, {
         select: REVISION_COLUMNS,
@@ -1853,7 +1855,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     if (revisionId === null) {
       return appliedVersionFailure('invalid_request', 'revision_id_invalid', null);
     }
-    const table = `${tablePrefix}rein_mvp_proposal_revisions`;
+    const table = `${tablePrefix}rein_proposal_revisions`;
     const read = await request('GET', table, {
       select: REVISION_COLUMNS,
       id: `eq.${revisionId}`,
@@ -1897,7 +1899,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     if (revision.changedFields.includes('event_flow')) patch.event_flow = revision.eventFlow;
     const written = await request(
       'PATCH',
-      `${tablePrefix}rein_mvp_proposals`,
+      `${tablePrefix}rein_proposals`,
       { select: APPLIED_PROPOSAL_COLUMNS, id: `eq.${revision.proposalId}` },
       patch,
     );

@@ -34,21 +34,21 @@ assert.equal(manifest.id, 'rein-operations');
 assert.deepEqual(manifest.contracts.tools, [
   'rein_status', 'rein_simulate_vote', 'rein_simulate_proposal',
   'rein_proposal_create', 'rein_proposal_revise', 'rein_proposal_confirm', 'rein_proposal_submit',
-  'rein_mvp_my_status', 'rein_mvp_funds',
-  'rein_mvp_proposal_submit', 'rein_mvp_poll_open', 'rein_mvp_vote', 'rein_mvp_poll_result',
-  'rein_mvp_proposal_comment_suggest', 'rein_mvp_revision_approve', 'rein_mvp_revision_apply',
+  'rein_member_status', 'rein_funds',
+  'rein_governance_proposal_submit', 'rein_poll_open', 'rein_poll_vote', 'rein_poll_result',
+  'rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply',
 ]);
 // The MVP read slice registers only from explicit configuration, and it names server environment
 // variables instead of carrying the Supabase URL or key in plugin config.
-const mvpSchema = manifest.configSchema.properties.mvp;
-assert.equal(mvpSchema.additionalProperties, false, 'mvp config block must reject unknown keys');
+const mvpSchema = manifest.configSchema.properties.foundationDb;
+assert.equal(mvpSchema.additionalProperties, false, 'foundationDb config block must reject unknown keys');
 assert.deepEqual(Object.keys(mvpSchema.properties).sort(), [
   'boardChannelIds', 'enabled', 'environment', 'identityEmailMatch', 'platform',
   'proposalChannelIds', 'proposalConfirmationKeyEnvVar', 'slackBotTokenEnvVar', 'slackTeamId',
   'supabaseServiceKeyEnvVar', 'supabaseUrlEnvVar',
 ]);
 for (const field of ['supabaseUrlEnvVar', 'supabaseServiceKeyEnvVar', 'proposalConfirmationKeyEnvVar', 'slackBotTokenEnvVar']) {
-  assert.match(mvpSchema.properties[field].description, /environment variable/i, `mvp.${field} must name a server environment variable`);
+  assert.match(mvpSchema.properties[field].description, /environment variable/i, `foundationDb.${field} must name a server environment variable`);
 }
 // Email-first identity matching is opt-in and off by default, so the Slack bot token it needs is
 // named but never required while the option is disabled.
@@ -96,7 +96,7 @@ for (const p of ['mvp-write-tools.ts', 'foundation-db-writer.ts', 'mvp-vote-tall
 assert.ok(read('plugins/rein-operations/index.ts').includes('./mvp-write-tools.ts'), 'index.ts must register the MVP write tools');
 // The MVP write slice is the only write path registered, and a vote outcome never moves money.
 assert.ok(
-  !/rein_mvp_(poll_open|vote|poll_result)[\s\S]{0,400}(pay|transfer|disburse|reserve)/i.test(read('plugins/rein-operations/mvp-write-tools.ts')),
+  !/rein_(poll_open|poll_vote|poll_result)[\s\S]{0,400}(pay|transfer|disburse|reserve)/i.test(read('plugins/rein-operations/mvp-write-tools.ts')),
   'mvp-write-tools.ts must not move money',
 );
 // The post-result feedback slice registers from the same explicit block, and the manifest
@@ -119,7 +119,7 @@ assert.ok(
 // the money words may appear only in the comment that denies them. A revision never authorizes
 // spending, so no tool in this slice may reach a payment or reservation path.
 assert.ok(
-  !/rein_mvp_(revision_apply|revision_approve|proposal_comment_suggest)[\s\S]{0,800}(pay|transfer|disburse|reservation)\s*\(/i.test(
+  !/rein_(revision_apply|revision_approve|proposal_comment_suggest)[\s\S]{0,800}(pay|transfer|disburse|reservation)\s*\(/i.test(
     read('plugins/rein-operations/mvp-feedback-tools.ts'),
   ),
   'mvp-feedback-tools.ts must not move money',

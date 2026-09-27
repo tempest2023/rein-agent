@@ -17,7 +17,7 @@ export default definePluginEntry({
   register(api) {
     const proposalConfig = api.pluginConfig?.proposalTools;
     const proposalEnabled = Boolean(proposalConfig && typeof proposalConfig === 'object' && (proposalConfig as Record<string, unknown>).enabled === true);
-    const mvpConfig = api.pluginConfig?.mvp;
+    const mvpConfig = api.pluginConfig?.foundationDb;
     const mvpEnabled = Boolean(mvpConfig && typeof mvpConfig === 'object' && (mvpConfig as Record<string, unknown>).enabled === true);
     if (mvpEnabled) {
       // MVP mode exposes the database-backed read and write tools instead of the synthetic

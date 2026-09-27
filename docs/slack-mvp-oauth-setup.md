@@ -41,7 +41,7 @@ Slack sender identity for the MVP is resolved on the **governance bot app**, not
 [decisions.md](decisions.md)). That bot calls `users.info` with the bot scopes `users:read` and
 `users:read.email`, normalizes the sender's profile email, and requires an exact match to exactly one
 `<env>_contact_identities` row. The resolver exists in local code (`slack-email-lookup.ts`) with
-local tests, but it is opt-in and off by default (`mvp.identityEmailMatch` defaults to `disabled`),
+local tests, but it is opt-in and off by default (`foundationDb.identityEmailMatch` defaults to `disabled`),
 and those scopes and the governance bot token are not installed or configured, so nothing in this
 guide should be read as claiming the lookup is live.
 

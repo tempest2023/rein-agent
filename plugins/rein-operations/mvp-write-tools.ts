@@ -5,7 +5,8 @@
 // display name never establishes identity), R04-R08 with D04/D08/D09 (approval-only voting: one
 // equal weight per eligible director, explicit approvals or abstain, no reject choice), C15 (a
 // requested amount is a request, never an authorization) and the fail-closed posture of AC01/AC06.
-// This module registers only under an explicit `mvp` config block, exactly like `mvp-read-tools.ts`.
+// This module registers only under an explicit `foundationDb` config block, exactly like
+// `mvp-read-tools.ts`.
 //
 // Trust boundary:
 // - The acting account comes only from `ctx.requesterSenderId`, the approved channel only from
@@ -19,21 +20,21 @@
 //   error message.
 //
 // Status of this module:
-// - `rein_mvp_vote` is wired to `foundation-db-writer.ts`: it reads the stored poll, refuses a
+// - `rein_poll_vote` is wired to `foundation-db-writer.ts`: it reads the stored poll, refuses a
 //   closed or not-yet-open window, refuses an approval outside the poll's candidate list or above
 //   the poll's own approval limit, re-checks the invocation guard and then records one immutable
 //   ballot. The database stays the authority for every one of those rules.
-// - `rein_mvp_proposal_submit` is wired: the only proposer is the trusted sender's own linked,
+// - `rein_governance_proposal_submit` is wired: the only proposer is the trusted sender's own linked,
 //   currently active Contributor record, the named vote type is validated as lower snake case and
 //   then left to the database's type configuration and foreign key, a requested amount is stored as
 //   a request, and the record identifier is minted once per turn and reused when the host retries
 //   the same tool call in that turn.
-// - `rein_mvp_poll_open` is wired: a current director opens one round of a named vote type, the tool
+// - `rein_poll_open` is wired: a current director opens one round of a named vote type, the tool
 //   reads that type's own candidate cap, assembles the candidate pool from stored proposals
 //   (offering recently unselected proposals too) and lets the database freeze the list. No caller
 //   supplies candidates, a candidate limit or option labels, and a round needs at least one
 //   candidate.
-// - `rein_mvp_poll_result` is wired: before the deadline it returns the readable facts of the round
+// - `rein_poll_result` is wired: before the deadline it returns the readable facts of the round
 //   and answers `provisional` with no count and no winner; at or after the deadline it calls
 //   `writer.finalizePoll` with the trusted sender's own director record, so the database closes the
 //   round and the stored outcome is what comes back. A finalized round reports its own recorded
@@ -68,10 +69,10 @@ import type { SlackMemberResolution } from './foundation-db-reader.ts';
 
 /** Names the caller must declare in the manifest and pass to `registerTool(..., { names })`. */
 export const MVP_WRITE_TOOL_NAMES = Object.freeze([
-  'rein_mvp_proposal_submit',
-  'rein_mvp_poll_open',
-  'rein_mvp_vote',
-  'rein_mvp_poll_result',
+  'rein_governance_proposal_submit',
+  'rein_poll_open',
+  'rein_poll_vote',
+  'rein_poll_result',
 ]);
 
 export class MvpWriteToolError extends Error {
@@ -130,7 +131,7 @@ export interface MvpWriteToolsOptions {
   writer?: MvpWriteToolWriter;
   /**
    * Injectable confirmation signing key for tests and local rehearsal. When omitted, the key is
-   * read from the server environment variable named by `mvp.proposalConfirmationKeyEnvVar`.
+   * read from the server environment variable named by `foundationDb.proposalConfirmationKeyEnvVar`.
    */
   confirmationSigningKey?: string;
   /** Injectable clock for deterministic rehearsal; defaults to the wall clock. */
@@ -222,11 +223,11 @@ function configError(message: string): never {
 
 function readChannelIds(field: string, value: unknown): string[] {
   if (!Array.isArray(value) || value.length === 0) {
-    configError(`mvp.${field} must list at least one approved native channel ID`);
+    configError(`foundationDb.${field} must list at least one approved native channel ID`);
   }
   const channels = (value as unknown[]).map(id => (typeof id === 'string' ? id.trim() : ''));
   if (channels.some(id => !id)) {
-    configError(`mvp.${field} must contain non-empty native channel ID strings`);
+    configError(`foundationDb.${field} must contain non-empty native channel ID strings`);
   }
   return channels;
 }
@@ -234,7 +235,7 @@ function readChannelIds(field: string, value: unknown): string[] {
 /** Validate one environment-variable reference. Only the variable *name* is ever reported. */
 function readEnvReference(reference: unknown, field: string): string {
   if (typeof reference !== 'string' || !ENV_VAR_NAME_PATTERN.test(reference.trim())) {
-    configError(`mvp.${field} must name a server environment variable`);
+    configError(`foundationDb.${field} must name a server environment variable`);
   }
   return (reference as string).trim();
 }
@@ -247,7 +248,7 @@ function readEnvReference(reference: unknown, field: string): string {
 function readIdentityEmailMatch(value: unknown): 'enabled' | 'disabled' {
   if (value === undefined || value === null) return 'disabled';
   if (value === 'enabled' || value === 'disabled') return value;
-  configError('mvp.identityEmailMatch must be "enabled" or "disabled"');
+  configError('foundationDb.identityEmailMatch must be "enabled" or "disabled"');
 }
 
 /** Resolve one referenced value from the server environment, or fail without echoing it. */
@@ -256,7 +257,7 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
   if (typeof value !== 'string' || !value.trim()) {
     throw new MvpWriteToolError(
       'mvp_env_value_missing',
-      `mvp write tools: server environment variable ${name} referenced by mvp.${field} is unset or empty`,
+      `mvp write tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
     );
   }
   return value.trim();
@@ -274,17 +275,17 @@ function resolveMvpWriteConfig(options?: MvpWriteToolsOptions): ResolvedMvpWrite
 
   // P0 uses exactly one chat platform, and this slice is Slack-only.
   if (config.platform !== 'slack') {
-    configError('mvp.platform must be "slack"; these tools act on Slack host context only');
+    configError('foundationDb.platform must be "slack"; these tools act on Slack host context only');
   }
   const slackTeamId = typeof config.slackTeamId === 'string' ? config.slackTeamId.trim() : '';
   if (!SLACK_ID_PATTERN.test(slackTeamId)) {
-    configError('mvp.slackTeamId must be one Slack team ID such as T01234567 (one workspace per installation)');
+    configError('foundationDb.slackTeamId must be one Slack team ID such as T01234567 (one workspace per installation)');
   }
   const proposalChannelIds = readChannelIds('proposalChannelIds', config.proposalChannelIds);
   const boardChannelIds = readChannelIds('boardChannelIds', config.boardChannelIds);
   const environment = config.environment;
   if (environment !== 'dev' && environment !== 'prod') {
-    configError("mvp.environment must be 'dev' or 'prod'; it chooses the database table set");
+    configError("foundationDb.environment must be 'dev' or 'prod'; it chooses the database table set");
   }
 
   // The configuration always names the server environment variables; the values are only read when
@@ -764,7 +765,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
 
   return [
     {
-      name: 'rein_mvp_proposal_submit',
+      name: 'rein_governance_proposal_submit',
       description:
         'Submit a funding request as your own linked community record, in two steps. Call it once without a confirmation token to prepare: the server writes nothing and returns the canonical proposal text plus a short-lived confirmation token. Then show that text to the proposer and call it again with the token returned unchanged and confirmPronouncedByAuthor set to true only after the proposer explicitly agrees. The caller must be the trusted sender inside an approved proposal channel and their current record must make them an active Contributor; the proposer is never taken from an argument. The request is stored against one configured proposal type, and a requested amount is recorded as a request that no one has approved. A token is bound to the exact payload and the proposer, so changing any field invalidates it, and resubmitting the same confirmed payload is the same record rather than a second proposal.',
       parameters: Type.Object(
@@ -840,7 +841,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
             }
             const issued = issueProposalConfirmation(payload, confirmationSigningKey, now());
             const details = {
-              tool: 'rein_mvp_proposal_submit',
+              tool: 'rein_governance_proposal_submit',
               ok: true,
               status: 'prepared' as const,
               reason: 'awaiting_author_confirmation',
@@ -898,7 +899,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
             currency: verified.payload.currency,
           });
           const details = {
-            tool: 'rein_mvp_proposal_submit',
+            tool: 'rein_governance_proposal_submit',
             ok: written.ok,
             status: written.status,
             reason: written.reason,
@@ -914,12 +915,12 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           };
           return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
         } catch (error) {
-          return errorResult('rein_mvp_proposal_submit', error);
+          return errorResult('rein_governance_proposal_submit', error);
         }
       },
     },
     {
-      name: 'rein_mvp_poll_open',
+      name: 'rein_poll_open',
       description:
         'Open one Board approval round over the stored proposals of one configured vote type, with an explicit closing time. The caller must be the trusted sender inside the approved Board channel and their current record must make them a director. The round takes its candidate cap from that stored type and the Agent reads the candidate pool itself, so no candidate list, cap or label is accepted from the caller. The database freezes the candidate list and the limits, and a round needs at least one candidate. A retry of the same tool call in this turn is the same round.',
       parameters: Type.Object(
@@ -1003,7 +1004,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           });
           const storedCandidates = written.poll?.candidateProposalIds ?? candidateProposalIds;
           const details = {
-            tool: 'rein_mvp_poll_open',
+            tool: 'rein_poll_open',
             ok: written.ok,
             status: written.status,
             reason: written.reason,
@@ -1021,12 +1022,12 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           };
           return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
         } catch (error) {
-          return errorResult('rein_mvp_poll_open', error);
+          return errorResult('rein_poll_open', error);
         }
       },
     },
     {
-      name: 'rein_mvp_vote',
+      name: 'rein_poll_vote',
       description:
         'Record your one immutable ballot on a stored, open poll: up to the poll approval limit of its candidate proposals, or an empty list to abstain. Limited to the trusted Board channel and to senders whose current community record is a director. A repeated identical ballot is the same record; a changed one is refused. A vote decision record moves no money.',
       parameters: Type.Object(
@@ -1073,7 +1074,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
             approvedProposalIds,
           });
           const details = {
-            tool: 'rein_mvp_vote',
+            tool: 'rein_poll_vote',
             ok: written.ok,
             status: written.status,
             reason: written.reason,
@@ -1088,12 +1089,12 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           };
           return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
         } catch (error) {
-          return errorResult('rein_mvp_vote', error);
+          return errorResult('rein_poll_vote', error);
         }
       },
     },
     {
-      name: 'rein_mvp_poll_result',
+      name: 'rein_poll_result',
       description:
         'Report the result of one stored poll. Before the deadline this is provisional: it returns the readable facts of the round and publishes no count and no winner. At or after the deadline the database closes the round and counts the recorded ballots at one equal weight per director; the stored outcome is what comes back, so a tie or an all-abstain round reports no winner and an already finalized round reports its recorded outcome unchanged. Limited to the trusted Board channel and to senders whose current community record is a director. A decision record moves no money.',
       parameters: Type.Object(
@@ -1122,7 +1123,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
             // no tally and no winner is published. The database is the only counter of an outcome.
             assertCurrentInvocation(ctx);
             return provisionalResult(
-              'rein_mvp_poll_result',
+              'rein_poll_result',
               'poll_still_open',
               'This poll is still open, so no outcome exists yet. The recorded ballots are readable, but no count and no winner is published and nothing is finalized before the deadline.',
               {
@@ -1145,7 +1146,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
               // finalized and never re-counted.
               assertCurrentInvocation(ctx);
               return provisionalResult(
-                'rein_mvp_poll_result',
+                'rein_poll_result',
                 'poll_not_open',
                 'This poll was cancelled, so it holds no outcome; no result is published and nothing is finalized.',
                 {
@@ -1177,7 +1178,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           }
           const finalization = written.finalization;
           const details = {
-            tool: 'rein_mvp_poll_result',
+            tool: 'rein_poll_result',
             ok: true,
             status: written.status,
             reason: written.reason,
@@ -1205,7 +1206,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           };
           return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
         } catch (error) {
-          return errorResult('rein_mvp_poll_result', error);
+          return errorResult('rein_poll_result', error);
         }
       },
     },

@@ -233,7 +233,7 @@ test('a new proposal is inserted once with its vote type and returned as stored'
     requested_minor: 125000,
     currency: 'USD',
   });
-  const { writer, calls } = writerFor({ dev_rein_mvp_proposals: { status: 201, rows: [stored] } });
+  const { writer, calls } = writerFor({ dev_rein_proposals: { status: 201, rows: [stored] } });
 
   const result = await writer.submitProposal(proposalInput());
 
@@ -258,7 +258,7 @@ test('a new proposal is inserted once with its vote type and returned as stored'
   assert.equal(calls.length, 1);
   const call = calls[0];
   assert.equal(call.method, 'POST');
-  assert.equal(call.table, 'dev_rein_mvp_proposals');
+  assert.equal(call.table, 'dev_rein_proposals');
   assert.equal(call.init.headers.prefer, 'return=representation');
   assert.equal(call.init.headers['content-type'], 'application/json');
   assert.equal(call.init.headers.apikey, SECRET);
@@ -279,7 +279,7 @@ test('a new proposal is inserted once with its vote type and returned as stored'
 
 test('a zero-budget proposal stores both request fields as null together', async () => {
   const { writer, calls } = writerFor({
-    dev_rein_mvp_proposals: { status: 201, rows: [proposalRow()] },
+    dev_rein_proposals: { status: 201, rows: [proposalRow()] },
   });
 
   const result = await writer.submitProposal(
@@ -301,7 +301,7 @@ test('a zero-budget proposal stores both request fields as null together', async
 test('an identical duplicate proposal is the existing record, not a second one', async () => {
   const stored = proposalRow({ summary: 'Fix the roof tiles', requested_minor: 125000, currency: 'USD' });
   const { writer, calls } = writerFor({
-    dev_rein_mvp_proposals: call => (call.method === 'POST' ? duplicate() : [stored]),
+    dev_rein_proposals: call => (call.method === 'POST' ? duplicate() : [stored]),
   });
 
   const result = await writer.submitProposal(proposalInput());
@@ -334,7 +334,7 @@ test('a duplicate proposal whose immutable fields changed is a conflict, never a
         ...overrides,
       });
       const { writer } = writerFor({
-        dev_rein_mvp_proposals: call => (call.method === 'POST' ? duplicate() : [stored]),
+        dev_rein_proposals: call => (call.method === 'POST' ? duplicate() : [stored]),
       });
       const result = await writer.submitProposal(proposalInput());
       assert.equal(result.ok, false);
@@ -348,7 +348,7 @@ test('a duplicate proposal whose immutable fields changed is a conflict, never a
 
 test('a 409 with no recorded proposal is a refusal, not a conflict', async () => {
   const { writer, calls } = writerFor({
-    dev_rein_mvp_proposals: call => (call.method === 'POST' ? duplicate() : []),
+    dev_rein_proposals: call => (call.method === 'POST' ? duplicate() : []),
   });
 
   const result = await writer.submitProposal(proposalInput());
@@ -376,7 +376,7 @@ test('malformed stored proposal rows fail closed instead of becoming a record', 
   for (const [name, overrides] of cases) {
     await t.test(name, async () => {
       const stored = overrides === null ? [null] : [proposalRow(overrides)];
-      const { writer } = writerFor({ dev_rein_mvp_proposals: { status: 201, rows: stored } });
+      const { writer } = writerFor({ dev_rein_proposals: { status: 201, rows: stored } });
       const result = await writer.submitProposal(proposalInput());
       assert.equal(result.ok, false);
       assert.equal(result.reason, 'response_malformed');
@@ -387,7 +387,7 @@ test('malformed stored proposal rows fail closed instead of becoming a record', 
 });
 
 test('a new poll is inserted with its vote type, candidates and window, and never its own limits', async () => {
-  const { writer, calls } = writerFor({ dev_rein_mvp_polls: { status: 201, rows: [pollRow()] } });
+  const { writer, calls } = writerFor({ dev_rein_polls: { status: 201, rows: [pollRow()] } });
 
   const result = await writer.createPoll(pollInput());
 
@@ -452,7 +452,7 @@ test('a duplicate poll with the same definition is existing; changed candidates 
   for (const [name, storedOverrides, inputOverrides, status] of cases) {
     await t.test(name, async () => {
       const { writer } = writerFor({
-        dev_rein_mvp_polls: call => (call.method === 'POST' ? duplicate() : [pollRow(storedOverrides)]),
+        dev_rein_polls: call => (call.method === 'POST' ? duplicate() : [pollRow(storedOverrides)]),
       });
       const result = await writer.createPoll(pollInput(inputOverrides));
       assert.equal(result.ok, status === 'existing');
@@ -466,7 +466,7 @@ test('a duplicate poll with the same definition is existing; changed candidates 
 test('a poll refused by the database guard is rejected once, without a retry', async () => {
   let posts = 0;
   const { writer } = writerFor({
-    dev_rein_mvp_polls: call => {
+    dev_rein_polls: call => {
       if (call.method !== 'POST') return [];
       posts += 1;
       // A trigger raise that fails a governance rule maps to 400.
@@ -487,7 +487,7 @@ test('a poll refused by the database guard is rejected once, without a retry', a
 });
 
 test('a ballot records its approved proposal ids once per poll and voter', async () => {
-  const { writer, calls } = writerFor({ dev_rein_mvp_ballots: { status: 201, rows: [ballotRow()] } });
+  const { writer, calls } = writerFor({ dev_rein_ballots: { status: 201, rows: [ballotRow()] } });
 
   const result = await writer.castBallot(ballotInput());
 
@@ -503,12 +503,12 @@ test('a ballot records its approved proposal ids once per poll and voter', async
     voter_contact_id: VOTER,
     approved_proposal_ids: [PROPOSAL],
   });
-  assert.equal(calls[0].table, 'dev_rein_mvp_ballots');
+  assert.equal(calls[0].table, 'dev_rein_ballots');
   assert.ok(!('cast_at' in calls[0].body), 'the database clock is the default');
 });
 
 test('a caller cannot backfill cast_at: the database clock decides the ballot window', async () => {
-  const { writer, calls } = writerFor({ dev_rein_mvp_ballots: [ballotRow()] });
+  const { writer, calls } = writerFor({ dev_rein_ballots: [ballotRow()] });
   // A caller that tries to place a ballot inside a window that has already closed cannot send a
   // time: the request body carries only the poll, the voter and the approvals, so `cast_at` is the
   // stored `now()` default that the database guard compares against the poll's own window.
@@ -526,7 +526,7 @@ test('a caller cannot backfill cast_at: the database clock decides the ballot wi
 test('an empty approval list is the abstention, and the deprecated choice maps onto it', async (t) => {
   await t.test('an empty list is stored as an empty list', async () => {
     const { writer, calls } = writerFor({
-      dev_rein_mvp_ballots: { status: 201, rows: [ballotRow({ approved_proposal_ids: [] })] },
+      dev_rein_ballots: { status: 201, rows: [ballotRow({ approved_proposal_ids: [] })] },
     });
     const result = await writer.castBallot(ballotInput({ approvedProposalIds: [] }));
     assert.equal(result.ok, true);
@@ -535,7 +535,7 @@ test('an empty approval list is the abstention, and the deprecated choice maps o
 
   await t.test('the phase-1 abstain choice maps to no approvals', async () => {
     const { writer, calls } = writerFor({
-      dev_rein_mvp_ballots: { status: 201, rows: [ballotRow({ approved_proposal_ids: [] })] },
+      dev_rein_ballots: { status: 201, rows: [ballotRow({ approved_proposal_ids: [] })] },
     });
     const result = await writer.castBallot({ pollId: POLL, voterContactId: VOTER, choice: 'abstain' });
     assert.equal(result.ok, true);
@@ -544,7 +544,7 @@ test('an empty approval list is the abstention, and the deprecated choice maps o
 
   await t.test('a phase-1 proposal-id choice maps to one approval', async () => {
     const { writer, calls } = writerFor({
-      dev_rein_mvp_ballots: { status: 201, rows: [ballotRow()] },
+      dev_rein_ballots: { status: 201, rows: [ballotRow()] },
     });
     const result = await writer.castBallot({ pollId: POLL, voterContactId: VOTER, choice: PROPOSAL });
     assert.equal(result.ok, true);
@@ -564,7 +564,7 @@ test('an empty approval list is the abstention, and the deprecated choice maps o
 test('a replay of the same approvals is existing, and a changed ballot is refused', async (t) => {
   await t.test('the same approvals in another order', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_ballots: call => (call.method === 'POST'
+      dev_rein_ballots: call => (call.method === 'POST'
         ? duplicate()
         : [ballotRow({ approved_proposal_ids: [PROPOSAL, PROPOSAL_TWO] })]),
     });
@@ -577,7 +577,7 @@ test('a replay of the same approvals is existing, and a changed ballot is refuse
 
   await t.test('a changed approval list', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_ballots: call => (call.method === 'POST' ? duplicate() : [ballotRow()]),
+      dev_rein_ballots: call => (call.method === 'POST' ? duplicate() : [ballotRow()]),
     });
     const result = await writer.castBallot(ballotInput({ approvedProposalIds: [PROPOSAL_TWO] }));
     assert.equal(result.ok, false);
@@ -588,7 +588,7 @@ test('a replay of the same approvals is existing, and a changed ballot is refuse
 
   await t.test('an abstention replayed after an approval is a conflict', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_ballots: call => (call.method === 'POST' ? duplicate() : [ballotRow()]),
+      dev_rein_ballots: call => (call.method === 'POST' ? duplicate() : [ballotRow()]),
     });
     const result = await writer.castBallot(ballotInput({ approvedProposalIds: [] }));
     assert.equal(result.status, 'conflict');
@@ -597,7 +597,7 @@ test('a replay of the same approvals is existing, and a changed ballot is refuse
 
 test('a ballot 409 with no recorded row is a refusal that names no server text', async () => {
   const { writer } = writerFor({
-    dev_rein_mvp_ballots: call => (call.method === 'POST'
+    dev_rein_ballots: call => (call.method === 'POST'
       ? duplicate('ballot references an unknown poll')
       : []),
   });
@@ -614,7 +614,7 @@ test('a ballot 409 with no recorded row is a refusal that names no server text',
 
 test('getPoll returns the stored definition and rejects an unknown id', async (t) => {
   await t.test('stored poll', async () => {
-    const { writer, calls } = writerFor({ dev_rein_mvp_polls: [pollRow()] });
+    const { writer, calls } = writerFor({ dev_rein_polls: [pollRow()] });
     const result = await writer.getPoll(POLL);
     assert.equal(result.ok, true);
     assert.equal(result.status, 'found');
@@ -629,7 +629,7 @@ test('getPoll returns the stored definition and rejects an unknown id', async (t
   });
 
   await t.test('absent poll', async () => {
-    const { writer } = writerFor({ dev_rein_mvp_polls: [] });
+    const { writer } = writerFor({ dev_rein_polls: [] });
     const result = await writer.getPoll(POLL);
     assert.equal(result.ok, false);
     assert.equal(result.status, 'rejected');
@@ -654,7 +654,7 @@ test('malformed poll rows fail closed on read', async (t) => {
   for (const [name, overrides] of cases) {
     await t.test(name, async () => {
       const stored = overrides === null ? [null] : [pollRow(overrides)];
-      const { writer } = writerFor({ dev_rein_mvp_polls: stored });
+      const { writer } = writerFor({ dev_rein_polls: stored });
       const result = await writer.getPoll(POLL);
       assert.equal(result.ok, false);
       assert.equal(result.reason, 'response_malformed');
@@ -670,7 +670,7 @@ test('listBallots reads the recorded approvals in cast order and never computes 
     approved_proposal_ids: [],
     cast_at: '2026-09-24T10:45:00+00:00',
   });
-  const { writer, calls } = writerFor({ dev_rein_mvp_ballots: [ballotRow(), second] });
+  const { writer, calls } = writerFor({ dev_rein_ballots: [ballotRow(), second] });
 
   const result = await writer.listBallots(POLL);
 
@@ -691,7 +691,7 @@ test('listBallots reads the recorded approvals in cast order and never computes 
 test('a ballot page that overflows is refused rather than silently truncated', async () => {
   const rows = Array.from({ length: 1001 }, (_, index) =>
     ballotRow({ id: `${String(index + 1).padStart(8, '0')}-1111-4111-8111-111111111111` }));
-  const { writer } = writerFor({ dev_rein_mvp_ballots: rows });
+  const { writer } = writerFor({ dev_rein_ballots: rows });
 
   const result = await writer.listBallots(POLL);
 
@@ -701,7 +701,7 @@ test('a ballot page that overflows is refused rather than silently truncated', a
 });
 
 test('a malformed ballot row fails closed on read', async () => {
-  const { writer } = writerFor({ dev_rein_mvp_ballots: [ballotRow({ approved_proposal_ids: 'approve' })] });
+  const { writer } = writerFor({ dev_rein_ballots: [ballotRow({ approved_proposal_ids: 'approve' })] });
   const result = await writer.listBallots(POLL);
   assert.equal(result.ok, false);
   assert.equal(result.reason, 'response_malformed');
@@ -710,7 +710,7 @@ test('a malformed ballot row fails closed on read', async () => {
 
 test('getVoteType reads the configured limits and reports a missing type', async (t) => {
   await t.test('configured type', async () => {
-    const { writer, calls } = writerFor({ dev_rein_mvp_vote_types: [voteTypeRow()] });
+    const { writer, calls } = writerFor({ dev_rein_vote_types: [voteTypeRow()] });
     const result = await writer.getVoteType(VOTE_TYPE);
     assert.equal(result.ok, true);
     assert.equal(result.status, 'found');
@@ -724,7 +724,7 @@ test('getVoteType reads the configured limits and reports a missing type', async
   });
 
   await t.test('missing type', async () => {
-    const { writer } = writerFor({ dev_rein_mvp_vote_types: [] });
+    const { writer } = writerFor({ dev_rein_vote_types: [] });
     const result = await writer.getVoteType(VOTE_TYPE);
     assert.equal(result.ok, false);
     assert.equal(result.status, 'rejected');
@@ -734,7 +734,7 @@ test('getVoteType reads the configured limits and reports a missing type', async
 
   await t.test('a type whose approvals exceed its candidates', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_vote_types: [voteTypeRow({ max_candidates: 1, max_approvals_per_voter: 3 })],
+      dev_rein_vote_types: [voteTypeRow({ max_candidates: 1, max_approvals_per_voter: 3 })],
     });
     const result = await writer.getVoteType(VOTE_TYPE);
     assert.equal(result.ok, false);
@@ -745,7 +745,7 @@ test('getVoteType reads the configured limits and reports a missing type', async
 test('listVoteTypes reads the configured names and never invents or hides one', async (t) => {
   await t.test('configured names in stored order', async () => {
     const { writer, calls } = writerFor({
-      dev_rein_mvp_vote_types: [
+      dev_rein_vote_types: [
         voteTypeRow(),
         voteTypeRow({ vote_type: 'event_single', max_candidates: 1, max_approvals_per_voter: 1 }),
       ],
@@ -761,7 +761,7 @@ test('listVoteTypes reads the configured names and never invents or hides one', 
   });
 
   await t.test('an empty table is an answer, not a failure', async () => {
-    const { writer } = writerFor({ dev_rein_mvp_vote_types: [] });
+    const { writer } = writerFor({ dev_rein_vote_types: [] });
     const result = await writer.listVoteTypes();
     assert.equal(result.ok, true);
     assert.deepEqual(result.voteTypes, []);
@@ -769,7 +769,7 @@ test('listVoteTypes reads the configured names and never invents or hides one', 
 
   await t.test('an unavailable read stays unavailable', async (t2) => {
     const { writer } = writerFor({
-      dev_rein_mvp_vote_types: () => new Response('{}', { status: 503 }),
+      dev_rein_vote_types: () => new Response('{}', { status: 503 }),
     });
     const result = await writer.listVoteTypes();
     assert.equal(result.ok, false);
@@ -779,7 +779,7 @@ test('listVoteTypes reads the configured names and never invents or hides one', 
 
   await t.test('a malformed row is reported rather than trimmed', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_vote_types: [{ vote_type: 'Not Snake Case' }],
+      dev_rein_vote_types: [{ vote_type: 'Not Snake Case' }],
     });
     const result = await writer.listVoteTypes();
     assert.equal(result.ok, false);
@@ -789,7 +789,7 @@ test('listVoteTypes reads the configured names and never invents or hides one', 
 
 test('listCandidateProposals reads the eligible proposals of one vote type', async () => {
   const second = proposalRow({ id: PROPOSAL_TWO, title: 'Repair the fence' });
-  const { writer, calls } = writerFor({ dev_rein_mvp_proposals: [proposalRow(), second] });
+  const { writer, calls } = writerFor({ dev_rein_proposals: [proposalRow(), second] });
 
   const result = await writer.listCandidateProposals({ voteType: VOTE_TYPE });
 
@@ -805,7 +805,7 @@ test('listCandidateProposals reads the eligible proposals of one vote type', asy
 
 test('listCandidateProposals can bound the age and offer recent unselected proposals first', async (t) => {
   await t.test('a submittedSince bound is sent as a created_at filter', async () => {
-    const { writer, calls } = writerFor({ dev_rein_mvp_proposals: [proposalRow()] });
+    const { writer, calls } = writerFor({ dev_rein_proposals: [proposalRow()] });
     const result = await writer.listCandidateProposals({
       voteType: VOTE_TYPE,
       submittedSince: '2026-09-20T00:00:00Z',
@@ -818,7 +818,7 @@ test('listCandidateProposals can bound the age and offer recent unselected propo
   await t.test('the recent unselected bucket is read second and offered first', async () => {
     const older = proposalRow({ id: PROPOSAL_TWO, title: 'Repair the fence' });
     const { writer, calls } = writerFor({
-      dev_rein_mvp_proposals: call => (call.params.get('status') === 'eq.unselected'
+      dev_rein_proposals: call => (call.params.get('status') === 'eq.unselected'
         ? [proposalRow()]
         : [older, proposalRow()]),
     });
@@ -837,7 +837,7 @@ test('listCandidateProposals can bound the age and offer recent unselected propo
 
   await t.test('a failed recent bucket read is unavailable, never a short list', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_proposals: call => (call.params.get('status') === 'eq.unselected'
+      dev_rein_proposals: call => (call.params.get('status') === 'eq.unselected'
         ? new Response('{}', { status: 503, headers: { 'content-type': 'application/json' } })
         : [proposalRow()]),
     });
@@ -854,7 +854,7 @@ test('listCandidateProposals can bound the age and offer recent unselected propo
 test('listCandidateProposals leaves excluded ids out and refuses a bad page', async (t) => {
   await t.test('an excluded candidate is left out', async () => {
     const second = proposalRow({ id: PROPOSAL_TWO, title: 'Repair the fence' });
-    const { writer, calls } = writerFor({ dev_rein_mvp_proposals: [proposalRow(), second] });
+    const { writer, calls } = writerFor({ dev_rein_proposals: [proposalRow(), second] });
     const result = await writer.listCandidateProposals({
       voteType: VOTE_TYPE,
       excludeProposalIds: [PROPOSAL],
@@ -865,7 +865,7 @@ test('listCandidateProposals leaves excluded ids out and refuses a bad page', as
 
   await t.test('a candidate of another vote type is not a candidate', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_proposals: [proposalRow({ vote_type: 'other_type' })],
+      dev_rein_proposals: [proposalRow({ vote_type: 'other_type' })],
     });
     const result = await writer.listCandidateProposals({ voteType: VOTE_TYPE });
     assert.equal(result.ok, false);
@@ -884,7 +884,7 @@ test('listCandidateProposals leaves excluded ids out and refuses a bad page', as
 
 test('the production environment writes the prod_ tables', async () => {
   const { writer, calls } = writerFor(
-    { prod_rein_mvp_polls: { status: 201, rows: [pollRow()] } },
+    { prod_rein_polls: { status: 201, rows: [pollRow()] } },
     { environment: 'prod' },
   );
 
@@ -897,13 +897,13 @@ test('the production environment writes the prod_ tables', async () => {
 
 test('the record and read operations insert or read, and never update, delete, upsert or RPC', async () => {
   const { writer, calls } = writerFor({
-    dev_rein_mvp_proposals: {
+    dev_rein_proposals: {
       status: 201,
       rows: [proposalRow({ summary: 'Fix the roof tiles', requested_minor: 125000, currency: 'USD' })],
     },
-    dev_rein_mvp_polls: [pollRow()],
-    dev_rein_mvp_ballots: [ballotRow()],
-    dev_rein_mvp_vote_types: [voteTypeRow()],
+    dev_rein_polls: [pollRow()],
+    dev_rein_ballots: [ballotRow()],
+    dev_rein_vote_types: [voteTypeRow()],
   });
 
   await writer.submitProposal(proposalInput());
@@ -1005,7 +1005,7 @@ test('invalid writer configuration is rejected at construction without echoing t
 test('database failures resolve to an unavailable result rather than throwing', async (t) => {
   await t.test('an HTTP failure', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_proposals: new Response('{}', {
+      dev_rein_proposals: new Response('{}', {
         status: 503,
         headers: { 'content-type': 'application/json' },
       }),
@@ -1020,7 +1020,7 @@ test('database failures resolve to an unavailable result rather than throwing', 
 
   await t.test('a transport failure', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_polls: () => {
+      dev_rein_polls: () => {
         throw new Error('socket hang up');
       },
     });
@@ -1033,7 +1033,7 @@ test('database failures resolve to an unavailable result rather than throwing', 
 
   await t.test('an unparseable body', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_vote_types: new Response('not json', {
+      dev_rein_vote_types: new Response('not json', {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }),
@@ -1052,7 +1052,7 @@ test('a rejected server key is unavailable on reads, writes and RPCs alike', asy
     });
 
   await t.test('a table write never becomes a governance refusal', async () => {
-    const { writer } = writerFor({ dev_rein_mvp_proposals: unauthorized() });
+    const { writer } = writerFor({ dev_rein_proposals: unauthorized() });
     const result = await writer.submitProposal(proposalInput());
     assert.equal(result.ok, false);
     assert.equal(result.status, 'unavailable');
@@ -1063,7 +1063,7 @@ test('a rejected server key is unavailable on reads, writes and RPCs alike', asy
   });
 
   await t.test('a table read is unavailable', async () => {
-    const { writer } = writerFor({ dev_rein_mvp_polls: unauthorized() });
+    const { writer } = writerFor({ dev_rein_polls: unauthorized() });
     const result = await writer.getPoll(POLL);
     assert.equal(result.ok, false);
     assert.equal(result.status, 'unavailable');
@@ -1073,7 +1073,7 @@ test('a rejected server key is unavailable on reads, writes and RPCs alike', asy
   });
 
   await t.test('a service-only RPC is unavailable rather than rpc_refused', async () => {
-    const { writer } = writerFor({ 'rpc/dev_rein_mvp_finalize_poll': unauthorized() });
+    const { writer } = writerFor({ 'rpc/dev_rein_finalize_poll': unauthorized() });
     const result = await writer.finalizePoll({ pollId: POLL, actorContactId: CONTACT });
     assert.equal(result.ok, false);
     assert.equal(result.status, 'unavailable');
@@ -1084,7 +1084,7 @@ test('a rejected server key is unavailable on reads, writes and RPCs alike', asy
 
   await t.test('a 403 privilege refusal is the same connection failure', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_polls: new Response(JSON.stringify({ message: 'permission denied' }), {
+      dev_rein_polls: new Response(JSON.stringify({ message: 'permission denied' }), {
         status: 403,
         headers: { 'content-type': 'application/json' },
       }),
@@ -1100,8 +1100,8 @@ test('a rejected server key is unavailable on reads, writes and RPCs alike', asy
 test('a legacy service_role JWT keeps the bearer header a modern secret key never sends', async () => {
   const { writer, calls } = writerFor(
     {
-      dev_rein_mvp_polls: [pollRow()],
-      'rpc/dev_rein_mvp_finalize_poll': jsonResponse(finalizePayload()),
+      dev_rein_polls: [pollRow()],
+      'rpc/dev_rein_finalize_poll': jsonResponse(finalizePayload()),
     },
     { serviceRoleKey: LEGACY_SECRET },
   );
@@ -1114,7 +1114,7 @@ test('a legacy service_role JWT keeps the bearer header a modern secret key neve
   assert.equal(calls.length, 2);
   assert.deepEqual(
     calls.map(call => call.table),
-    ['dev_rein_mvp_polls', 'rpc/dev_rein_mvp_finalize_poll'],
+    ['dev_rein_polls', 'rpc/dev_rein_finalize_poll'],
   );
   for (const call of calls) {
     assert.equal(call.init.headers.apikey, LEGACY_SECRET);
@@ -1126,7 +1126,7 @@ test('a legacy service_role JWT keeps the bearer header a modern secret key neve
 
 test('a re-read that fails keeps an ambiguous 409 unavailable rather than guessing', async () => {
   const { writer } = writerFor({
-    dev_rein_mvp_polls: call => (call.method === 'POST'
+    dev_rein_polls: call => (call.method === 'POST'
       ? duplicate()
       : new Response('{}', { status: 503, headers: { 'content-type': 'application/json' } })),
   });
@@ -1142,16 +1142,16 @@ test('a re-read that fails keeps an ambiguous 409 unavailable rather than guessi
 
 test('no result, error or request ever carries the secret key', async () => {
   const { writer, calls } = writerFor({
-    dev_rein_mvp_proposals: {
+    dev_rein_proposals: {
       status: 201,
       rows: [proposalRow({ summary: 'Fix the roof tiles', requested_minor: 125000, currency: 'USD' })],
     },
-    dev_rein_mvp_polls: new Response(
+    dev_rein_polls: new Response(
       JSON.stringify({ code: '23505', message: `duplicate key ${SECRET}` }),
       { status: 409, headers: { 'content-type': 'application/json' } },
     ),
-    dev_rein_mvp_ballots: new Response(`internal error near ${SECRET}`, { status: 500 }),
-    dev_rein_mvp_vote_types: new Response(`internal error near ${SECRET}`, { status: 500 }),
+    dev_rein_ballots: new Response(`internal error near ${SECRET}`, { status: 500 }),
+    dev_rein_vote_types: new Response(`internal error near ${SECRET}`, { status: 500 }),
   });
 
   const results = [
@@ -1204,7 +1204,7 @@ test('the writer exposes only its environment and its named operations', () => {
 
 test('finalizePoll calls the deterministic RPC with only the poll and its director', async () => {
   const { writer, calls } = writerFor({
-    'rpc/dev_rein_mvp_finalize_poll': jsonResponse(finalizePayload()),
+    'rpc/dev_rein_finalize_poll': jsonResponse(finalizePayload()),
   });
 
   const result = await writer.finalizePoll({ pollId: POLL, actorContactId: CONTACT });
@@ -1234,7 +1234,7 @@ test('finalizePoll calls the deterministic RPC with only the poll and its direct
   assert.equal(calls.length, 1);
   const call = calls[0];
   assert.equal(call.method, 'POST');
-  assert.equal(call.table, 'rpc/dev_rein_mvp_finalize_poll');
+  assert.equal(call.table, 'rpc/dev_rein_finalize_poll');
   assert.equal(call.init.headers.apikey, SECRET);
   // The RPC path authenticates exactly as the table path does.
   assert.equal(call.init.headers.authorization, undefined);
@@ -1245,7 +1245,7 @@ test('finalizePoll calls the deterministic RPC with only the poll and its direct
 
 test('finalizePoll records a no-winner outcome when the ballots produced none', async () => {
   const { writer } = writerFor({
-    'rpc/dev_rein_mvp_finalize_poll': jsonResponse(
+    'rpc/dev_rein_finalize_poll': jsonResponse(
       finalizePayload({
         outcome: 'no_winner',
         winning_proposal_id: null,
@@ -1268,7 +1268,7 @@ test('finalizePoll records a no-winner outcome when the ballots produced none', 
 test('a repeated finalize reports the recorded outcome instead of counting again', async () => {
   const recorded = finalizePayload({ repeated: true, finalized_by_contact_id: VOTER });
   const { writer, calls } = writerFor({
-    'rpc/dev_rein_mvp_finalize_poll': jsonResponse(recorded),
+    'rpc/dev_rein_finalize_poll': jsonResponse(recorded),
   });
 
   const result = await writer.finalizePoll({ pollId: POLL, actorContactId: CONTACT });
@@ -1283,7 +1283,7 @@ test('a repeated finalize reports the recorded outcome instead of counting again
 
 test('a poll the database refuses to finalize is rejected once, without server text', async () => {
   const { writer, calls } = writerFor({
-    'rpc/dev_rein_mvp_finalize_poll': refused('poll 222 stays open until 2026-09-24 11:00:00+00'),
+    'rpc/dev_rein_finalize_poll': refused('poll 222 stays open until 2026-09-24 11:00:00+00'),
   });
 
   const result = await writer.finalizePoll({ pollId: POLL, actorContactId: CONTACT });
@@ -1299,7 +1299,7 @@ test('a poll the database refuses to finalize is rejected once, without server t
 
 test('a finalize outage stays unavailable rather than reading as a decision', async () => {
   const { writer } = writerFor({
-    'rpc/dev_rein_mvp_finalize_poll': new Response('{}', {
+    'rpc/dev_rein_finalize_poll': new Response('{}', {
       status: 503,
       headers: { 'content-type': 'application/json' },
     }),
@@ -1329,7 +1329,7 @@ test('a finalize payload that contradicts itself fails closed', async (t) => {
   for (const [name, overrides] of cases) {
     await t.test(name, async () => {
       const payload = overrides === null ? {} : finalizePayload(overrides);
-      const { writer } = writerFor({ 'rpc/dev_rein_mvp_finalize_poll': jsonResponse(payload) });
+      const { writer } = writerFor({ 'rpc/dev_rein_finalize_poll': jsonResponse(payload) });
       const result = await writer.finalizePoll({ pollId: POLL, actorContactId: CONTACT });
       assert.equal(result.ok, false);
       assert.equal(result.reason, 'response_malformed');
@@ -1352,7 +1352,7 @@ test('finalizePoll rejects malformed input without touching the database', async
 
 test('a comment is recorded as one append-only row with no version and no field values', async () => {
   const { writer, calls } = writerFor({
-    dev_rein_mvp_proposal_revisions: { status: 201, rows: [revisionRow()] },
+    dev_rein_proposal_revisions: { status: 201, rows: [revisionRow()] },
   });
 
   const result = await writer.recordProposalRevision(revisionInput());
@@ -1408,7 +1408,7 @@ test('a suggested revision carries exactly the fields it names and no version', 
       note: null,
     });
     const { writer, calls } = writerFor({
-      dev_rein_mvp_proposal_revisions: { status: 201, rows: [stored] },
+      dev_rein_proposal_revisions: { status: 201, rows: [stored] },
     });
     const result = await writer.recordProposalRevision(
       revisionInput({
@@ -1434,7 +1434,7 @@ test('a suggested revision carries exactly the fields it names and no version', 
   await t.test('a wording revision to the title', async () => {
     const stored = revisionRow({ changed_fields: ['title'], title: 'Repair the roof', note: null });
     const { writer, calls } = writerFor({
-      dev_rein_mvp_proposal_revisions: { status: 201, rows: [stored] },
+      dev_rein_proposal_revisions: { status: 201, rows: [stored] },
     });
     const result = await writer.recordProposalRevision(
       revisionInput({ changedFields: ['title'], title: '  Repair the roof  ', note: undefined }),
@@ -1455,7 +1455,7 @@ test('a replay of the same revision is existing and a changed one is a conflict'
 
   await t.test('an identical replay', async () => {
     const { writer, calls } = writerFor({
-      dev_rein_mvp_proposal_revisions: call => (call.method === 'POST' ? duplicate() : [stored]),
+      dev_rein_proposal_revisions: call => (call.method === 'POST' ? duplicate() : [stored]),
     });
     const result = await writer.recordProposalRevision(
       revisionInput({ changedFields: ['title'], title: 'Repair the roof', note: undefined }),
@@ -1469,7 +1469,7 @@ test('a replay of the same revision is existing and a changed one is a conflict'
 
   await t.test('a changed value', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_proposal_revisions: call => (call.method === 'POST' ? duplicate() : [stored]),
+      dev_rein_proposal_revisions: call => (call.method === 'POST' ? duplicate() : [stored]),
     });
     const result = await writer.recordProposalRevision(
       revisionInput({ changedFields: ['title'], title: 'Repair the roof tiles', note: undefined }),
@@ -1482,7 +1482,7 @@ test('a replay of the same revision is existing and a changed one is a conflict'
 
   await t.test('a changed field list', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_proposal_revisions: call => (call.method === 'POST' ? duplicate() : [stored]),
+      dev_rein_proposal_revisions: call => (call.method === 'POST' ? duplicate() : [stored]),
     });
     const result = await writer.recordProposalRevision(
       revisionInput({ changedFields: ['summary'], summary: 'New wording', note: undefined }),
@@ -1493,7 +1493,7 @@ test('a replay of the same revision is existing and a changed one is a conflict'
 
 test('a revisions 409 with no recorded row is a refusal that names no server text', async () => {
   const { writer, calls } = writerFor({
-    dev_rein_mvp_proposal_revisions: call => (call.method === 'POST'
+    dev_rein_proposal_revisions: call => (call.method === 'POST'
       ? duplicate('revision author 333 is neither a director nor a Contributor')
       : []),
   });
@@ -1512,7 +1512,7 @@ test('a revisions 409 with no recorded row is a refusal that names no server tex
 test('a revision the database guard refuses is rejected once, without a second write', async () => {
   let posts = 0;
   const { writer } = writerFor({
-    dev_rein_mvp_proposal_revisions: call => {
+    dev_rein_proposal_revisions: call => {
       if (call.method !== 'POST') return [];
       posts += 1;
       return refused('revision 777 takes its version when it becomes the effective version');
@@ -1582,7 +1582,7 @@ test('a malformed revision row fails closed', async (t) => {
   for (const [name, overrides] of cases) {
     await t.test(name, async () => {
       const rows = overrides === null ? [null] : [revisionRow(overrides)];
-      const { writer } = writerFor({ dev_rein_mvp_proposal_revisions: { status: 201, rows } });
+      const { writer } = writerFor({ dev_rein_proposal_revisions: { status: 201, rows } });
       const result = await writer.recordProposalRevision(revisionInput());
       assert.equal(result.ok, false);
       assert.equal(result.reason, 'response_malformed');
@@ -1601,8 +1601,8 @@ test('approving a revision records it through the RPC and returns the stored row
     approved_at: RECORDED_AT,
   });
   const { writer, calls } = writerFor({
-    'rpc/dev_rein_mvp_approve_revision': new Response(null, { status: 204 }),
-    dev_rein_mvp_proposal_revisions: [approved],
+    'rpc/dev_rein_approve_revision': new Response(null, { status: 204 }),
+    dev_rein_proposal_revisions: [approved],
   });
 
   const result = await writer.approveProposalRevision({
@@ -1616,7 +1616,7 @@ test('approving a revision records it through the RPC and returns the stored row
   assert.equal(result.revision.approvedByContactId, APPROVER);
   assert.equal(result.revision.approvedAt, RECORDED_AT);
   assert.deepEqual(calls.map(call => call.method), ['POST', 'GET']);
-  assert.equal(calls[0].table, 'rpc/dev_rein_mvp_approve_revision');
+  assert.equal(calls[0].table, 'rpc/dev_rein_approve_revision');
   assert.deepEqual(calls[0].body, { p_revision_id: REVISION, p_approver_contact_id: APPROVER });
   assert.ok(!calls[0].url.includes(SECRET), 'the key never appears in a URL');
 });
@@ -1626,8 +1626,8 @@ test('a refused approval is named from the recorded revision, not the provider t
 
   await t.test('the same director approved it already', async () => {
     const { writer } = writerFor({
-      'rpc/dev_rein_mvp_approve_revision': rpcRefusal(),
-      dev_rein_mvp_proposal_revisions: [
+      'rpc/dev_rein_approve_revision': rpcRefusal(),
+      dev_rein_proposal_revisions: [
         revisionRow({ approved_by_contact_id: APPROVER, approved_at: RECORDED_AT }),
       ],
     });
@@ -1643,8 +1643,8 @@ test('a refused approval is named from the recorded revision, not the provider t
   await t.test('another director approved it first', async () => {
     const recorded = revisionRow({ approved_by_contact_id: CONTACT, approved_at: RECORDED_AT });
     const { writer } = writerFor({
-      'rpc/dev_rein_mvp_approve_revision': rpcRefusal(),
-      dev_rein_mvp_proposal_revisions: [recorded],
+      'rpc/dev_rein_approve_revision': rpcRefusal(),
+      dev_rein_proposal_revisions: [recorded],
     });
     const result = await writer.approveProposalRevision({
       revisionId: REVISION,
@@ -1658,8 +1658,8 @@ test('a refused approval is named from the recorded revision, not the provider t
 
   await t.test('the approver is not a current director', async () => {
     const { writer } = writerFor({
-      'rpc/dev_rein_mvp_approve_revision': rpcRefusal(),
-      dev_rein_mvp_proposal_revisions: [revisionRow()],
+      'rpc/dev_rein_approve_revision': rpcRefusal(),
+      dev_rein_proposal_revisions: [revisionRow()],
     });
     const result = await writer.approveProposalRevision({
       revisionId: REVISION,
@@ -1672,8 +1672,8 @@ test('a refused approval is named from the recorded revision, not the provider t
 
   await t.test('the revision does not exist', async () => {
     const { writer } = writerFor({
-      'rpc/dev_rein_mvp_approve_revision': rpcRefusal(),
-      dev_rein_mvp_proposal_revisions: [],
+      'rpc/dev_rein_approve_revision': rpcRefusal(),
+      dev_rein_proposal_revisions: [],
     });
     const result = await writer.approveProposalRevision({
       revisionId: REVISION,
@@ -1686,7 +1686,7 @@ test('a refused approval is named from the recorded revision, not the provider t
 
 test('an approval outage stays unavailable and a malformed request is refused unwritten', async () => {
   const { writer, calls } = writerFor({
-    'rpc/dev_rein_mvp_approve_revision': new Response('{}', {
+    'rpc/dev_rein_approve_revision': new Response('{}', {
       status: 503,
       headers: { 'content-type': 'application/json' },
     }),
@@ -1718,8 +1718,8 @@ test('applying a budget revision patches exactly its fields and lets the trigger
     approved_at: RECORDED_AT,
   });
   const { writer, calls } = writerFor({
-    dev_rein_mvp_proposal_revisions: [revision],
-    dev_rein_mvp_proposals: call => (call.method === 'PATCH' ? { status: 200, rows: [appliedProposalRow()] } : []),
+    dev_rein_proposal_revisions: [revision],
+    dev_rein_proposals: call => (call.method === 'PATCH' ? { status: 200, rows: [appliedProposalRow()] } : []),
   });
 
   const result = await writer.applyProposalRevision({ revisionId: REVISION });
@@ -1746,7 +1746,7 @@ test('applying a budget revision patches exactly its fields and lets the trigger
   });
   assert.deepEqual(calls.map(call => call.method), ['GET', 'PATCH']);
   const patch = calls[1];
-  assert.equal(patch.table, 'dev_rein_mvp_proposals');
+  assert.equal(patch.table, 'dev_rein_proposals');
   assert.equal(patch.params.get('id'), `eq.${PROPOSAL}`);
   assert.deepEqual(patch.body, {
     effective_revision_id: REVISION,
@@ -1765,8 +1765,8 @@ test('applying a wording revision patches only the title', async () => {
     currency: null,
   });
   const { writer, calls } = writerFor({
-    dev_rein_mvp_proposal_revisions: [revision],
-    dev_rein_mvp_proposals: { status: 200, rows: [applied] },
+    dev_rein_proposal_revisions: [revision],
+    dev_rein_proposals: { status: 200, rows: [applied] },
   });
 
   const result = await writer.applyProposalRevision({ revisionId: REVISION });
@@ -1779,7 +1779,7 @@ test('applying a wording revision patches only the title', async () => {
 
 test('a comment, an applied revision and an unapproved material revision are refused by name', async (t) => {
   await t.test('a comment is not applicable', async () => {
-    const { writer, calls } = writerFor({ dev_rein_mvp_proposal_revisions: [revisionRow()] });
+    const { writer, calls } = writerFor({ dev_rein_proposal_revisions: [revisionRow()] });
     const result = await writer.applyProposalRevision({ revisionId: REVISION });
     assert.equal(result.ok, false);
     assert.equal(result.status, 'rejected');
@@ -1789,7 +1789,7 @@ test('a comment, an applied revision and an unapproved material revision are ref
 
   await t.test('a revision that already became a version', async () => {
     const { writer, calls } = writerFor({
-      dev_rein_mvp_proposal_revisions: [
+      dev_rein_proposal_revisions: [
         revisionRow({ changed_fields: ['title'], title: 'Repair the roof', note: null, version: 3 }),
       ],
     });
@@ -1800,7 +1800,7 @@ test('a comment, an applied revision and an unapproved material revision are ref
 
   await t.test('a material revision with no recorded approval', async () => {
     const { writer, calls } = writerFor({
-      dev_rein_mvp_proposal_revisions: [
+      dev_rein_proposal_revisions: [
         revisionRow({ changed_fields: ['location'], location: 'Hall', note: null }),
       ],
     });
@@ -1811,7 +1811,7 @@ test('a comment, an applied revision and an unapproved material revision are ref
   });
 
   await t.test('a revision that does not exist', async () => {
-    const { writer, calls } = writerFor({ dev_rein_mvp_proposal_revisions: [] });
+    const { writer, calls } = writerFor({ dev_rein_proposal_revisions: [] });
     const result = await writer.applyProposalRevision({ revisionId: REVISION });
     assert.equal(result.reason, 'revision_not_found');
     assert.deepEqual(calls.map(call => call.method), ['GET']);
@@ -1824,8 +1824,8 @@ test('an apply the trigger refuses is rejected once, and a missing proposal row 
   await t.test('the trigger refuses the update', async () => {
     let patches = 0;
     const { writer } = writerFor({
-      dev_rein_mvp_proposal_revisions: [revision],
-      dev_rein_mvp_proposals: call => {
+      dev_rein_proposal_revisions: [revision],
+      dev_rein_proposals: call => {
         if (call.method !== 'PATCH') return [];
         patches += 1;
         return refused('the applied content does not match revision 777');
@@ -1843,8 +1843,8 @@ test('an apply the trigger refuses is rejected once, and a missing proposal row 
 
   await t.test('the proposal row is no longer there', async () => {
     const { writer } = writerFor({
-      dev_rein_mvp_proposal_revisions: [revision],
-      dev_rein_mvp_proposals: { status: 200, rows: [] },
+      dev_rein_proposal_revisions: [revision],
+      dev_rein_proposals: { status: 200, rows: [] },
     });
     const result = await writer.applyProposalRevision({ revisionId: REVISION });
     assert.equal(result.status, 'rejected');
@@ -1854,7 +1854,7 @@ test('an apply the trigger refuses is rejected once, and a missing proposal row 
 
 test('an apply outage stays unavailable and a malformed request is refused unwritten', async () => {
   const { writer, calls } = writerFor({
-    dev_rein_mvp_proposal_revisions: new Response('{}', {
+    dev_rein_proposal_revisions: new Response('{}', {
       status: 503,
       headers: { 'content-type': 'application/json' },
     }),
@@ -1873,13 +1873,13 @@ test('an apply outage stays unavailable and a malformed request is refused unwri
 
 test('no finalize, revision or approval result, error or request ever carries the secret key', async () => {
   const { writer, calls } = writerFor({
-    'rpc/dev_rein_mvp_finalize_poll': new Response(`internal error near ${SECRET}`, { status: 500 }),
-    'rpc/dev_rein_mvp_approve_revision': new Response(`internal error near ${SECRET}`, { status: 500 }),
-    dev_rein_mvp_proposal_revisions: call => {
+    'rpc/dev_rein_finalize_poll': new Response(`internal error near ${SECRET}`, { status: 500 }),
+    'rpc/dev_rein_approve_revision': new Response(`internal error near ${SECRET}`, { status: 500 }),
+    dev_rein_proposal_revisions: call => {
       if (call.method === 'POST') return duplicate(`duplicate key ${SECRET}`);
       return new Response(`internal error near ${SECRET}`, { status: 500 });
     },
-    dev_rein_mvp_proposals: new Response(`internal error near ${SECRET}`, { status: 500 }),
+    dev_rein_proposals: new Response(`internal error near ${SECRET}`, { status: 500 }),
   });
 
   const results = [

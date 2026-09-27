@@ -130,7 +130,7 @@ test('mvp mode registers the database-backed read tools instead of the simulator
     plugin.register({
       registrationMode: 'full',
       pluginConfig: {
-        mvp: {
+        foundationDb: {
           enabled: true,
           platform: 'slack',
           slackTeamId: 'T0123456ABC',
@@ -148,22 +148,22 @@ test('mvp mode registers the database-backed read tools instead of the simulator
     });
 
     assert.deepEqual(registrations.map(entry => entry.tool.name ?? entry.options.names.join(',')), [
-      'rein_mvp_my_status,rein_mvp_funds',
-      'rein_mvp_proposal_submit,rein_mvp_poll_open,rein_mvp_vote,rein_mvp_poll_result',
-      'rein_mvp_proposal_comment_suggest,rein_mvp_revision_approve,rein_mvp_revision_apply',
+      'rein_member_status,rein_funds',
+      'rein_governance_proposal_submit,rein_poll_open,rein_poll_vote,rein_poll_result',
+      'rein_proposal_comment_suggest,rein_revision_approve,rein_revision_apply',
       'rein_status',
     ]);
-    const mvp = registrations.find(entry => entry.options?.names?.includes('rein_mvp_my_status'));
+    const mvp = registrations.find(entry => entry.options?.names?.includes('rein_member_status'));
     assert.equal(mvp.tool.contextVersion, 2);
     assert.deepEqual(mvp.tool.create({
       messageChannel: 'slack',
       nativeChannelId: 'C_BOARD',
       requesterSenderId: 'U0123456ABC',
       assertInvocationCurrent() {},
-    }).map(tool => tool.name), ['rein_mvp_my_status', 'rein_mvp_funds']);
+    }).map(tool => tool.name), ['rein_member_status', 'rein_funds']);
     assert.deepEqual(mvp.options.names, manifest.contracts.tools.slice(7, 9));
 
-    const writes = registrations.find(entry => entry.options?.names?.includes('rein_mvp_poll_open'));
+    const writes = registrations.find(entry => entry.options?.names?.includes('rein_poll_open'));
     assert.ok(writes, 'MVP mode must register the write tools');
     assert.equal(writes.tool.contextVersion, 2);
     assert.deepEqual(writes.options.names, manifest.contracts.tools.slice(9, 13));
@@ -175,7 +175,7 @@ test('mvp mode registers the database-backed read tools instead of the simulator
     }).map(tool => tool.name), [...writes.options.names]);
 
     // Post-result feedback registers from the same explicit block, with its own v2 factory.
-    const feedback = registrations.find(entry => entry.options?.names?.includes('rein_mvp_revision_apply'));
+    const feedback = registrations.find(entry => entry.options?.names?.includes('rein_revision_apply'));
     assert.ok(feedback, 'MVP mode must register the post-result feedback tools');
     assert.equal(feedback.tool.contextVersion, 2);
     assert.deepEqual(feedback.options.names, manifest.contracts.tools.slice(13));
@@ -189,9 +189,9 @@ test('mvp mode registers the database-backed read tools instead of the simulator
     const status = registrations.find(entry => entry.tool.name === 'rein_status');
     const result = await status.tool.execute('status-call', {});
     assert.deepEqual(result.details.implemented, [
-      'rein_status', 'rein_mvp_my_status', 'rein_mvp_funds',
-      'rein_mvp_proposal_submit', 'rein_mvp_poll_open', 'rein_mvp_vote', 'rein_mvp_poll_result',
-      'rein_mvp_proposal_comment_suggest', 'rein_mvp_revision_approve', 'rein_mvp_revision_apply',
+      'rein_status', 'rein_member_status', 'rein_funds',
+      'rein_governance_proposal_submit', 'rein_poll_open', 'rein_poll_vote', 'rein_poll_result',
+      'rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply',
     ]);
     assert.equal(result.details.mvpReadToolsEnabled, true);
     assert.equal(result.details.mvpWriteToolsEnabled, true);
@@ -222,18 +222,18 @@ test('mvp mode refuses to load with an incomplete block or an unset referenced v
     boardChannelIds: ['C_BOARD'],
   };
   assert.throws(
-    () => plugin.register({ pluginConfig: { mvp: { ...base, platform: 'discord' } }, registerTool }),
+    () => plugin.register({ pluginConfig: { foundationDb: { ...base, platform: 'discord' } }, registerTool }),
     /platform must be "slack"/,
   );
   // The config names server environment variables; without them nothing registers silently.
   assert.throws(
-    () => plugin.register({ pluginConfig: { mvp: base }, registerTool }),
+    () => plugin.register({ pluginConfig: { foundationDb: base }, registerTool }),
     /must name a server environment variable/,
   );
   assert.throws(
     () => plugin.register({
       pluginConfig: {
-        mvp: { ...base, supabaseUrlEnvVar: 'REIN_TEST_ABSENT_URL', supabaseServiceKeyEnvVar: 'REIN_TEST_ABSENT_KEY' },
+        foundationDb: { ...base, supabaseUrlEnvVar: 'REIN_TEST_ABSENT_URL', supabaseServiceKeyEnvVar: 'REIN_TEST_ABSENT_KEY' },
       },
       registerTool,
     }),

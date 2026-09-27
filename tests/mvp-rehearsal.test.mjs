@@ -274,7 +274,7 @@ function createWorld({ funds = null, records = [], rules = {} } = {}) {
       // through both phases. A refusal on the prepare phase short-circuits, which keeps every
       // refusal assertion honest about what was never written.
       const writeProposal = async (args, toolCallId) => {
-        const submit = tool('write', 'rein_mvp_proposal_submit');
+        const submit = tool('write', 'rein_governance_proposal_submit');
         const prepared = await submit.execute(toolCallId, args);
         if (prepared.details.status !== 'prepared') return prepared;
         return submit.execute(toolCallId, {
@@ -287,7 +287,7 @@ function createWorld({ funds = null, records = [], rules = {} } = {}) {
         ctx,
         read: (toolName, args) => tool('read', toolName).execute('call-read', args),
         write: (toolName, args, toolCallId = 'call-1') =>
-          toolName === 'rein_mvp_proposal_submit'
+          toolName === 'rein_governance_proposal_submit'
             ? writeProposal(args, toolCallId)
             : tool('write', toolName).execute(toolCallId, args),
       };
@@ -531,7 +531,7 @@ function createWorld({ funds = null, records = [], rules = {} } = {}) {
     },
 
     /**
-     * The `rein_mvp_finalize_poll` RPC: it counts the stored ballots at one equal weight each, stores
+     * The `rein_finalize_poll` RPC: it counts the stored ballots at one equal weight each, stores
      * one outcome and replays that stored outcome on every later call. The caller cannot hand it a
      * count, a winner or a weight, and the deadline is the stored poll window rather than a caller's
      * word for it.
@@ -614,7 +614,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   // impersonation key, which is refused before any identity lookup, so this turn stores nothing.
   const injected = await world
     .turn({ sender: CONTRIBUTOR.slackUserId, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T09:00:00Z') })
-    .write('rein_mvp_proposal_submit', {
+    .write('rein_governance_proposal_submit', {
       voteType: VOTE_TYPE,
       title: 'Repair the workshop roof',
       summary: 'Replace two broken tiles',
@@ -631,7 +631,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
     channel: PROPOSAL_CHANNEL,
     at: at('2026-09-24T09:05:00Z'),
   });
-  const submitted = await proposalTurn.write('rein_mvp_proposal_submit', {
+  const submitted = await proposalTurn.write('rein_governance_proposal_submit', {
     voteType: VOTE_TYPE,
     title: 'Repair the workshop roof',
     summary: 'Replace two broken tiles',
@@ -657,10 +657,10 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
 
   // Turn 3 (proposal channel, an unlinked sender). A lookup failure is not eligibility.
   const alienTurn = world.turn({ sender: ALIEN_SENDER, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T09:10:00Z') });
-  const alienRead = await alienTurn.read('rein_mvp_my_status', {});
+  const alienRead = await alienTurn.read('rein_member_status', {});
   assert.equal(alienRead.details.linked, false);
   assert.equal(alienRead.details.isActiveContributor, false);
-  const alienSubmit = await alienTurn.write('rein_mvp_proposal_submit', {
+  const alienSubmit = await alienTurn.write('rein_governance_proposal_submit', {
     voteType: VOTE_TYPE,
     title: 'Unlinked request',
   });
@@ -671,7 +671,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   // an unconfigured name is refused by name before any write instead of being invented here.
   const unknownType = await world
     .turn({ sender: CONTRIBUTOR.slackUserId, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T09:12:00Z') })
-    .write('rein_mvp_proposal_submit', { voteType: 'not_configured', title: 'Unconfigured request' });
+    .write('rein_governance_proposal_submit', { voteType: 'not_configured', title: 'Unconfigured request' });
   assert.equal(unknownType.details.ok, false);
   assert.equal(unknownType.details.error, 'vote_type_not_configured');
   assert.deepEqual(unknownType.details.configuredVoteTypes, [VOTE_TYPE]);
@@ -685,7 +685,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
     channel: BOARD_CHANNEL,
     at: at('2026-09-24T10:00:00Z'),
   });
-  const opened = await openTurn.write('rein_mvp_poll_open', {
+  const opened = await openTurn.write('rein_poll_open', {
     voteType: VOTE_TYPE,
     title: 'Fund the repair workshop?',
     closesAt: '2026-09-26T18:00:00Z',
@@ -713,7 +713,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   // an unapproved native channel.
   const wrongChannel = await world
     .turn({ sender: DIRECTOR_A.slackUserId, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T11:00:00Z') })
-    .write('rein_mvp_vote', { pollId, approvedProposalIds: [proposalId] });
+    .write('rein_poll_vote', { pollId, approvedProposalIds: [proposalId] });
   assert.equal(wrongChannel.details.error, 'channel_out_of_scope');
   assert.equal(world.ballots.size, 0, 'a refused channel records no ballot');
 
@@ -721,7 +721,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   // caller, so no ballot is recorded.
   const outsiderVote = await world
     .turn({ sender: OUTSIDER.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-25T10:00:00Z') })
-    .write('rein_mvp_vote', { pollId, approvedProposalIds: [proposalId] });
+    .write('rein_poll_vote', { pollId, approvedProposalIds: [proposalId] });
   assert.equal(outsiderVote.details.error, 'board_membership_required');
   assert.equal(world.ballots.size, 0, 'a non-director ballot never reaches the store');
 
@@ -730,7 +730,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   // `create(ctx)` context, so each ballot is a first ballot.
   const directorAVote = await world
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-25T11:00:00Z') })
-    .write('rein_mvp_vote', { pollId, approvedProposalIds: [proposalId] });
+    .write('rein_poll_vote', { pollId, approvedProposalIds: [proposalId] });
   assert.equal(directorAVote.details.ok, true);
   assert.equal(directorAVote.details.recorded, true);
   assert.equal(directorAVote.details.approvalCount, 1);
@@ -738,7 +738,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   assert.equal(directorAVote.details.authorizesSpending, false);
   const directorBVote = await world
     .turn({ sender: DIRECTOR_B.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-25T12:00:00Z') })
-    .write('rein_mvp_vote', { pollId, approvedProposalIds: [] });
+    .write('rein_poll_vote', { pollId, approvedProposalIds: [] });
   assert.equal(directorBVote.details.ok, true);
   assert.equal(directorBVote.details.abstained, true);
   assert.equal(directorBVote.details.approvalCount, 0);
@@ -756,7 +756,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   // it finalizes nothing.
   const provisional = await world
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T17:59:00Z') })
-    .write('rein_mvp_poll_result', { pollId });
+    .write('rein_poll_result', { pollId });
   assert.equal(provisional.details.ok, false);
   assert.equal(provisional.details.status, 'provisional');
   assert.equal(provisional.details.reason, 'poll_still_open');
@@ -771,7 +771,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   // Turn 11 (Board channel, director B). At or after the deadline the stored outcome is official.
   const official = await world
     .turn({ sender: DIRECTOR_B.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T18:00:01Z') })
-    .write('rein_mvp_poll_result', { pollId });
+    .write('rein_poll_result', { pollId });
   assert.equal(official.details.ok, true);
   assert.equal(official.details.closed, true);
   assert.equal(official.details.official, true);
@@ -797,7 +797,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   // second one. A cancelled round is the only non-`open` row that still reads as provisional.
   const replay = await world
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T18:10:00Z') })
-    .write('rein_mvp_poll_result', { pollId });
+    .write('rein_poll_result', { pollId });
   assert.equal(replay.details.ok, true, 'a finalized round replays its stored outcome');
   assert.equal(replay.details.status, 'existing');
   assert.equal(replay.details.reason, 'existing_finalized');
@@ -815,7 +815,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   // stored ballot set is unchanged.
   const lateVote = await world
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T18:30:00Z') })
-    .write('rein_mvp_vote', { pollId, approvedProposalIds: [] });
+    .write('rein_poll_vote', { pollId, approvedProposalIds: [] });
   assert.equal(lateVote.details.error, 'poll_closed');
   assert.equal(world.ballots.size, 2, 'a late ballot is refused, not recorded');
 
@@ -826,7 +826,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
     channel: BOARD_CHANNEL,
     at: at('2026-09-26T19:00:00Z'),
   });
-  const funds = await fundsTurn.read('rein_mvp_funds', { currency: 'usd' });
+  const funds = await fundsTurn.read('rein_funds', { currency: 'usd' });
   assert.equal(funds.details.status, 'snapshot');
   assert.equal(funds.details.availableMinor, 500000, 'the funds figure is the human-entered snapshot, untouched');
   assert.equal(funds.details.authorizesSpending, false);
@@ -835,7 +835,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   // Turn 15 (Board channel, a non-director). Funds stay out of reach even after the official result.
   const outsiderFunds = await world
     .turn({ sender: OUTSIDER.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T19:05:00Z') })
-    .read('rein_mvp_funds', { currency: 'USD' });
+    .read('rein_funds', { currency: 'USD' });
   assert.equal(outsiderFunds.details.error, 'board_membership_required');
 
   // Turn 16 (proposal channel, director B). A failed identity lookup is not eligibility: an
@@ -858,7 +858,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
         },
       },
     })
-    .write('rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title: 'Request during an outage' });
+    .write('rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'Request during an outage' });
   assert.equal(swayed.details.error, 'identity_link_required');
   assert.equal(world.proposals.size, 1, 'an outage stores no proposal');
 
@@ -877,7 +877,7 @@ test('a Slack rehearsal refuses to name a winner for a tie, an unanswered round 
 
   const submitted = await world
     .turn({ sender: CONTRIBUTOR.slackUserId, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T09:00:00Z') })
-    .write('rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title: 'Repair the workshop roof' });
+    .write('rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'Repair the workshop roof' });
   assert.equal(submitted.details.ok, true, 'a proposal without an amount is still a valid request');
   const proposalId = proposalIdFrom(submitted);
 
@@ -885,14 +885,14 @@ test('a Slack rehearsal refuses to name a winner for a tie, an unanswered round 
   const second = proposalIdFrom(
     await world
       .turn({ sender: CONTRIBUTOR.slackUserId, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T09:30:00Z') })
-      .write('rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title: 'Fund the reading group' }),
+      .write('rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'Fund the reading group' }),
   );
   // A director who is not an active Contributor can still open a round: the Board role and the
   // Contributor record are separate, and a poll needs only the Board role.
   const pollId = pollIdFrom(
     await world
       .turn({ sender: DIRECTOR_B.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-24T10:00:00Z') })
-      .write('rein_mvp_poll_open', {
+      .write('rein_poll_open', {
         voteType: VOTE_TYPE,
         title: 'Fund the repair workshop?',
         closesAt: '2026-09-26T18:00:00Z',
@@ -904,16 +904,16 @@ test('a Slack rehearsal refuses to name a winner for a tie, an unanswered round 
   // winner out of a two-way tie.
   const firstBallot = await world
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-25T11:00:00Z') })
-    .write('rein_mvp_vote', { pollId, approvedProposalIds: [proposalId] });
+    .write('rein_poll_vote', { pollId, approvedProposalIds: [proposalId] });
   assert.equal(firstBallot.details.ok, true);
   const secondBallot = await world
     .turn({ sender: DIRECTOR_B.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-25T12:00:00Z') })
-    .write('rein_mvp_vote', { pollId, approvedProposalIds: [second] });
+    .write('rein_poll_vote', { pollId, approvedProposalIds: [second] });
   assert.equal(secondBallot.details.ok, true);
 
   const tied = await world
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T18:00:01Z') })
-    .write('rein_mvp_poll_result', { pollId });
+    .write('rein_poll_result', { pollId });
   assert.equal(tied.details.closed, true);
   assert.equal(tied.details.official, true);
   assert.equal(tied.details.outcome, 'no_winner', 'a tied round is stored as no winner by rule');
@@ -924,14 +924,14 @@ test('a Slack rehearsal refuses to name a winner for a tie, an unanswered round 
   // A non-director who tries to add a third ballot is refused and the stored set is unchanged.
   const outsider = await world
     .turn({ sender: OUTSIDER.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T18:10:00Z') })
-    .write('rein_mvp_vote', { pollId, approvedProposalIds: [] });
+    .write('rein_poll_vote', { pollId, approvedProposalIds: [] });
   assert.equal(outsider.details.error, 'board_membership_required');
   assert.equal(world.ballots.size, 2, 'a non-director cannot add a third ballot');
 
   // A repeat read of the finalized tie replays the stored `no_winner` outcome from the closed row.
   const stillTied = await world
     .turn({ sender: DIRECTOR_B.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T18:20:00Z') })
-    .write('rein_mvp_poll_result', { pollId });
+    .write('rein_poll_result', { pollId });
   assert.equal(stillTied.details.ok, true);
   assert.equal(stillTied.details.reason, 'existing_finalized');
   assert.equal(stillTied.details.outcome, 'no_winner', 'the stored tie outcome is replayed');
@@ -943,11 +943,11 @@ test('a Slack rehearsal refuses to name a winner for a tie, an unanswered round 
   const emptyWorld = createWorld({ records: [CONTRIBUTOR, DIRECTOR_A] });
   await emptyWorld
     .turn({ sender: CONTRIBUTOR.slackUserId, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T09:00:00Z') })
-    .write('rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title: 'Fund the reading group' });
+    .write('rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'Fund the reading group' });
   const emptyPollId = pollIdFrom(
     await emptyWorld
       .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-24T10:00:00Z') })
-      .write('rein_mvp_poll_open', {
+      .write('rein_poll_open', {
         voteType: VOTE_TYPE,
         title: 'Fund the reading group?',
         closesAt: '2026-09-26T18:00:00Z',
@@ -955,7 +955,7 @@ test('a Slack rehearsal refuses to name a winner for a tie, an unanswered round 
   );
   const empty = await emptyWorld
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T18:00:01Z') })
-    .write('rein_mvp_poll_result', { pollId: emptyPollId });
+    .write('rein_poll_result', { pollId: emptyPollId });
   assert.equal(empty.details.ok, true);
   assert.equal(empty.details.closed, true);
   assert.equal(empty.details.official, true);
@@ -970,11 +970,11 @@ test('a Slack rehearsal refuses to name a winner for a tie, an unanswered round 
   const abstainWorld = createWorld({ records: [CONTRIBUTOR, DIRECTOR_A, DIRECTOR_B] });
   await abstainWorld
     .turn({ sender: CONTRIBUTOR.slackUserId, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T09:00:00Z') })
-    .write('rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title: 'Fund the reading group' });
+    .write('rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'Fund the reading group' });
   const abstainPollId = pollIdFrom(
     await abstainWorld
       .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-24T10:00:00Z') })
-      .write('rein_mvp_poll_open', {
+      .write('rein_poll_open', {
         voteType: VOTE_TYPE,
         title: 'Fund the reading group?',
         closesAt: '2026-09-26T18:00:00Z',
@@ -982,13 +982,13 @@ test('a Slack rehearsal refuses to name a winner for a tie, an unanswered round 
   );
   await abstainWorld
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-25T11:00:00Z') })
-    .write('rein_mvp_vote', { pollId: abstainPollId, approvedProposalIds: [] });
+    .write('rein_poll_vote', { pollId: abstainPollId, approvedProposalIds: [] });
   await abstainWorld
     .turn({ sender: DIRECTOR_B.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-25T12:00:00Z') })
-    .write('rein_mvp_vote', { pollId: abstainPollId, approvedProposalIds: [] });
+    .write('rein_poll_vote', { pollId: abstainPollId, approvedProposalIds: [] });
   const allAbstain = await abstainWorld
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T18:00:01Z') })
-    .write('rein_mvp_poll_result', { pollId: abstainPollId });
+    .write('rein_poll_result', { pollId: abstainPollId });
   assert.equal(allAbstain.details.outcome, 'no_winner');
   assert.equal(allAbstain.details.winner, null);
   assert.equal(allAbstain.details.abstainCount, 2, 'both directors participated by abstaining');
@@ -998,11 +998,11 @@ test('a Slack rehearsal refuses to name a winner for a tie, an unanswered round 
   world.setRecord(DIRECTOR_A.slackUserId, { isDirector: false });
   const withdrawnVote = await world
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T19:00:00Z') })
-    .write('rein_mvp_vote', { pollId, approvedProposalIds: [] });
+    .write('rein_poll_vote', { pollId, approvedProposalIds: [] });
   assert.equal(withdrawnVote.details.error, 'board_membership_required');
   const withdrawnResult = await world
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T19:05:00Z') })
-    .write('rein_mvp_poll_result', { pollId });
+    .write('rein_poll_result', { pollId });
   assert.equal(withdrawnResult.details.error, 'board_membership_required');
   assert.equal(world.ballots.size, 2, 'a withdrawn director writes nothing');
 
@@ -1013,17 +1013,17 @@ test('a Slack rehearsal refuses to name a winner for a tie, an unanswered round 
   const liveFirst = proposalIdFrom(
     await liveWorld
       .turn({ sender: CONTRIBUTOR.slackUserId, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T09:00:00Z') })
-      .write('rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title: 'Repair the workshop roof' }),
+      .write('rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'Repair the workshop roof' }),
   );
   const liveSecond = proposalIdFrom(
     await liveWorld
       .turn({ sender: CONTRIBUTOR.slackUserId, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T09:30:00Z') })
-      .write('rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title: 'Fund the reading group' }),
+      .write('rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'Fund the reading group' }),
   );
   const livePollId = pollIdFrom(
     await liveWorld
       .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-24T10:00:00Z') })
-      .write('rein_mvp_poll_open', {
+      .write('rein_poll_open', {
         voteType: VOTE_TYPE,
         title: 'A round still inside its window',
         closesAt: '2026-09-26T18:00:00Z',
@@ -1033,7 +1033,7 @@ test('a Slack rehearsal refuses to name a winner for a tie, an unanswered round 
   // replace.
   await liveWorld
     .turn({ sender: DIRECTOR_B.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-25T11:00:00Z') })
-    .write('rein_mvp_vote', { pollId: livePollId, approvedProposalIds: [liveSecond] });
+    .write('rein_poll_vote', { pollId: livePollId, approvedProposalIds: [liveSecond] });
 
   // A stale turn cannot write: the host guard is the last step before the write. The clock is inside
   // the voting window, the sender is a current director, and the ballot is a valid first ballot for
@@ -1049,7 +1049,7 @@ test('a Slack rehearsal refuses to name a winner for a tie, an unanswered round 
         throw new Error('cancelled');
       },
     })
-    .write('rein_mvp_vote', { pollId: livePollId, approvedProposalIds: [liveFirst] });
+    .write('rein_poll_vote', { pollId: livePollId, approvedProposalIds: [liveFirst] });
   assert.equal(stale.details.ok, false);
   assert.equal(stale.details.error, 'tool_failed', 'a thrown guard collapses to a fixed code');
   assert.equal(invocations, 1, 'the guard runs before the write');
@@ -1059,7 +1059,7 @@ test('a Slack rehearsal refuses to name a winner for a tie, an unanswered round 
   // answers `conflict`, and the tool never reports a replacement.
   const changeAttempt = await liveWorld
     .turn({ sender: DIRECTOR_B.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-25T15:00:00Z') })
-    .write('rein_mvp_vote', { pollId: livePollId, approvedProposalIds: [liveFirst] });
+    .write('rein_poll_vote', { pollId: livePollId, approvedProposalIds: [liveFirst] });
   assert.equal(changeAttempt.details.ok, false, 'a recorded ballot is immutable');
   assert.equal(changeAttempt.details.status, 'conflict');
   assert.equal(changeAttempt.details.reason, 'ballot_conflict');
@@ -1095,7 +1095,7 @@ test('a rehearsal assembles a capped pool, re-offers a proposal that lost and ho
   const submit = (title, when) =>
     world
       .turn({ sender: CONTRIBUTOR.slackUserId, channel: PROPOSAL_CHANNEL, at: at(when) })
-      .write('rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title });
+      .write('rein_governance_proposal_submit', { voteType: VOTE_TYPE, title });
 
   const first = proposalIdFrom(await submit('Repair the workshop roof', '2026-09-24T08:00:00Z'));
   const second = proposalIdFrom(await submit('Fund the reading group', '2026-09-24T08:10:00Z'));
@@ -1104,7 +1104,7 @@ test('a rehearsal assembles a capped pool, re-offers a proposal that lost and ho
   const foreign = proposalIdFrom(
     await world
       .turn({ sender: CONTRIBUTOR.slackUserId, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T08:30:00Z') })
-      .write('rein_mvp_proposal_submit', { voteType: OTHER_VOTE_TYPE, title: 'Buy more paper' }),
+      .write('rein_governance_proposal_submit', { voteType: OTHER_VOTE_TYPE, title: 'Buy more paper' }),
   );
   assert.equal(world.proposals.size, 4);
   assert.equal(world.proposals.get(foreign).voteType, OTHER_VOTE_TYPE);
@@ -1114,7 +1114,7 @@ test('a rehearsal assembles a capped pool, re-offers a proposal that lost and ho
   const roundOneId = pollIdFrom(
     await world
       .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-24T10:00:00Z') })
-      .write('rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Round one', closesAt: '2026-09-26T18:00:00Z' }),
+      .write('rein_poll_open', { voteType: VOTE_TYPE, title: 'Round one', closesAt: '2026-09-26T18:00:00Z' }),
   );
   const roundOne = world.polls.get(roundOneId);
   assert.equal(roundOne.candidateLimit, 2);
@@ -1126,18 +1126,18 @@ test('a rehearsal assembles a capped pool, re-offers a proposal that lost and ho
   // One ballot spends two approvals, which this type allows.
   const twoApprovals = await world
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-25T11:00:00Z') })
-    .write('rein_mvp_vote', { pollId: roundOneId, approvedProposalIds: [first, second] });
+    .write('rein_poll_vote', { pollId: roundOneId, approvedProposalIds: [first, second] });
   assert.equal(twoApprovals.details.ok, true);
   assert.equal(twoApprovals.details.approvalCount, 2);
 
   // A second director approves only the first candidate, so that candidate wins uniquely.
   await world
     .turn({ sender: DIRECTOR_B.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-25T12:00:00Z') })
-    .write('rein_mvp_vote', { pollId: roundOneId, approvedProposalIds: [first] });
+    .write('rein_poll_vote', { pollId: roundOneId, approvedProposalIds: [first] });
 
   const result = await world
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T18:00:01Z') })
-    .write('rein_mvp_poll_result', { pollId: roundOneId });
+    .write('rein_poll_result', { pollId: roundOneId });
   assert.equal(result.details.outcome, 'winner');
   assert.equal(result.details.winner, first);
   assert.deepEqual(
@@ -1156,7 +1156,7 @@ test('a rehearsal assembles a capped pool, re-offers a proposal that lost and ho
   const roundTwoId = pollIdFrom(
     await world
       .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-27T10:00:00Z') })
-      .write('rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Round two', closesAt: '2026-09-29T18:00:00Z' }),
+      .write('rein_poll_open', { voteType: VOTE_TYPE, title: 'Round two', closesAt: '2026-09-29T18:00:00Z' }),
   );
   const roundTwo = world.polls.get(roundTwoId);
   assert.ok(roundTwo.candidateProposalIds.includes(second), 'a proposal that lost is offered again');
@@ -1174,11 +1174,11 @@ test('a rehearsal assembles a capped pool, re-offers a proposal that lost and ho
   });
   await singleWorld
     .turn({ sender: CONTRIBUTOR.slackUserId, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T09:00:00Z') })
-    .write('rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title: 'The only request' });
+    .write('rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'The only request' });
   const singleId = pollIdFrom(
     await singleWorld
       .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-24T10:00:00Z') })
-      .write('rein_mvp_poll_open', {
+      .write('rein_poll_open', {
         voteType: VOTE_TYPE,
         title: 'Single candidate round',
         closesAt: '2026-09-26T18:00:00Z',
@@ -1190,7 +1190,7 @@ test('a rehearsal assembles a capped pool, re-offers a proposal that lost and ho
   const barrenWorld = createWorld({ records: [CONTRIBUTOR, DIRECTOR_A] });
   const noCandidates = await barrenWorld
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-24T10:00:00Z') })
-    .write('rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Nothing to fund', closesAt: '2026-09-26T18:00:00Z' });
+    .write('rein_poll_open', { voteType: VOTE_TYPE, title: 'Nothing to fund', closesAt: '2026-09-26T18:00:00Z' });
   assert.equal(noCandidates.details.ok, false);
   assert.equal(noCandidates.details.error, 'no_candidate_proposals');
   assert.equal(barrenWorld.polls.size, 0, 'a round without a candidate is never stored');
@@ -1222,13 +1222,13 @@ test('no rehearsal turn writes when the MVP block is absent, the channel is unap
 
   const unapproved = await world
     .turn({ sender: DIRECTOR_A.slackUserId, channel: 'C_RANDOM', at: at('2026-09-24T10:00:00Z') })
-    .write('rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: '2026-09-26T18:00:00Z' });
+    .write('rein_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: '2026-09-26T18:00:00Z' });
   assert.equal(unapproved.details.error, 'channel_out_of_scope');
   assert.equal(world.polls.size, 0);
 
   const noSender = await world
     .turn({ sender: '   ', channel: BOARD_CHANNEL, at: at('2026-09-24T10:00:00Z') })
-    .write('rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: '2026-09-26T18:00:00Z' });
+    .write('rein_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: '2026-09-26T18:00:00Z' });
   assert.equal(noSender.details.error, 'trusted_requester_unavailable');
   assert.equal(world.polls.size, 0);
   assert.deepEqual(world.readTurns, [], 'a refused sender is rejected before any identity lookup');
@@ -1237,7 +1237,7 @@ test('no rehearsal turn writes when the MVP block is absent, the channel is unap
   world.setRecord(CONTRIBUTOR.slackUserId, { isActiveContributor: false });
   const revoked = await world
     .turn({ sender: CONTRIBUTOR.slackUserId, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T10:05:00Z') })
-    .write('rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title: 'After revocation' });
+    .write('rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'After revocation' });
   assert.equal(revoked.details.error, 'contributor_status_required');
   assert.equal(world.proposals.size, 0, 'a revoked Contributor adds no proposal');
   world.setRecord(CONTRIBUTOR.slackUserId, { isActiveContributor: true });
@@ -1245,12 +1245,12 @@ test('no rehearsal turn writes when the MVP block is absent, the channel is unap
   // Roles cannot be claimed through an argument on any write tool, and the refusal happens before
   // the identity lookup, before the stored rule is read and before the pool is queried.
   const attempts = [
-    ['rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title: 'Poll', proposerContactId: DIRECTOR_A.contactId }, 'actor_argument_rejected'],
-    ['rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: '2026-09-26T18:00:00Z', isDirector: true }, 'actor_argument_rejected'],
-    ['rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: '2026-09-26T18:00:00Z', candidateProposalIds: [DIRECTOR_A.contactId] }, 'policy_argument_rejected'],
-    ['rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: '2026-09-26T18:00:00Z', maxApprovalsPerVoter: 5 }, 'policy_argument_rejected'],
-    ['rein_mvp_vote', { pollId: '00000000-0000-4000-8000-000000000000', approvedProposalIds: [], weight: 5 }, 'actor_argument_rejected'],
-    ['rein_mvp_poll_result', { pollId: '00000000-0000-4000-8000-000000000000', role: 'director' }, 'actor_argument_rejected'],
+    ['rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'Poll', proposerContactId: DIRECTOR_A.contactId }, 'actor_argument_rejected'],
+    ['rein_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: '2026-09-26T18:00:00Z', isDirector: true }, 'actor_argument_rejected'],
+    ['rein_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: '2026-09-26T18:00:00Z', candidateProposalIds: [DIRECTOR_A.contactId] }, 'policy_argument_rejected'],
+    ['rein_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: '2026-09-26T18:00:00Z', maxApprovalsPerVoter: 5 }, 'policy_argument_rejected'],
+    ['rein_poll_vote', { pollId: '00000000-0000-4000-8000-000000000000', approvedProposalIds: [], weight: 5 }, 'actor_argument_rejected'],
+    ['rein_poll_result', { pollId: '00000000-0000-4000-8000-000000000000', role: 'director' }, 'actor_argument_rejected'],
   ];
   for (const [toolName, args, expected] of attempts) {
     const before = world.readTurns.length;

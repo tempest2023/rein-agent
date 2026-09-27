@@ -17,16 +17,34 @@ status tool and synthetic proposal/vote simulation tools. Four proposal tools ar
 an operator explicitly configures one platform, approved native channels and local storage.
 Deterministic business modules plus a local ledger support development rehearsals.
 
-The confirmed P0 MVP is one Slack vertical slice: link a Slack account to a community record, submit a
+The confirmed P0 slice is one Slack vertical: link a Slack account to a community record, submit a
 simple Contributor proposal, run a simple Board vote with a posted result, and read a funds snapshot.
-Six MVP tools exist against the organization's own database — `rein_mvp_my_status` and
-`rein_mvp_funds` are read-only, and `rein_mvp_proposal_submit`, `rein_mvp_poll_open`, `rein_mvp_vote`
-and `rein_mvp_poll_result` write proposals, polls and ballots. They register **only** when an explicit
-`mvp` config block enables them, and enabling it hides the simulators and the legacy proposal tools.
-Two database migrations for that slice are committed in the sibling Foundation repository and applied
-to the linked `BeneficenceProtocol` project (verified read-only 2026-09-27). Each migration defines
-both the `dev_*` and `prod_*` objects in one transaction, so the applied schema covers both prefixes;
-what is not verified is any row or Agent use in either set.
+Nine database-backed tools exist against the organization's own database — the reads
+`rein_member_status` and `rein_funds`, the writes `rein_governance_proposal_submit`, `rein_poll_open`,
+`rein_poll_vote` and `rein_poll_result`, and the post-result feedback tools
+`rein_proposal_comment_suggest`, `rein_revision_approve` and `rein_revision_apply`. They register
+**only** when an explicit `foundationDb` config block enables them, and enabling it hides the
+simulators and the legacy proposal tools.
+
+The interface names are `rein_member_status`, `rein_funds`, `rein_governance_proposal_submit`,
+`rein_poll_open`, `rein_poll_vote`, `rein_poll_result`, `rein_proposal_comment_suggest`,
+`rein_revision_approve` and `rein_revision_apply`; the config block is `foundationDb`; the tables are
+`<env>_rein_vote_types`, `<env>_rein_proposals`, `<env>_rein_polls`, `<env>_rein_ballots` and
+`<env>_rein_proposal_revisions`; and the RPCs are `<env>_rein_finalize_poll` and
+`<env>_rein_approve_revision`. These replace the earlier `rein_mvp_*` tool names, `mvp` config block
+and `<env>_rein_mvp_*` tables and RPCs, which were only development names. The upgrade is a committed
+forward migration, `20260927110000_rein_governance_names.sql`, ordered after the committed
+`20260927103000` migration in the sibling Foundation repository; it has **not** been applied to the
+linked project. That migration renames the physical tables and RPCs and keeps the old table and RPC
+names reachable as read/write compatibility views and RPC wrappers during the transition. Apply it
+before enabling the renamed agent code; until then the deployed database still answers on the old
+names.
+
+Two earlier database migrations for that slice are committed in the sibling Foundation repository and
+applied to the linked `BeneficenceProtocol` project (verified read-only 2026-09-27). Each defines both
+the `dev_*` and `prod_*` objects in one transaction, so the applied schema covers both prefixes; what
+is not verified is any row or Agent use in either set. Nothing here claims live use or deployment: no
+tool has read or written the schema, and the rename migration is not applied.
 
 No Slack workspace, Discord, Foundation website or real member data is connected, and the Agent has no
 live database connection. A passed vote is a decision record: payments, reservations and publishing are not enabled,
@@ -38,7 +56,7 @@ oversight remain deferred. See the [implementation and deployment record](docs/i
 | Path | Purpose |
 | --- | --- |
 | `vendor/openclaw` | Official OpenClaw source as a git submodule, pinned to one reviewed commit. Upstream-owned; use it, do not edit it. |
-| `plugins/rein-operations` | Rein-owned business modules; three default status/simulation tools, four proposal tools, and nine MVP Slack tools (two read, four write, three result-feedback) that register only with explicit platform/channel/storage configuration. |
+| `plugins/rein-operations` | Rein-owned business modules; three default status/simulation tools, four proposal tools, and nine database-backed Slack tools (two reads, four writes, three result-feedback) that register only with explicit platform/channel/storage configuration. |
 | `workspace/` | OpenClaw-compatible agent workspace template: identity, policy and avatar. |
 | `config/operations.example.json` | Proposed business configuration. Not native OpenClaw config, and nothing loads it. |
 | `scripts/` | Local bootstrap, CLI wrapper and upstream update helpers. |

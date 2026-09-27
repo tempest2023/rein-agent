@@ -6,7 +6,7 @@ import {
 } from '../plugins/rein-operations/mvp-write-tools.ts';
 
 // Focused fake-reader and fake-writer tests for the two wiring paths this slice implements:
-// `rein_mvp_proposal_submit` and `rein_mvp_poll_open`. No live database or Slack call is made. The
+// `rein_governance_proposal_submit` and `rein_poll_open`. No live database or Slack call is made. The
 // fakes record every argument, so each test also proves which calls a refusal avoided, and the
 // scripted writer decides what the stored database would have answered.
 
@@ -325,10 +325,10 @@ test('no MVP write tool registers without an explicit enabled block', () => {
     assert.equal(registration.contextVersion, 2);
   }
   assert.deepEqual([...MVP_WRITE_TOOL_NAMES], [
-    'rein_mvp_proposal_submit',
-    'rein_mvp_poll_open',
-    'rein_mvp_vote',
-    'rein_mvp_poll_result',
+    'rein_governance_proposal_submit',
+    'rein_poll_open',
+    'rein_poll_vote',
+    'rein_poll_result',
   ]);
 });
 
@@ -465,11 +465,11 @@ test('enabled email matching names the bot token variable and never echoes its v
 
   assert.throws(
     () => resolve(enabled, {}),
-    /mvp\.slackBotTokenEnvVar must name a server environment variable/,
+    /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
   );
   assert.throws(
     () => resolve({ ...enabled, slackBotTokenEnvVar: 'NOT A NAME' }, {}),
-    /mvp\.slackBotTokenEnvVar must name a server environment variable/,
+    /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
   );
   const named = { ...enabled, slackBotTokenEnvVar: BOT_TOKEN_ENV };
   assert.throws(
@@ -526,7 +526,7 @@ test('enabled email matching builds one lookup in this slice and presents the to
       assertInvocationCurrent() {},
     });
     const result = await tools
-      .find(tool => tool.name === 'rein_mvp_vote')
+      .find(tool => tool.name === 'rein_poll_vote')
       .execute('call-1', { pollId: POLL });
 
     // The sender resolves as unlinked, so the ballot is refused before any writer call.
@@ -542,7 +542,7 @@ test('enabled email matching builds one lookup in this slice and presents the to
 });
 
 // ---------------------------------------------------------------------------------------------
-// rein_mvp_proposal_submit
+// rein_governance_proposal_submit
 // ---------------------------------------------------------------------------------------------
 
 test('an active Contributor submits one proposal only after the prepared version is confirmed', async () => {
@@ -558,7 +558,7 @@ test('an active Contributor submits one proposal only after the prepared version
   };
 
   // Phase 1: nothing is written, and the caller gets the canonical text plus one token.
-  const prepared = await tool('rein_mvp_proposal_submit').execute('call-1', args);
+  const prepared = await tool('rein_governance_proposal_submit').execute('call-1', args);
   assert.equal(prepared.details.ok, true);
   assert.equal(prepared.details.status, 'prepared');
   assert.equal(prepared.details.reason, 'awaiting_author_confirmation');
@@ -571,12 +571,12 @@ test('an active Contributor submits one proposal only after the prepared version
     requestedMinor: 125000,
     currency: 'USD',
   });
-  assert.match(prepared.details.confirmationToken, /^rein_mvp_confirm\.rpc1\./);
+  assert.match(prepared.details.confirmationToken, /^rein_proposal_confirm\.rpc1\./);
   assert.deepEqual(calls.submitProposal, [], 'the prepare phase writes nothing');
   assert.equal(guard.calls, 0, 'no write guard runs when nothing is written');
 
   // Phase 2: the author-confirmed call writes one row.
-  const result = await tool('rein_mvp_proposal_submit').execute('call-1', {
+  const result = await tool('rein_governance_proposal_submit').execute('call-1', {
     ...args,
     confirmationToken: prepared.details.confirmationToken,
     confirmPronouncedByAuthor: true,
@@ -607,7 +607,7 @@ test('an active Contributor submits one proposal only after the prepared version
 test('a retry inside one turn and a repeat of the same confirmed text both meet one record', async () => {
   const fakes = createFakes();
   const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL });
-  const submit = tool('rein_mvp_proposal_submit');
+  const submit = tool('rein_governance_proposal_submit');
   const args = { voteType: VOTE_TYPE, title: 'Repair workshop' };
 
   const token = await prepareProposal(submit, 'call-9', args);
@@ -629,7 +629,7 @@ test('a retry inside one turn and a repeat of the same confirmed text both meet 
   // A later turn resets the per-turn map, but the identifier comes from the confirmed content, so
   // confirming the same text again still addresses the one row instead of inserting a second one.
   const second = createFakes();
-  const secondTool = build({ fakes: second, channel: PROPOSAL_CHANNEL }).tool('rein_mvp_proposal_submit');
+  const secondTool = build({ fakes: second, channel: PROPOSAL_CHANNEL }).tool('rein_governance_proposal_submit');
   await submitProposal(secondTool, 'call-9', args);
   assert.equal(
     calls.submitProposal[0].id,
@@ -643,12 +643,12 @@ test('the record identifier follows the confirmed content and the proposer', asy
   const otherActor = createFakes({ member: contributor({ contactId: OTHER_CONTACT }) });
   const args = { voteType: VOTE_TYPE, title: 'Repair workshop' };
   await submitProposal(
-    build({ fakes: sameActor, channel: PROPOSAL_CHANNEL }).tool('rein_mvp_proposal_submit'),
+    build({ fakes: sameActor, channel: PROPOSAL_CHANNEL }).tool('rein_governance_proposal_submit'),
     'call-9',
     args,
   );
   await submitProposal(
-    build({ fakes: otherActor, channel: PROPOSAL_CHANNEL }).tool('rein_mvp_proposal_submit'),
+    build({ fakes: otherActor, channel: PROPOSAL_CHANNEL }).tool('rein_governance_proposal_submit'),
     'call-9',
     { voteType: VOTE_TYPE, title: 'Another title' },
   );
@@ -657,7 +657,7 @@ test('the record identifier follows the confirmed content and the proposer', asy
   // Two distinct confirmed texts from one proposer are two records, not a collision.
   const changed = createFakes();
   await submitProposal(
-    build({ fakes: changed, channel: PROPOSAL_CHANNEL }).tool('rein_mvp_proposal_submit'),
+    build({ fakes: changed, channel: PROPOSAL_CHANNEL }).tool('rein_governance_proposal_submit'),
     'call-9',
     { voteType: VOTE_TYPE, title: 'A different repair workshop' },
   );
@@ -668,7 +668,7 @@ test('the proposal tool refuses an unlinked, inactive or non-Contributor sender 
   const refusal = async (member) => {
     const fakes = createFakes({ member });
     const { tool, calls, guard } = build({ fakes, channel: PROPOSAL_CHANNEL });
-    const result = await tool('rein_mvp_proposal_submit').execute('call-1', {
+    const result = await tool('rein_governance_proposal_submit').execute('call-1', {
       voteType: VOTE_TYPE,
       title: 'Repair workshop',
     });
@@ -705,7 +705,7 @@ test('the proposal tool refuses an unlinked, inactive or non-Contributor sender 
 test('the proposal tool is limited to the approved proposal channels and ignores a Board channel', async () => {
   const fakes = createFakes();
   const { tool, calls } = build({ fakes, ctx: { nativeChannelId: BOARD_CHANNEL } });
-  const result = await tool('rein_mvp_proposal_submit').execute('call-1', {
+  const result = await tool('rein_governance_proposal_submit').execute('call-1', {
     voteType: VOTE_TYPE,
     title: 'Repair workshop',
   });
@@ -718,7 +718,7 @@ test('the proposal tool requires a lower snake case vote type without writing', 
   for (const voteType of [undefined, '', 'Event Budget', 'event-budget', '1event', 'eventBudget', 7]) {
     const fakes = createFakes();
     const { tool, calls, guard } = build({ fakes, channel: PROPOSAL_CHANNEL });
-    const result = await tool('rein_mvp_proposal_submit').execute('call-1', { voteType, title: 'Repair workshop' });
+    const result = await tool('rein_governance_proposal_submit').execute('call-1', { voteType, title: 'Repair workshop' });
     assert.equal(result.details.ok, false, String(voteType));
     assert.equal(result.details.error, 'vote_type_invalid', String(voteType));
     // The configured type list is the first read on this path, so a malformed name is refused before
@@ -735,7 +735,7 @@ test('a well-formed but unconfigured proposal type is refused by name against th
   const fakes = createFakes({ configuredVoteTypes: ['event_pair', 'event_single'] });
   const { tool, calls, guard } = build({ fakes, channel: PROPOSAL_CHANNEL });
 
-  const result = await tool('rein_mvp_proposal_submit').execute('call-1', {
+  const result = await tool('rein_governance_proposal_submit').execute('call-1', {
     voteType: 'event',
     title: 'Free campus discussion',
   });
@@ -753,7 +753,7 @@ test('a well-formed but unconfigured proposal type is refused by name against th
 test('a configured proposal type submits, and an unreadable type list never reads as configured', async () => {
   const ok = createFakes({ configuredVoteTypes: ['event_single'] });
   const submitted = await submitProposal(
-    build({ fakes: ok, channel: PROPOSAL_CHANNEL }).tool('rein_mvp_proposal_submit'),
+    build({ fakes: ok, channel: PROPOSAL_CHANNEL }).tool('rein_governance_proposal_submit'),
     'call-1',
     { voteType: 'event_single', title: 'Free campus discussion' },
   );
@@ -766,7 +766,7 @@ test('a configured proposal type submits, and an unreadable type list never read
     },
   });
   const refused = await build({ fakes: down, channel: PROPOSAL_CHANNEL })
-    .tool('rein_mvp_proposal_submit')
+    .tool('rein_governance_proposal_submit')
     .execute('call-1', { voteType: 'event_single', title: 'Free campus discussion' });
   assert.equal(refused.details.error, 'vote_type_configuration_unavailable');
   assert.notEqual(refused.details.error, 'vote_type_not_configured', 'an outage is not a missing type');
@@ -791,7 +791,7 @@ test('a requested amount is recorded with its currency or refused as incomplete'
       ...extra,
     };
     // A malformed amount is refused in the prepare phase, before a token is ever minted.
-    const result = await tool('rein_mvp_proposal_submit').execute('call-1', args);
+    const result = await tool('rein_governance_proposal_submit').execute('call-1', args);
     assert.equal(result.details.ok, false, JSON.stringify(extra));
     assert.equal(result.details.error, expected, JSON.stringify(extra));
     assert.deepEqual(calls.submitProposal, []);
@@ -800,7 +800,7 @@ test('a requested amount is recorded with its currency or refused as incomplete'
   // A proposal without an amount is still a valid request, and no answer claims it was approved.
   const fakes = createFakes();
   const { tool } = build({ fakes, channel: PROPOSAL_CHANNEL });
-  const result = await submitProposal(tool('rein_mvp_proposal_submit'), 'call-1', {
+  const result = await submitProposal(tool('rein_governance_proposal_submit'), 'call-1', {
     voteType: VOTE_TYPE,
     title: 'Repair workshop',
   });
@@ -824,7 +824,7 @@ test('the database decides the proposal write: a refusal and an outage are repor
     },
   });
   const rejection = await build({ fakes: refused, channel: PROPOSAL_CHANNEL })
-    .tool('rein_mvp_proposal_submit');
+    .tool('rein_governance_proposal_submit');
   const rejected = await submitProposal(rejection, 'call-1', { voteType: VOTE_TYPE, title: 'Repair workshop' });
   assert.equal(rejected.details.ok, false);
   assert.equal(rejected.details.error, 'proposal_rejected');
@@ -843,7 +843,7 @@ test('the database decides the proposal write: a refusal and an outage are repor
     },
   });
   const outage = await build({ fakes: down, channel: PROPOSAL_CHANNEL })
-    .tool('rein_mvp_proposal_submit');
+    .tool('rein_governance_proposal_submit');
   const downResult = await submitProposal(outage, 'call-1', { voteType: VOTE_TYPE, title: 'Repair workshop' });
   assert.equal(downResult.details.error, 'http_error');
   assert.notEqual(downResult.details.error, 'proposal_rejected', 'an outage is not a refusal');
@@ -862,7 +862,7 @@ test('a changed confirmation is refused before the write, and a stored row is ne
     },
   });
   const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL });
-  const submit = tool('rein_mvp_proposal_submit');
+  const submit = tool('rein_governance_proposal_submit');
 
   const first = await submitProposal(submit, 'call-1', { voteType: VOTE_TYPE, title: 'Repair workshop' });
   assert.equal(first.details.ok, true);
@@ -899,7 +899,7 @@ test('the confirmation gate has four distinct refusals, and only a valid token w
   {
     const fakes = createFakes();
     const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL });
-    const submit = tool('rein_mvp_proposal_submit');
+    const submit = tool('rein_governance_proposal_submit');
     const token = await prepareProposal(submit, 'call-1', args);
     const result = await submit.execute('call-1', { ...args, confirmationToken: token });
     assert.equal(result.details.error, 'proposal_confirmation_required');
@@ -910,7 +910,7 @@ test('the confirmation gate has four distinct refusals, and only a valid token w
   {
     const fakes = createFakes();
     const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL });
-    const result = await tool('rein_mvp_proposal_submit').execute('call-1', {
+    const result = await tool('rein_governance_proposal_submit').execute('call-1', {
       ...args,
       confirmPronouncedByAuthor: true,
     });
@@ -919,10 +919,10 @@ test('the confirmation gate has four distinct refusals, and only a valid token w
   }
 
   // A token the server did not mint, and one that has been tampered with, are both invalid.
-  for (const token of ['not-a-token', 'rein_mvp_confirm.rpc1.1.abc.def']) {
+  for (const token of ['not-a-token', 'rein_proposal_confirm.rpc1.1.abc.def']) {
     const fakes = createFakes();
     const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL });
-    const result = await tool('rein_mvp_proposal_submit').execute('call-1', {
+    const result = await tool('rein_governance_proposal_submit').execute('call-1', {
       ...args,
       confirmationToken: token,
       confirmPronouncedByAuthor: true,
@@ -936,7 +936,7 @@ test('an expired confirmation is refused and the proposal is not written', async
   const fakes = createFakes();
   const clock = { at: new Date(NOW) };
   const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL, now: () => clock.at });
-  const submit = tool('rein_mvp_proposal_submit');
+  const submit = tool('rein_governance_proposal_submit');
   const args = { voteType: VOTE_TYPE, title: 'Repair workshop' };
 
   const token = await prepareProposal(submit, 'call-1', args, clock.at);
@@ -964,7 +964,7 @@ test('an expired confirmation is refused and the proposal is not written', async
 test('the confirmation token carries only the proposal fields and no secret', async () => {
   const fakes = createFakes();
   const { tool } = build({ fakes, channel: PROPOSAL_CHANNEL });
-  const prepared = await tool('rein_mvp_proposal_submit').execute('call-1', {
+  const prepared = await tool('rein_governance_proposal_submit').execute('call-1', {
     voteType: VOTE_TYPE,
     title: 'Repair workshop',
     summary: 'Fix the roof tiles',
@@ -990,7 +990,7 @@ test('the confirmation token carries only the proposal fields and no secret', as
 });
 
 // ---------------------------------------------------------------------------------------------
-// rein_mvp_poll_open
+// rein_poll_open
 // ---------------------------------------------------------------------------------------------
 
 test('a verified director opens a round over the capped candidate pool of the stored vote type', async () => {
@@ -1006,7 +1006,7 @@ test('a verified director opens a round over the capped candidate pool of the st
   });
   const { tool, calls, guard } = build({ fakes });
 
-  const result = await tool('rein_mvp_poll_open').execute('call-2', {
+  const result = await tool('rein_poll_open').execute('call-2', {
     voteType: VOTE_TYPE,
     title: 'Fund the repair workshop?',
     closesAt: CLOSES_AT,
@@ -1048,7 +1048,7 @@ test('an optional submittedSince narrows the pool and a malformed one opens noth
   const { tool, calls } = build({ fakes });
   const since = '2026-09-01T00:00:00Z';
 
-  const accepted = await tool('rein_mvp_poll_open').execute('call-2', {
+  const accepted = await tool('rein_poll_open').execute('call-2', {
     voteType: VOTE_TYPE,
     title: 'Fund the repair workshop?',
     closesAt: CLOSES_AT,
@@ -1064,7 +1064,7 @@ test('an optional submittedSince narrows the pool and a malformed one opens noth
 
   for (const submittedSince of ['', 'soon', '2026-09', 20260901]) {
     const bad = createFakes({ member: director() });
-    const result = await build({ fakes: bad }).tool('rein_mvp_poll_open').execute('call-2', {
+    const result = await build({ fakes: bad }).tool('rein_poll_open').execute('call-2', {
       voteType: VOTE_TYPE,
       title: 'Fund the repair workshop?',
       closesAt: CLOSES_AT,
@@ -1081,7 +1081,7 @@ test('a single-candidate round is valid and an empty pool opens nothing', async 
     rule: voteTypeRule({ maxCandidates: 1 }),
     candidates: [candidateRecord(CANDIDATE_A)],
   });
-  const opened = await build({ fakes: single }).tool('rein_mvp_poll_open').execute('call-2', {
+  const opened = await build({ fakes: single }).tool('rein_poll_open').execute('call-2', {
     voteType: VOTE_TYPE,
     title: 'Fund the single request?',
     closesAt: CLOSES_AT,
@@ -1091,7 +1091,7 @@ test('a single-candidate round is valid and an empty pool opens nothing', async 
   assert.equal(opened.details.candidateCount, 1);
 
   const empty = createFakes({ member: director(), candidates: [] });
-  const refused = await build({ fakes: empty }).tool('rein_mvp_poll_open').execute('call-2', {
+  const refused = await build({ fakes: empty }).tool('rein_poll_open').execute('call-2', {
     voteType: VOTE_TYPE,
     title: 'Fund nothing?',
     closesAt: CLOSES_AT,
@@ -1103,7 +1103,7 @@ test('a single-candidate round is valid and an empty pool opens nothing', async 
 
 test('an unknown or unreadable vote type opens nothing and is never guessed', async () => {
   const unknown = createFakes({ member: director() });
-  const unknownResult = await build({ fakes: unknown }).tool('rein_mvp_poll_open').execute('call-2', {
+  const unknownResult = await build({ fakes: unknown }).tool('rein_poll_open').execute('call-2', {
     voteType: 'something_else',
     title: 'Fund something?',
     closesAt: CLOSES_AT,
@@ -1124,7 +1124,7 @@ test('an unknown or unreadable vote type opens nothing and is never guessed', as
     voteType: null,
     httpStatus: 200,
   });
-  const vanishedResult = await build({ fakes: vanished }).tool('rein_mvp_poll_open').execute('call-2', {
+  const vanishedResult = await build({ fakes: vanished }).tool('rein_poll_open').execute('call-2', {
     voteType: VOTE_TYPE,
     title: 'Fund the repair workshop?',
     closesAt: CLOSES_AT,
@@ -1138,7 +1138,7 @@ test('an unknown or unreadable vote type opens nothing and is never guessed', as
       getVoteType: () => ({ ok: false, status: 'unavailable', reason: 'http_error', voteType: null, httpStatus: 503 }),
     },
   });
-  const downResult = await build({ fakes: down }).tool('rein_mvp_poll_open').execute('call-2', {
+  const downResult = await build({ fakes: down }).tool('rein_poll_open').execute('call-2', {
     voteType: VOTE_TYPE,
     title: 'Fund the repair workshop?',
     closesAt: CLOSES_AT,
@@ -1153,7 +1153,7 @@ test('an unknown or unreadable vote type opens nothing and is never guessed', as
       listCandidateProposals: () => ({ ok: false, status: 'unavailable', reason: 'http_error', proposals: null, httpStatus: 503 }),
     },
   });
-  const poolResult = await build({ fakes: poolDown }).tool('rein_mvp_poll_open').execute('call-2', {
+  const poolResult = await build({ fakes: poolDown }).tool('rein_poll_open').execute('call-2', {
     voteType: VOTE_TYPE,
     title: 'Fund the repair workshop?',
     closesAt: CLOSES_AT,
@@ -1171,7 +1171,7 @@ test('opening a poll refuses a non-director and an out-of-scope channel without 
   ]) {
     const fakes = createFakes({ member });
     const { tool, calls } = build({ fakes });
-    const result = await tool('rein_mvp_poll_open').execute('call-2', {
+    const result = await tool('rein_poll_open').execute('call-2', {
       voteType: VOTE_TYPE,
       title: 'Fund the repair workshop?',
       closesAt: CLOSES_AT,
@@ -1184,7 +1184,7 @@ test('opening a poll refuses a non-director and an out-of-scope channel without 
 
   const fakes = createFakes({ member: director() });
   const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL });
-  const result = await tool('rein_mvp_poll_open').execute('call-2', {
+  const result = await tool('rein_poll_open').execute('call-2', {
     voteType: VOTE_TYPE,
     title: 'Fund the repair workshop?',
     closesAt: CLOSES_AT,
@@ -1198,7 +1198,7 @@ test('opening a poll refuses a past or missing deadline without writing', async 
   for (const closesAt of [OPENS_AT, NOW, 'not-a-time', undefined, '', 20260924]) {
     const fakes = createFakes({ member: director() });
     const { tool, calls } = build({ fakes });
-    const result = await tool('rein_mvp_poll_open').execute('call-2', {
+    const result = await tool('rein_poll_open').execute('call-2', {
       voteType: VOTE_TYPE,
       title: 'Fund the repair workshop?',
       closesAt,
@@ -1214,13 +1214,13 @@ test('opening a poll refuses a past or missing deadline without writing', async 
 
 test('no write tool accepts a caller-supplied candidate list, cap or label', async () => {
   const attempts = [
-    ['rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, candidateProposalIds: [CANDIDATE_A] }],
-    ['rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, candidateLimit: 50 }],
-    ['rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, maxCandidates: 50 }],
-    ['rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, limit: 50 }],
-    ['rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, options: ['approve', 'reject'] }],
-    ['rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, opensAt: NOW }],
-    ['rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title: 'Repair workshop', candidateProposalIds: [CANDIDATE_A] }],
+    ['rein_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, candidateProposalIds: [CANDIDATE_A] }],
+    ['rein_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, candidateLimit: 50 }],
+    ['rein_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, maxCandidates: 50 }],
+    ['rein_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, limit: 50 }],
+    ['rein_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, options: ['approve', 'reject'] }],
+    ['rein_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, opensAt: NOW }],
+    ['rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'Repair workshop', candidateProposalIds: [CANDIDATE_A] }],
   ];
   for (const [name, args] of attempts) {
     const fakes = createFakes({ member: director() });
@@ -1241,7 +1241,7 @@ test('no write tool accepts a caller-supplied candidate list, cap or label', asy
 // ---------------------------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------------------------
-// `rein_mvp_vote`: one immutable ballot per director
+// `rein_poll_vote`: one immutable ballot per director
 // ---------------------------------------------------------------------------------------------
 
 const ballotRecord = (overrides = {}) => ({
@@ -1257,7 +1257,7 @@ test('a director records one approval and the same ballot replays as an exact du
   const fakes = createFakes({ member: director() });
   const { tool, calls, guard } = build({ fakes });
 
-  const first = await tool('rein_mvp_vote').execute('call-3', {
+  const first = await tool('rein_poll_vote').execute('call-3', {
     pollId: POLL,
     approvedProposalIds: [CANDIDATE_A],
   });
@@ -1291,7 +1291,7 @@ test('a director records one approval and the same ballot replays as an exact du
       }),
     },
   });
-  const replay = await build({ fakes: replayFakes }).tool('rein_mvp_vote').execute('call-3', {
+  const replay = await build({ fakes: replayFakes }).tool('rein_poll_vote').execute('call-3', {
     pollId: POLL,
     approvedProposalIds: [CANDIDATE_A],
   });
@@ -1303,7 +1303,7 @@ test('a director records one approval and the same ballot replays as an exact du
 test('a multi-approval ballot is bounded by the poll approval budget and the candidate list', async () => {
   // A poll whose rule allows two approvals accepts two distinct candidates.
   const multi = createFakes({ member: director(), poll: pollRecord({ maxApprovalsPerVoter: 2 }) });
-  const accepted = await build({ fakes: multi }).tool('rein_mvp_vote').execute('call-3', {
+  const accepted = await build({ fakes: multi }).tool('rein_poll_vote').execute('call-3', {
     pollId: POLL,
     approvedProposalIds: [CANDIDATE_A, CANDIDATE_B],
   });
@@ -1313,7 +1313,7 @@ test('a multi-approval ballot is bounded by the poll approval budget and the can
 
   // Exceeding the frozen per-voter budget is refused before any write.
   const overBudget = createFakes({ member: director(), poll: pollRecord({ maxApprovalsPerVoter: 1 }) });
-  const tooMany = await build({ fakes: overBudget }).tool('rein_mvp_vote').execute('call-3', {
+  const tooMany = await build({ fakes: overBudget }).tool('rein_poll_vote').execute('call-3', {
     pollId: POLL,
     approvedProposalIds: [CANDIDATE_A, CANDIDATE_B],
   });
@@ -1322,7 +1322,7 @@ test('a multi-approval ballot is bounded by the poll approval budget and the can
 
   // Approving a proposal outside this poll's candidate list is refused before any write.
   const offList = createFakes({ member: director(), poll: pollRecord({ maxApprovalsPerVoter: 2 }) });
-  const notCandidate = await build({ fakes: offList }).tool('rein_mvp_vote').execute('call-3', {
+  const notCandidate = await build({ fakes: offList }).tool('rein_poll_vote').execute('call-3', {
     pollId: POLL,
     approvedProposalIds: [CANDIDATE_A, CANDIDATE_D],
   });
@@ -1331,7 +1331,7 @@ test('a multi-approval ballot is bounded by the poll approval budget and the can
 
   // A repeated candidate inside one ballot is a malformed list, not a double count.
   const repeated = createFakes({ member: director(), poll: pollRecord({ maxApprovalsPerVoter: 2 }) });
-  const duplicate = await build({ fakes: repeated }).tool('rein_mvp_vote').execute('call-3', {
+  const duplicate = await build({ fakes: repeated }).tool('rein_poll_vote').execute('call-3', {
     pollId: POLL,
     approvedProposalIds: [CANDIDATE_A, CANDIDATE_A],
   });
@@ -1340,7 +1340,7 @@ test('a multi-approval ballot is bounded by the poll approval budget and the can
 
   // A non-uuid entry is the same malformed refusal.
   const malformed = createFakes({ member: director(), poll: pollRecord({ maxApprovalsPerVoter: 2 }) });
-  const notId = await build({ fakes: malformed }).tool('rein_mvp_vote').execute('call-3', {
+  const notId = await build({ fakes: malformed }).tool('rein_poll_vote').execute('call-3', {
     pollId: POLL,
     approvedProposalIds: ['approve'],
   });
@@ -1350,7 +1350,7 @@ test('a multi-approval ballot is bounded by the poll approval budget and the can
 
 test('an empty approval list is the abstention and an omitted one is the same', async () => {
   const explicit = createFakes({ member: director() });
-  const result = await build({ fakes: explicit }).tool('rein_mvp_vote').execute('call-3', {
+  const result = await build({ fakes: explicit }).tool('rein_poll_vote').execute('call-3', {
     pollId: POLL,
     approvedProposalIds: [],
   });
@@ -1360,7 +1360,7 @@ test('an empty approval list is the abstention and an omitted one is the same', 
   assert.deepEqual(explicit.calls.castBallot[0].approvedProposalIds, []);
 
   const omitted = createFakes({ member: director() });
-  const omittedResult = await build({ fakes: omitted }).tool('rein_mvp_vote').execute('call-3', { pollId: POLL });
+  const omittedResult = await build({ fakes: omitted }).tool('rein_poll_vote').execute('call-3', { pollId: POLL });
   assert.equal(omittedResult.details.ok, true);
   assert.equal(omittedResult.details.abstained, true);
   assert.deepEqual(omitted.calls.castBallot[0].approvedProposalIds, []);
@@ -1369,7 +1369,7 @@ test('an empty approval list is the abstention and an omitted one is the same', 
 test('an abstention is available even when the poll approval budget would refuse an approval', async () => {
   // `maxApprovalsPerVoter` only bounds approvals; approving nothing is always allowed.
   const fakes = createFakes({ member: director(), poll: pollRecord({ maxApprovalsPerVoter: 1 }) });
-  const result = await build({ fakes }).tool('rein_mvp_vote').execute('call-3', {
+  const result = await build({ fakes }).tool('rein_poll_vote').execute('call-3', {
     pollId: POLL,
     approvedProposalIds: [],
   });
@@ -1381,7 +1381,7 @@ test('a ballot is refused outside the poll window and for a closed or cancelled 
   // At the closing instant the ballot is late, not counted.
   const closed = createFakes({ member: director() });
   const closedResult = await build({ fakes: closed, now: () => new Date(CLOSES_AT) })
-    .tool('rein_mvp_vote')
+    .tool('rein_poll_vote')
     .execute('call-3', { pollId: POLL, approvedProposalIds: [CANDIDATE_A] });
   assert.equal(closedResult.details.error, 'poll_closed');
   assert.deepEqual(closed.calls.castBallot, []);
@@ -1389,7 +1389,7 @@ test('a ballot is refused outside the poll window and for a closed or cancelled 
   // Before the opening instant a ballot is premature, not late.
   const early = createFakes({ member: director() });
   const earlyResult = await build({ fakes: early, now: () => new Date('2026-09-24T09:59:00.000Z') })
-    .tool('rein_mvp_vote')
+    .tool('rein_poll_vote')
     .execute('call-3', { pollId: POLL, approvedProposalIds: [CANDIDATE_A] });
   assert.equal(earlyResult.details.error, 'poll_not_open');
   assert.deepEqual(early.calls.castBallot, []);
@@ -1397,14 +1397,14 @@ test('a ballot is refused outside the poll window and for a closed or cancelled 
   // A stored poll the database already closed refuses a ballot even inside the clock window.
   const statusClosed = createFakes({ member: director(), poll: pollRecord({ status: 'closed' }) });
   const statusClosedResult = await build({ fakes: statusClosed })
-    .tool('rein_mvp_vote')
+    .tool('rein_poll_vote')
     .execute('call-3', { pollId: POLL, approvedProposalIds: [CANDIDATE_A] });
   assert.equal(statusClosedResult.details.error, 'poll_closed');
   assert.deepEqual(statusClosed.calls.castBallot, []);
 
   const cancelled = createFakes({ member: director(), poll: pollRecord({ status: 'cancelled' }) });
   const cancelledResult = await build({ fakes: cancelled })
-    .tool('rein_mvp_vote')
+    .tool('rein_poll_vote')
     .execute('call-3', { pollId: POLL, approvedProposalIds: [CANDIDATE_A] });
   assert.equal(cancelledResult.details.error, 'poll_cancelled');
   assert.deepEqual(cancelled.calls.castBallot, []);
@@ -1423,7 +1423,7 @@ test('a changed approval list on the same ballot is a conflict and never replace
       }),
     },
   });
-  const result = await build({ fakes }).tool('rein_mvp_vote').execute('call-3', {
+  const result = await build({ fakes }).tool('rein_poll_vote').execute('call-3', {
     pollId: POLL,
     approvedProposalIds: [CANDIDATE_B],
   });
@@ -1437,7 +1437,7 @@ test('a changed approval list on the same ballot is a conflict and never replace
 test('a ballot is refused for an unknown poll, a non-director or an out-of-scope channel', async () => {
   const unknown = createFakes({ member: director(), poll: null });
   const unknownResult = await build({ fakes: unknown })
-    .tool('rein_mvp_vote')
+    .tool('rein_poll_vote')
     .execute('call-3', { pollId: POLL, approvedProposalIds: [CANDIDATE_A] });
   assert.equal(unknownResult.details.error, 'poll_not_found');
   assert.deepEqual(unknown.calls.castBallot, []);
@@ -1447,7 +1447,7 @@ test('a ballot is refused for an unknown poll, a non-director or an out-of-scope
     const down = createFakes({ member: director() });
     down.writer.getPoll = async () => ({ ok: false, status, reason: 'http_error', poll: null, httpStatus: 503 });
     const downResult = await build({ fakes: down })
-      .tool('rein_mvp_vote')
+      .tool('rein_poll_vote')
       .execute('call-3', { pollId: POLL, approvedProposalIds: [CANDIDATE_A] });
     assert.equal(downResult.details.error, 'poll_lookup_unavailable', status);
     assert.notEqual(downResult.details.error, 'poll_not_found', 'an outage must not read as a missing poll');
@@ -1460,7 +1460,7 @@ test('a ballot is refused for an unknown poll, a non-director or an out-of-scope
     contributor({ status: 'unavailable', reason: 'transport_error', contactId: null, isActiveContributor: false }),
   ]) {
     const fakes = createFakes({ member });
-    const result = await build({ fakes }).tool('rein_mvp_vote').execute('call-3', {
+    const result = await build({ fakes }).tool('rein_poll_vote').execute('call-3', {
       pollId: POLL,
       approvedProposalIds: [CANDIDATE_A],
     });
@@ -1472,7 +1472,7 @@ test('a ballot is refused for an unknown poll, a non-director or an out-of-scope
 
   const outOfScope = createFakes({ member: director() });
   const channelResult = await build({ fakes: outOfScope, ctx: { nativeChannelId: PROPOSAL_CHANNEL } })
-    .tool('rein_mvp_vote')
+    .tool('rein_poll_vote')
     .execute('call-3', { pollId: POLL, approvedProposalIds: [CANDIDATE_A] });
   assert.equal(channelResult.details.error, 'channel_out_of_scope');
   assert.deepEqual(outOfScope.calls.member, []);
@@ -1482,7 +1482,7 @@ test('a ballot is refused for an unknown poll, a non-director or an out-of-scope
 test('a vote requires a canonical poll identifier before any database call', async () => {
   for (const pollId of [undefined, '', 'not-a-uuid']) {
     const fakes = createFakes({ member: director() });
-    const result = await build({ fakes }).tool('rein_mvp_vote').execute('call-3', {
+    const result = await build({ fakes }).tool('rein_poll_vote').execute('call-3', {
       pollId,
       approvedProposalIds: [CANDIDATE_A],
     });
@@ -1506,7 +1506,7 @@ test('a vote write that fails reports the endpoint reason and never echoes provi
       }),
     },
   });
-  const result = await build({ fakes }).tool('rein_mvp_vote').execute('call-3', {
+  const result = await build({ fakes }).tool('rein_poll_vote').execute('call-3', {
     pollId: POLL,
     approvedProposalIds: [CANDIDATE_A],
   });
@@ -1519,7 +1519,7 @@ test('a vote write that fails reports the endpoint reason and never echoes provi
 });
 
 // ---------------------------------------------------------------------------------------------
-// `rein_mvp_poll_result`
+// `rein_poll_result`
 // ---------------------------------------------------------------------------------------------
 
 test('before the deadline the result is provisional: readable facts, no count and no winner', async () => {
@@ -1534,7 +1534,7 @@ test('before the deadline the result is provisional: readable facts, no count an
   const fakes = createFakes({ member: director(), ballots });
   const { tool, calls, guard } = build({ fakes });
 
-  const pending = await tool('rein_mvp_poll_result').execute('call-4', { pollId: POLL });
+  const pending = await tool('rein_poll_result').execute('call-4', { pollId: POLL });
   assert.equal(pending.details.ok, false);
   assert.equal(pending.details.status, 'provisional');
   assert.equal(pending.details.error, 'provisional');
@@ -1557,7 +1557,7 @@ test('before the deadline the result is provisional: readable facts, no count an
   // The instant the window closes is already past the deadline, exactly as it is for a ballot.
   const atDeadline = createFakes({ member: director(), ballots });
   const boundary = await build({ fakes: atDeadline, now: () => new Date(CLOSES_AT) })
-    .tool('rein_mvp_poll_result')
+    .tool('rein_poll_result')
     .execute('call-4', { pollId: POLL });
   assert.equal(boundary.details.closed, true, 'the closing instant closes the round');
   assert.equal(boundary.details.finalized, true);
@@ -1566,7 +1566,7 @@ test('before the deadline the result is provisional: readable facts, no count an
   // A cancelled round is over but is never finalized, so it holds no outcome to report.
   const cancelledFakes = createFakes({ member: director(), poll: pollRecord({ status: 'cancelled' }) });
   const cancelled = await build({ fakes: cancelledFakes, now: () => new Date(NOW) })
-    .tool('rein_mvp_poll_result')
+    .tool('rein_poll_result')
     .execute('call-4', { pollId: POLL });
   assert.equal(cancelled.details.ok, false);
   assert.equal(cancelled.details.reason, 'poll_not_open');
@@ -1598,7 +1598,7 @@ test('a row a finalization already closed replays the stored outcome instead of 
     },
   });
   const result = await build({ fakes, now: () => new Date(NOW) })
-    .tool('rein_mvp_poll_result')
+    .tool('rein_poll_result')
     .execute('call-4', { pollId: POLL });
 
   assert.equal(fakes.calls.getPoll.length, 1, 'the stored poll row is read first');
@@ -1633,7 +1633,7 @@ test('a row a finalization already closed replays the stored outcome instead of 
     },
   });
   const cancelled = await build({ fakes: cancelledFakes, now: () => new Date(NOW) })
-    .tool('rein_mvp_poll_result')
+    .tool('rein_poll_result')
     .execute('call-4', { pollId: POLL });
   assert.equal(cancelled.details.ok, false);
   assert.equal(cancelled.details.reason, 'poll_not_open');
@@ -1653,7 +1653,7 @@ test('past the deadline the stored outcome is reported, and a repeat returns the
   const fakes = createFakes({ member: director(), ballots });
   const { tool, calls } = build({ fakes, now: () => new Date('2026-09-24T11:30:00.000Z') });
 
-  const result = await tool('rein_mvp_poll_result').execute('call-4', { pollId: POLL });
+  const result = await tool('rein_poll_result').execute('call-4', { pollId: POLL });
   assert.equal(result.details.ok, true);
   assert.equal(result.details.status, 'inserted');
   assert.equal(result.details.reason, 'finalized');
@@ -1673,7 +1673,7 @@ test('past the deadline the stored outcome is reported, and a repeat returns the
   assert.ok(!('weights' in calls.finalizePoll[0]), 'no weight is ever supplied by a caller');
 
   // A second call meets the recorded outcome and reports it unchanged instead of counting again.
-  const repeat = await tool('rein_mvp_poll_result').execute('call-4', { pollId: POLL });
+  const repeat = await tool('rein_poll_result').execute('call-4', { pollId: POLL });
   assert.equal(repeat.details.ok, true);
   assert.equal(repeat.details.finalized, true);
   assert.equal(repeat.details.winner, CANDIDATE_A);
@@ -1721,7 +1721,7 @@ test('a tie or an all-abstain round reports the stored no-winner outcome rather 
       },
     });
     const result = await build({ fakes, now: () => new Date('2026-09-24T11:30:00.000Z') })
-      .tool('rein_mvp_poll_result')
+      .tool('rein_poll_result')
       .execute('call-4', { pollId: POLL });
     assert.equal(result.details.outcome, 'no_winner', label);
     assert.equal(result.details.winner, null, `${label} must invent no winner`);
@@ -1750,7 +1750,7 @@ test('a repeated finalization reports the already-stored record and a refusal re
     },
   });
   const already = await build({ fakes: repeated, now: () => new Date('2026-09-24T11:30:00.000Z') })
-    .tool('rein_mvp_poll_result')
+    .tool('rein_poll_result')
     .execute('call-4', { pollId: POLL });
   assert.equal(already.details.ok, true);
   assert.equal(already.details.status, 'existing');
@@ -1773,7 +1773,7 @@ test('a repeated finalization reports the already-stored record and a refusal re
     },
   });
   const refusal = await build({ fakes: refused, now: () => new Date('2026-09-24T11:30:00.000Z') })
-    .tool('rein_mvp_poll_result')
+    .tool('rein_poll_result')
     .execute('call-4', { pollId: POLL });
   assert.equal(refusal.details.ok, false);
   assert.equal(refusal.details.error, 'finalize_rejected');
@@ -1794,7 +1794,7 @@ test('a repeated finalization reports the already-stored record and a refusal re
     },
   });
   const outage = await build({ fakes: down, now: () => new Date('2026-09-24T11:30:00.000Z') })
-    .tool('rein_mvp_poll_result')
+    .tool('rein_poll_result')
     .execute('call-4', { pollId: POLL });
   assert.equal(outage.details.error, 'http_error');
   assert.notEqual(outage.details.error, 'finalize_rejected', 'an outage is not a refusal');
@@ -1818,7 +1818,7 @@ test('the result read counts the stored ballots without re-evaluating voter elig
     },
   });
   const result = await build({ fakes, now: () => new Date('2026-09-24T11:30:00.000Z') })
-    .tool('rein_mvp_poll_result')
+    .tool('rein_poll_result')
     .execute('call-4', { pollId: POLL });
   assert.equal(result.details.totalBallots, 1);
   assert.equal(
@@ -1846,7 +1846,7 @@ test('the result tool refuses a failed ballot read, an unknown poll or an unusab
     httpStatus: 503,
   });
   const failedResult = await build({ fakes: failed })
-    .tool('rein_mvp_poll_result')
+    .tool('rein_poll_result')
     .execute('call-4', { pollId: POLL });
   assert.equal(failedResult.details.ok, false);
   assert.equal(failedResult.details.error, 'result_unavailable');
@@ -1857,7 +1857,7 @@ test('the result tool refuses a failed ballot read, an unknown poll or an unusab
   // that never happened, and a missing poll is never finalized either.
   const missing = createFakes({ member: director(), poll: null });
   const unknown = await build({ fakes: missing, now: () => new Date('2026-09-24T11:30:00.000Z') })
-    .tool('rein_mvp_poll_result')
+    .tool('rein_poll_result')
     .execute('call-4', { pollId: POLL });
   assert.equal(unknown.details.error, 'poll_not_found');
   assert.deepEqual(missing.calls.finalizePoll, []);
@@ -1873,14 +1873,14 @@ test('the result tool refuses a failed ballot read, an unknown poll or an unusab
     httpStatus: 503,
   });
   const outage = await build({ fakes: unreadable, now: () => new Date('2026-09-24T11:30:00.000Z') })
-    .tool('rein_mvp_poll_result')
+    .tool('rein_poll_result')
     .execute('call-4', { pollId: POLL });
   assert.equal(outage.details.error, 'poll_lookup_unavailable');
   assert.deepEqual(unreadable.calls.finalizePoll, []);
 
   for (const pollId of [undefined, '', 'not-a-uuid']) {
     const fakes = createFakes({ member: director() });
-    const result = await build({ fakes }).tool('rein_mvp_poll_result').execute('call-4', { pollId });
+    const result = await build({ fakes }).tool('rein_poll_result').execute('call-4', { pollId });
     assert.equal(result.details.error, 'poll_id_invalid', String(pollId));
     assert.deepEqual(fakes.calls.member, [], 'an unusable identifier never resolves an identity');
     assert.deepEqual(fakes.calls.getPoll, []);
@@ -1891,14 +1891,14 @@ test('the result tool refuses a failed ballot read, an unknown poll or an unusab
 
 test('every write tool refuses an impersonation or role argument before any database call', async () => {
   const attempts = [
-    ['rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title: 'Repair workshop', proposerContactId: 'x' }],
-    ['rein_mvp_proposal_submit', { voteType: VOTE_TYPE, title: 'Repair workshop', contactId: 'x' }],
-    ['rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, creatorContactId: 'x' }],
-    ['rein_mvp_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, role: 'director' }],
-    ['rein_mvp_vote', { pollId: POLL, approvedProposalIds: [], memberId: 'x' }],
-    ['rein_mvp_vote', { pollId: POLL, approvedProposalIds: [], weight: 3 }],
-    ['rein_mvp_poll_result', { pollId: POLL, eligibleMemberIds: ['x'] }],
-    ['rein_mvp_poll_result', { pollId: POLL, isDirector: true }],
+    ['rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'Repair workshop', proposerContactId: 'x' }],
+    ['rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'Repair workshop', contactId: 'x' }],
+    ['rein_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, creatorContactId: 'x' }],
+    ['rein_poll_open', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT, role: 'director' }],
+    ['rein_poll_vote', { pollId: POLL, approvedProposalIds: [], memberId: 'x' }],
+    ['rein_poll_vote', { pollId: POLL, approvedProposalIds: [], weight: 3 }],
+    ['rein_poll_result', { pollId: POLL, eligibleMemberIds: ['x'] }],
+    ['rein_poll_result', { pollId: POLL, isDirector: true }],
   ];
   for (const [name, args] of attempts) {
     const fakes = createFakes({ member: director() });
@@ -1924,9 +1924,9 @@ test('every write tool refuses a non-Slack context or a missing trusted sender',
       const fakes = createFakes({ member: director() });
       const { tool } = build({ fakes, ctx: overrides });
       const args =
-        name === 'rein_mvp_proposal_submit'
+        name === 'rein_governance_proposal_submit'
           ? { voteType: VOTE_TYPE, title: 'Repair workshop' }
-          : name === 'rein_mvp_poll_open'
+          : name === 'rein_poll_open'
             ? { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT }
             : { pollId: POLL, approvedProposalIds: [] };
       const result = await tool(name).execute('call-1', args);
@@ -1946,7 +1946,7 @@ test('a missing or stale host invocation guard produces no proposal and no round
     channel: PROPOSAL_CHANNEL,
     ctx: { assertInvocationCurrent: undefined },
   })
-    .tool('rein_mvp_proposal_submit');
+    .tool('rein_governance_proposal_submit');
   const token = await prepareProposal(submit, 'call-1', { voteType: VOTE_TYPE, title: 'Repair workshop' });
   const proposal = await submit.execute('call-1', {
     voteType: VOTE_TYPE,
@@ -1966,7 +1966,7 @@ test('a missing or stale host invocation guard produces no proposal and no round
       },
     },
   })
-    .tool('rein_mvp_poll_open')
+    .tool('rein_poll_open')
     .execute('call-2', { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT });
   assert.equal(poll.details.error, 'invocation_not_current');
   assert.deepEqual(pollFakes.calls.createPoll, [], 'a stale turn cannot open a round');
@@ -1974,15 +1974,15 @@ test('a missing or stale host invocation guard produces no proposal and no round
 
 test('a missing host tool call id is refused instead of inventing a record identifier', async () => {
   for (const [name, channel, args] of [
-    ['rein_mvp_proposal_submit', PROPOSAL_CHANNEL, { voteType: VOTE_TYPE, title: 'Repair workshop' }],
-    ['rein_mvp_poll_open', BOARD_CHANNEL, { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT }],
+    ['rein_governance_proposal_submit', PROPOSAL_CHANNEL, { voteType: VOTE_TYPE, title: 'Repair workshop' }],
+    ['rein_poll_open', BOARD_CHANNEL, { voteType: VOTE_TYPE, title: 'Poll', closesAt: CLOSES_AT }],
   ]) {
     for (const toolCallId of [undefined, '', '   ']) {
       const fakes = createFakes({ member: director() });
       const { tool } = build({ fakes, channel });
       // The proposal needs a confirmation token to reach the write, so it is prepared with a real
       // call id first; the submit itself then carries the unusable id under test.
-      const prepared = name === 'rein_mvp_proposal_submit'
+      const prepared = name === 'rein_governance_proposal_submit'
         ? await tool(name).execute('call-prepare', args)
         : null;
       const submitArgs = prepared
@@ -2002,19 +2002,19 @@ test('no tool result leaks the private contact ids, the team id or a secret', as
   const proposalFakes = createFakes({ member: director() });
   const proposal = build({ fakes: proposalFakes, channel: PROPOSAL_CHANNEL });
   const outputs = [
-    await proposal.tool('rein_mvp_proposal_submit').execute('call-1', {
+    await proposal.tool('rein_governance_proposal_submit').execute('call-1', {
       voteType: VOTE_TYPE,
       title: 'Repair workshop',
       requestedMinor: 1,
       currency: 'USD',
     }),
-    await board.tool('rein_mvp_poll_open').execute('call-2', {
+    await board.tool('rein_poll_open').execute('call-2', {
       voteType: VOTE_TYPE,
       title: 'Poll',
       closesAt: CLOSES_AT,
     }),
-    await board.tool('rein_mvp_vote').execute('call-3', { pollId: POLL, approvedProposalIds: [CANDIDATE_A] }),
-    await board.tool('rein_mvp_poll_result').execute('call-4', { pollId: POLL }),
+    await board.tool('rein_poll_vote').execute('call-3', { pollId: POLL, approvedProposalIds: [CANDIDATE_A] }),
+    await board.tool('rein_poll_result').execute('call-4', { pollId: POLL }),
   ];
   const serialized = JSON.stringify(outputs.map(output => output.details));
   for (const secret of [CONTACT, OTHER_CONTACT, TEAM, SECRET, 'project-ref.supabase.co', SENDER]) {

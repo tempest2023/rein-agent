@@ -50,7 +50,7 @@ const isModernSecret = value => typeof value === 'string' && value.startsWith(MO
  */
 function applyInsertDefaults(table, row, store) {
   const now = new Date().toISOString();
-  if (table.endsWith('_rein_mvp_proposals')) {
+  if (table.endsWith('_rein_proposals')) {
     return {
       version: 1,
       effective_revision_id: null,
@@ -64,8 +64,8 @@ function applyInsertDefaults(table, row, store) {
       ...row,
     };
   }
-  if (table.endsWith('_rein_mvp_polls')) {
-    const voteType = (store[`${PREFIX}rein_mvp_vote_types`] ?? []).find(
+  if (table.endsWith('_rein_polls')) {
+    const voteType = (store[`${PREFIX}rein_vote_types`] ?? []).find(
       entry => entry.vote_type === row.vote_type,
     );
     if (voteType === undefined) throw new Error(`gateway has no vote type ${row.vote_type}`);
@@ -80,10 +80,10 @@ function applyInsertDefaults(table, row, store) {
       ...row,
     };
   }
-  if (table.endsWith('_rein_mvp_ballots')) {
+  if (table.endsWith('_rein_ballots')) {
     return { id: randomUUID(), cast_at: now, ...row };
   }
-  if (table.endsWith('_rein_mvp_proposal_revisions')) {
+  if (table.endsWith('_rein_proposal_revisions')) {
     return { version: null, approved_by_contact_id: null, approved_at: null, recorded_at: now, ...row };
   }
   return { ...row };
@@ -150,10 +150,10 @@ function startGateway(policy = {}) {
   };
 
   const rpc = (name, body) => {
-    if (name.endsWith('_rein_mvp_finalize_poll')) {
-      const poll = (store[`${PREFIX}rein_mvp_polls`] ?? []).find(row => row.id === body.p_poll_id);
+    if (name.endsWith('_rein_finalize_poll')) {
+      const poll = (store[`${PREFIX}rein_polls`] ?? []).find(row => row.id === body.p_poll_id);
       if (poll === undefined) return { status: 404, body: { message: 'poll not found' } };
-      const ballots = (store[`${PREFIX}rein_mvp_ballots`] ?? []).filter(row => row.poll_id === body.p_poll_id);
+      const ballots = (store[`${PREFIX}rein_ballots`] ?? []).filter(row => row.poll_id === body.p_poll_id);
       const approvals = {};
       let abstentions = 0;
       for (const ballot of ballots) {
@@ -181,8 +181,8 @@ function startGateway(policy = {}) {
         },
       };
     }
-    if (name.endsWith('_rein_mvp_approve_revision')) {
-      const revision = (store[`${PREFIX}rein_mvp_proposal_revisions`] ?? []).find(
+    if (name.endsWith('_rein_approve_revision')) {
+      const revision = (store[`${PREFIX}rein_proposal_revisions`] ?? []).find(
         row => row.id === body.p_revision_id,
       );
       if (revision === undefined) return { status: 404, body: { message: 'revision not found' } };
@@ -295,7 +295,7 @@ const devSeeds = () => ({
       source_note: 'monthly statement',
     },
   ],
-  dev_rein_mvp_vote_types: [
+  dev_rein_vote_types: [
     { vote_type: 'event_budget', max_candidates: 10, max_approvals_per_voter: 2, updated_at: VERIFIED_AT },
   ],
 });
@@ -407,10 +407,10 @@ test('a modern secret key records a proposal, opens a poll, casts a ballot and f
       assert.equal(request.authorization, undefined);
     }
     // The gateway saw the write methods and the RPC on the wire, not just injected headers.
-    assert.ok(gateway.requests.some(request => request.method === 'POST' && /rein_mvp_proposals$/.test(request.path)));
-    assert.ok(gateway.requests.some(request => request.method === 'POST' && /rein_mvp_polls$/.test(request.path)));
-    assert.ok(gateway.requests.some(request => request.method === 'POST' && /rein_mvp_ballots$/.test(request.path)));
-    assert.ok(gateway.requests.some(request => /\/rpc\/dev_rein_mvp_finalize_poll$/.test(request.path)));
+    assert.ok(gateway.requests.some(request => request.method === 'POST' && /rein_proposals$/.test(request.path)));
+    assert.ok(gateway.requests.some(request => request.method === 'POST' && /rein_polls$/.test(request.path)));
+    assert.ok(gateway.requests.some(request => request.method === 'POST' && /rein_ballots$/.test(request.path)));
+    assert.ok(gateway.requests.some(request => /\/rpc\/dev_rein_finalize_poll$/.test(request.path)));
   } finally {
     await gateway.close();
   }

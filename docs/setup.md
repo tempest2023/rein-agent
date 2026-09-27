@@ -143,14 +143,14 @@ npm run toolchain:pnpm -- openclaw plugins doctor
 ```
 
 `--runtime` reports what the gateway actually registered, which is stronger than reading the
-manifest. With no `mvp` block configured, expect three tools - `rein_status`,
+manifest. With no `foundationDb` block configured, expect three tools - `rein_status`,
 `rein_simulate_proposal` and `rein_simulate_vote` - and no live business action. Configuring the
-optional `proposalTools` block adds the four legacy proposal tools; configuring `mvp` instead
-registers the nine MVP tools and hides both the simulators and the legacy proposal tools. The nine
-are `rein_mvp_my_status`, `rein_mvp_funds`, `rein_mvp_proposal_submit`, `rein_mvp_poll_open`,
-`rein_mvp_vote`, `rein_mvp_poll_result`, `rein_mvp_proposal_comment_suggest`,
-`rein_mvp_revision_approve` and `rein_mvp_revision_apply`. `verify:plugin` checks all of this through
-the real loader; `verify:proposal-tools` does the same for the four v2 proposal tools.
+optional `proposalTools` block adds the four legacy proposal tools; configuring `foundationDb`
+instead registers the nine database-backed tools and hides both the simulators and the legacy
+proposal tools. The nine are `rein_member_status`, `rein_funds`, `rein_governance_proposal_submit`,
+`rein_poll_open`, `rein_poll_vote`, `rein_poll_result`, `rein_proposal_comment_suggest`,
+`rein_revision_approve` and `rein_revision_apply`. `verify:plugin` checks all of this through the
+real loader; `verify:proposal-tools` does the same for the four v2 proposal tools.
 
 ## 6. Run the gateway locally
 
@@ -199,15 +199,22 @@ local work does not touch a global `~/.openclaw` profile.
 - Governance parameters, storage, hosting and website contracts remain unresolved; see
   [decisions](decisions.md).
 
-## Optional: enabling the MVP Slack tools locally
+## Optional: enabling the database-backed Slack tools locally
 
-The MVP slice needs a Slack app in Socket Mode, one target workspace, approved proposal and Board
-channel IDs, and a database whose two migrations have been reviewed and applied by a person. The
-plugin config names server environment variables rather than carrying credentials:
+The slice needs a Slack app in Socket Mode, one target workspace, approved proposal and Board
+channel IDs, and a database whose migrations have been reviewed and applied by a person. The database
+names in this guide are the stable ones: the plugin now calls the tables and RPCs
+`<env>_rein_proposals`, `<env>_rein_polls`, `<env>_rein_ballots`, `<env>_rein_vote_types`,
+`<env>_rein_proposal_revisions`, `<env>_rein_finalize_poll` and `<env>_rein_approve_revision`. Those
+names arrive through the forward migration `20260927110000_rein_governance_names.sql`, ordered after
+the committed `20260927103000`; it is **not applied** to the linked project yet, so apply it before
+enabling this code. Until it is applied, the deployed database still answers on the old
+`<env>_rein_mvp_*` names, which the migration keeps reachable as compatibility views and wrappers.
+The plugin config names server environment variables rather than carrying credentials:
 
 ```json
 {
-  "mvp": {
+  "foundationDb": {
     "enabled": true,
     "platform": "slack",
     "slackTeamId": "T01234567",
@@ -263,7 +270,7 @@ Enabling it is four human steps; none of them is an Agent action:
 2. Put that app's bot token in the server environment variable named by `slackBotTokenEnvVar`, for
    example `REIN_SLACK_BOT_TOKEN`. Keep the value in the deployment's own secret store, outside git;
    never paste it into plugin config, a prompt, a result or a log.
-3. Set `identityEmailMatch` to `"enabled"` in the same `mvp` block, with `slackBotTokenEnvVar` naming
+3. Set `identityEmailMatch` to `"enabled"` in the same `foundationDb` block, with `slackBotTokenEnvVar` naming
    that variable. An `"enabled"` mode without a valid variable name fails the configuration instead
    of silently falling back to the link table.
 4. Seed one normalized email per contact in `<env>_contact_identities`. With no seeded rows the
@@ -278,7 +285,7 @@ another team is refused.
 
 A stored proposal must be the version its author confirmed (PRD §2.3 step 2). Because the MVP
 proposal table has no draft status or confirmation column, the registered
-`rein_mvp_proposal_submit` tool enforces this in two steps instead of storing a draft row:
+`rein_governance_proposal_submit` tool enforces this in two steps instead of storing a draft row:
 
 1. The first call, without `confirmationToken`, writes nothing and returns `status: "prepared"` with
    the canonical proposal text (`prepared`), a short-lived `confirmationToken`, and its `expiresAt`.

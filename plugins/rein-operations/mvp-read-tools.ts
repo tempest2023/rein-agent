@@ -34,7 +34,7 @@ import type { AvailableFunds, FoundationEnvironment, SlackMemberResolution } fro
 import { assertCurrentInvocation } from './request-context.ts';
 
 /** Names the caller must declare in the manifest and pass to `registerTool(..., { names })`. */
-export const MVP_READ_TOOL_NAMES = Object.freeze(['rein_mvp_my_status', 'rein_mvp_funds']);
+export const MVP_READ_TOOL_NAMES = Object.freeze(['rein_member_status', 'rein_funds']);
 
 export class MvpReadToolError extends Error {
   readonly code: string;
@@ -54,7 +54,7 @@ export interface MvpReadToolReader {
 
 export interface MvpReadToolsOptions {
   /**
-   * The `mvp` block of plugin config, read as untrusted input. Expected keys: `enabled`,
+   * The `foundationDb` block of plugin config, read as untrusted input. Expected keys: `enabled`,
    * `platform` (`slack`), `slackTeamId`, `environment` (`dev` or `prod`), `proposalChannelIds`,
    * `boardChannelIds`, `supabaseUrlEnvVar`, `supabaseServiceKeyEnvVar`, the optional
    * `identityEmailMatch` (`enabled` or `disabled`) and the optional `slackBotTokenEnvVar`. The
@@ -101,11 +101,11 @@ function configError(message: string): never {
 
 function readChannelIds(field: string, value: unknown): string[] {
   if (!Array.isArray(value) || value.length === 0) {
-    configError(`mvp.${field} must list at least one approved native channel ID`);
+    configError(`foundationDb.${field} must list at least one approved native channel ID`);
   }
   const channels = (value as unknown[]).map(id => (typeof id === 'string' ? id.trim() : ''));
   if (channels.some(id => !id)) {
-    configError(`mvp.${field} must contain non-empty native channel ID strings`);
+    configError(`foundationDb.${field} must contain non-empty native channel ID strings`);
   }
   return channels;
 }
@@ -113,7 +113,7 @@ function readChannelIds(field: string, value: unknown): string[] {
 /** Validate one environment-variable reference. Only the variable *name* is ever reported. */
 function readEnvReference(reference: unknown, field: string): string {
   if (typeof reference !== 'string' || !ENV_VAR_NAME_PATTERN.test(reference.trim())) {
-    configError(`mvp.${field} must name a server environment variable`);
+    configError(`foundationDb.${field} must name a server environment variable`);
   }
   return (reference as string).trim();
 }
@@ -126,7 +126,7 @@ function readEnvReference(reference: unknown, field: string): string {
 function readIdentityEmailMatch(value: unknown): 'enabled' | 'disabled' {
   if (value === undefined || value === null) return 'disabled';
   if (value === 'enabled' || value === 'disabled') return value;
-  configError('mvp.identityEmailMatch must be "enabled" or "disabled"');
+  configError('foundationDb.identityEmailMatch must be "enabled" or "disabled"');
 }
 
 /** Resolve one referenced value from the server environment, or fail without echoing it. */
@@ -135,7 +135,7 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
   if (typeof value !== 'string' || !value.trim()) {
     throw new MvpReadToolError(
       'mvp_env_value_missing',
-      `mvp read tools: server environment variable ${name} referenced by mvp.${field} is unset or empty`,
+      `mvp read tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
     );
   }
   return value.trim();
@@ -152,17 +152,17 @@ function resolveMvpReadConfig(options: MvpReadToolsOptions | undefined): Resolve
 
   // P0 uses exactly one chat platform, and this slice is Slack-only.
   if (config.platform !== 'slack') {
-    configError('mvp.platform must be "slack"; these tools read Slack host context only');
+    configError('foundationDb.platform must be "slack"; these tools read Slack host context only');
   }
   const slackTeamId = typeof config.slackTeamId === 'string' ? config.slackTeamId.trim() : '';
   if (!SLACK_ID_PATTERN.test(slackTeamId)) {
-    configError('mvp.slackTeamId must be one Slack team ID such as T01234567 (one workspace per installation)');
+    configError('foundationDb.slackTeamId must be one Slack team ID such as T01234567 (one workspace per installation)');
   }
   const proposalChannelIds = readChannelIds('proposalChannelIds', config.proposalChannelIds);
   const boardChannelIds = readChannelIds('boardChannelIds', config.boardChannelIds);
   const environment = config.environment;
   if (environment !== 'dev' && environment !== 'prod') {
-    configError("mvp.environment must be 'dev' or 'prod'; it chooses the database table set");
+    configError("foundationDb.environment must be 'dev' or 'prod'; it chooses the database table set");
   }
 
   // The configuration always names the server environment variables; the values are only read when
@@ -265,7 +265,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
 
   return [
     {
-      name: 'rein_mvp_my_status',
+      name: 'rein_member_status',
       description:
         'Report whether your own Slack account is linked to a community record, and whether that record is an active Contributor or a director. Answers about the trusted sender only, from the organization database, and never returns the private contact ID. Read-only: it grants no role and authorizes no spending.',
       parameters: Type.Object({}, { additionalProperties: false }),
@@ -277,7 +277,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           assertCurrentInvocation(ctx);
           const linked = member.status === 'resolved';
           const details = {
-            tool: 'rein_mvp_my_status',
+            tool: 'rein_member_status',
             ok: true,
             linked,
             status: member.status,
@@ -288,12 +288,12 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           };
           return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
         } catch (error) {
-          return errorResult('rein_mvp_my_status', error);
+          return errorResult('rein_member_status', error);
         }
       },
     },
     {
-      name: 'rein_mvp_funds',
+      name: 'rein_funds',
       description:
         'Read the latest human-entered available-funds snapshot for one currency, or report it as explicitly unknown when no usable snapshot exists. Limited to the trusted Board channel and to senders whose current community record is a director. Read-only: the figure never authorizes, reserves or releases spending.',
       parameters: Type.Object(
@@ -322,7 +322,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           // Final authority check before the answer leaves the turn.
           assertCurrentInvocation(ctx);
           const details = {
-            tool: 'rein_mvp_funds',
+            tool: 'rein_funds',
             ok: funds.status === 'snapshot',
             status: funds.status,
             reason: funds.reason,
@@ -336,7 +336,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           };
           return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
         } catch (error) {
-          return errorResult('rein_mvp_funds', error);
+          return errorResult('rein_funds', error);
         }
       },
     },

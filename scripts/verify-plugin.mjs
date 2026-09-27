@@ -64,7 +64,7 @@ try {
         'rein-operations': {
           enabled: true,
           config: {
-            mvp: {
+            foundationDb: {
               enabled: true,
               platform: 'slack',
               slackTeamId: 'T0123456ABC',
@@ -93,9 +93,9 @@ try {
   assert.deepEqual(
     mvp.report.tools.flatMap(tool => tool.names),
     [
-      'rein_mvp_my_status', 'rein_mvp_funds',
-      'rein_mvp_proposal_submit', 'rein_mvp_poll_open', 'rein_mvp_vote', 'rein_mvp_poll_result',
-      'rein_mvp_proposal_comment_suggest', 'rein_mvp_revision_approve', 'rein_mvp_revision_apply',
+      'rein_member_status', 'rein_funds',
+      'rein_governance_proposal_submit', 'rein_poll_open', 'rein_poll_vote', 'rein_poll_result',
+      'rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply',
       'rein_status',
     ],
   );

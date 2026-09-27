@@ -2,16 +2,25 @@
 
 The native plugin is separate from `vendor/openclaw` and imports only the public `openclaw/plugin-sdk/plugin-entry` seam. `rein_status` reports the development state. `rein_simulate_proposal` checks synthetic fields without granting approval; `rein_simulate_vote` runs a synthetic round with explicitly supplied rules and ballots. An explicitly configured, single-platform proposal bridge can additionally register `rein_proposal_create`, `rein_proposal_revise`, `rein_proposal_confirm` and `rein_proposal_submit`. It takes the account from OpenClaw's trusted v2 tool context and writes to a local proposal ledger. No registrar, payment, Board-vote or external publication tool is enabled. Real platform and registry adapters remain pending.
 
-An explicit `mvp` config block registers nine database-backed tools instead of the simulators and
-the proposal bridge: the reads `rein_mvp_my_status` and `rein_mvp_funds`, the writes
-`rein_mvp_proposal_submit`, `rein_mvp_poll_open`, `rein_mvp_vote` and `rein_mvp_poll_result`, and the
-post-result feedback tools `rein_mvp_proposal_comment_suggest`, `rein_mvp_revision_approve` and
-`rein_mvp_revision_apply`. The block names server environment variables for the Supabase URL and
-key, plus one for the proposal confirmation signature; no credential, project URL, Slack team ID or
+An explicit `foundationDb` config block registers nine database-backed tools instead of the simulators
+and the proposal bridge: the reads `rein_member_status` and `rein_funds`, the writes
+`rein_governance_proposal_submit`, `rein_poll_open`, `rein_poll_vote` and `rein_poll_result`, and the
+post-result feedback tools `rein_proposal_comment_suggest`, `rein_revision_approve` and
+`rein_revision_apply`. The block names server environment variables for the Supabase URL and key,
+plus one for the proposal confirmation signature; no credential, project URL, Slack team ID or
 private contact identifier reaches a result. Every tool reaches the database through the server-only
 key over PostgREST, no tool posts a Slack message, and no tool authorizes, reserves or pays money.
 
-`rein_mvp_proposal_submit` stores a proposal only after its author has confirmed the exact version.
+The longer interface names live in the database as `<env>_rein_proposals`, `<env>_rein_polls`,
+`<env>_rein_ballots`, `<env>_rein_vote_types` and `<env>_rein_proposal_revisions` with the
+`<env>_rein_finalize_poll` and `<env>_rein_approve_revision` RPCs. They replace the earlier
+`<env>_rein_mvp_*` tables and RPCs through the committed forward migration
+`20260927110000_rein_governance_names.sql`, ordered after the committed `20260927103000` migration;
+the old table and RPC names stay reachable as compatibility views and RPC wrappers during the
+transition. The migration is **not** applied to the linked project, so apply it before enabling this
+code; until then the deployed database answers on the old names only.
+
+`rein_governance_proposal_submit` stores a proposal only after its author has confirmed the exact version.
 The first call prepares: it writes nothing and returns the canonical proposal text plus a
 short-lived, server-signed `confirmationToken`. The Agent reads that text back to the proposer, and
 only a second call carrying the unchanged token together with `confirmPronouncedByAuthor: true`
@@ -34,10 +43,10 @@ today, no Slack workspace is connected, and nothing here is verified against a l
 
 Post-result feedback follows one confirmed rule with two sides. An **ordinary** revision, one that
 moves only the title or the summary, is accepted and made effective by the Agent itself: the Agent
-may apply a reasonable ordinary suggestion in the caller's turn through `rein_mvp_revision_apply`,
+may apply a reasonable ordinary suggestion in the caller's turn through `rein_revision_apply`,
 with no separate Board approval. A **material** revision — budget, location, schedule, personnel or
 the major event flow, with schedule material in the current implementation — cannot take effect
-until a current director records an approval through `rein_mvp_revision_approve`; the database
+until a current director records an approval through `rein_revision_approve`; the database
 trigger refuses it by name (`revision_not_approved`) until then. The tool layer limits all three
 feedback calls to the approved Board channel and to a sender whose linked community record is a
 current director, because the voters are the Board. The database row additionally permits an

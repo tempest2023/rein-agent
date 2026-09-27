@@ -7,19 +7,19 @@
 // are the Board, so the feedback call is a Board call: the sender must be a current director inside
 // the approved Board channel, and no configured proposal channel or Contributor record is accepted
 // as feedback authority. The database holds the effective-version rule: the
-// `rein_mvp_approve_revision` RPC records one approval from a current director, and the trigger on
+// `rein_approve_revision` RPC records one approval from a current director, and the trigger on
 // the proposal row refuses an unapproved material revision by name (`revision_not_approved`).
 //
 // The two sides of the rule are deliberately asymmetric. A material revision has a hard gate: one
 // current director's recorded approval before it can take effect. An ordinary revision - one that
-// only moves the title or the summary - has no second approval step at all: `rein_mvp_revision_apply`
+// only moves the title or the summary - has no second approval step at all: `rein_revision_apply`
 // is the Agent accepting a reasonable ordinary suggestion in the caller's turn, and no separate
 // approval RPC exists for it. That call still requires a current director inside the Board channel,
 // because the voters who may leave post-result feedback are the Board, and the Agent acts in their
 // turn rather than on an unattributed request.
 //
-// This module registers only under the explicit `mvp` config block, exactly like `mvp-read-tools.ts`
-// and `mvp-write-tools.ts`, and every wired path reaches only the writer methods
+// This module registers only under the explicit `foundationDb` config block, exactly like
+// `mvp-read-tools.ts` and `mvp-write-tools.ts`, and every wired path reaches only the writer methods
 // `foundation-db-writer.ts` exposes.
 //
 // Trust boundary, matching the other MVP slices:
@@ -51,9 +51,9 @@ import type { SlackMemberResolution } from './foundation-db-reader.ts';
 
 /** Names the caller must declare in the manifest and pass to `registerTool(..., { names })`. */
 export const MVP_FEEDBACK_TOOL_NAMES = Object.freeze([
-  'rein_mvp_proposal_comment_suggest',
-  'rein_mvp_revision_approve',
-  'rein_mvp_revision_apply',
+  'rein_proposal_comment_suggest',
+  'rein_revision_approve',
+  'rein_revision_apply',
 ]);
 
 export class MvpFeedbackToolError extends Error {
@@ -200,11 +200,11 @@ function configError(message: string): never {
 
 function readChannelIds(field: string, value: unknown): string[] {
   if (!Array.isArray(value) || value.length === 0) {
-    configError(`mvp.${field} must list at least one approved native channel ID`);
+    configError(`foundationDb.${field} must list at least one approved native channel ID`);
   }
   const channels = (value as unknown[]).map(id => (typeof id === 'string' ? id.trim() : ''));
   if (channels.some(id => !id)) {
-    configError(`mvp.${field} must contain non-empty native channel ID strings`);
+    configError(`foundationDb.${field} must contain non-empty native channel ID strings`);
   }
   return channels;
 }
@@ -212,7 +212,7 @@ function readChannelIds(field: string, value: unknown): string[] {
 /** Validate one environment-variable reference. Only the variable *name* is ever reported. */
 function readEnvReference(reference: unknown, field: string): string {
   if (typeof reference !== 'string' || !ENV_VAR_NAME_PATTERN.test(reference.trim())) {
-    configError(`mvp.${field} must name a server environment variable`);
+    configError(`foundationDb.${field} must name a server environment variable`);
   }
   return (reference as string).trim();
 }
@@ -225,7 +225,7 @@ function readEnvReference(reference: unknown, field: string): string {
 function readIdentityEmailMatch(value: unknown): 'enabled' | 'disabled' {
   if (value === undefined || value === null) return 'disabled';
   if (value === 'enabled' || value === 'disabled') return value;
-  configError('mvp.identityEmailMatch must be "enabled" or "disabled"');
+  configError('foundationDb.identityEmailMatch must be "enabled" or "disabled"');
 }
 
 /** Resolve one referenced value from the server environment, or fail without echoing it. */
@@ -234,7 +234,7 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
   if (typeof value !== 'string' || !value.trim()) {
     throw new MvpFeedbackToolError(
       'mvp_env_value_missing',
-      `mvp feedback tools: server environment variable ${name} referenced by mvp.${field} is unset or empty`,
+      `mvp feedback tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
     );
   }
   return value.trim();
@@ -251,11 +251,11 @@ function resolveMvpFeedbackConfig(options?: MvpFeedbackToolsOptions): ResolvedMv
 
   // P0 uses exactly one chat platform, and this slice is Slack-only.
   if (config.platform !== 'slack') {
-    configError('mvp.platform must be "slack"; these tools act on Slack host context only');
+    configError('foundationDb.platform must be "slack"; these tools act on Slack host context only');
   }
   const slackTeamId = typeof config.slackTeamId === 'string' ? config.slackTeamId.trim() : '';
   if (!SLACK_ID_PATTERN.test(slackTeamId)) {
-    configError('mvp.slackTeamId must be one Slack team ID such as T01234567 (one workspace per installation)');
+    configError('foundationDb.slackTeamId must be one Slack team ID such as T01234567 (one workspace per installation)');
   }
   // The proposal channel is validated because one block configures every MVP slice, but it is not
   // the feedback scope: C15 feedback comes from the voters, who act in the Board channel.
@@ -263,7 +263,7 @@ function resolveMvpFeedbackConfig(options?: MvpFeedbackToolsOptions): ResolvedMv
   const boardChannelIds = readChannelIds('boardChannelIds', config.boardChannelIds);
   const environment = config.environment;
   if (environment !== 'dev' && environment !== 'prod') {
-    configError("mvp.environment must be 'dev' or 'prod'; it chooses the database table set");
+    configError("foundationDb.environment must be 'dev' or 'prod'; it chooses the database table set");
   }
 
   // The configuration always names the server environment variables; the values are only read when
@@ -620,9 +620,9 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
 
   return [
     {
-      name: 'rein_mvp_proposal_comment_suggest',
+      name: 'rein_proposal_comment_suggest',
       description:
-        'Record one comment or one suggested revision on a proposal that passed, after its result. Feedback is limited to the approved Board channel and to senders whose current community record is a director, which is who voted; the author is your own linked record and never an argument. Name the fields the suggestion would move in changedFields and give exactly their new values; an empty changedFields with a note is a comment. A suggested title or summary change is an ordinary revision: the Agent may accept a reasonable one and make it effective on its own, with no further approval, by calling rein_mvp_revision_apply. A suggested budget, location, schedule, personnel or major event-flow change is material, and it cannot take effect until a current director records an approval through rein_mvp_revision_approve; the result names that gate in approvalRequired and in approvalGate. Recording a suggestion applies nothing by itself. A retry of the same tool call in this turn is the same record.',
+        'Record one comment or one suggested revision on a proposal that passed, after its result. Feedback is limited to the approved Board channel and to senders whose current community record is a director, which is who voted; the author is your own linked record and never an argument. Name the fields the suggestion would move in changedFields and give exactly their new values; an empty changedFields with a note is a comment. A suggested title or summary change is an ordinary revision: the Agent may accept a reasonable one and make it effective on its own, with no further approval, by calling rein_revision_apply. A suggested budget, location, schedule, personnel or major event-flow change is material, and it cannot take effect until a current director records an approval through rein_revision_approve; the result names that gate in approvalRequired and in approvalGate. Recording a suggestion applies nothing by itself. A retry of the same tool call in this turn is the same record.',
       parameters: Type.Object(
         {
           proposalId: Type.String({ minLength: 1, maxLength: 64, description: 'Stored proposal identifier' }),
@@ -719,7 +719,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           });
           const material = materialFields(changedFields);
           const details = {
-            tool: 'rein_mvp_proposal_comment_suggest',
+            tool: 'rein_proposal_comment_suggest',
             ok: written.ok,
             status: written.status,
             reason: written.reason,
@@ -743,12 +743,12 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           };
           return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
         } catch (error) {
-          return errorResult('rein_mvp_proposal_comment_suggest', error);
+          return errorResult('rein_proposal_comment_suggest', error);
         }
       },
     },
     {
-      name: 'rein_mvp_revision_approve',
+      name: 'rein_revision_approve',
       description:
         'Record your one approval of a recorded suggested revision on a proposal that passed, limited to the approved Board channel and to senders whose current community record is a director. This is the hard gate on a material revision: one that moves budget, location, schedule, personnel or the major event flow cannot take effect until at least one current director has recorded this approval. An ordinary revision that only moves the title or the summary has no such gate and does not need this call, because the Agent may accept a reasonable ordinary suggestion on its own. The approver is your own current director record, never an argument; an approval already recorded by another director is reported, never replaced, and the database re-checks that the approver is a current director. An approval moves no money and posts no message.',
       parameters: Type.Object(
@@ -797,7 +797,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           const stored = written.revision;
           const material = materialFields(stored.changedFields);
           const details = {
-            tool: 'rein_mvp_revision_approve',
+            tool: 'rein_revision_approve',
             ok: true,
             status: written.status,
             reason: written.reason,
@@ -818,14 +818,14 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           };
           return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
         } catch (error) {
-          return errorResult('rein_mvp_revision_approve', error);
+          return errorResult('rein_revision_approve', error);
         }
       },
     },
     {
-      name: 'rein_mvp_revision_apply',
+      name: 'rein_revision_apply',
       description:
-        'Make one recorded suggested revision the effective version of a proposal that passed. This call is the Agent accepting a reasonable ordinary suggestion in the caller\'s turn: a revision that only moves the title or the summary becomes effective here, and no separate Board approval is required for it. A material revision that moves budget, location, schedule, personnel or the major event flow is a different path: it is refused with the approval gate until a current director has recorded an approval through rein_mvp_revision_approve, and the database decides which fields are material and which recorded approval counts. Limited to the approved Board channel and to senders whose current community record is a director, because the voters who may leave post-result feedback are the Board. A comment is never applied, a revision that is already effective is reported instead of applied twice, and the database assigns the new version. Applying a revision moves no money.',
+        'Make one recorded suggested revision the effective version of a proposal that passed. This call is the Agent accepting a reasonable ordinary suggestion in the caller\'s turn: a revision that only moves the title or the summary becomes effective here, and no separate Board approval is required for it. A material revision that moves budget, location, schedule, personnel or the major event flow is a different path: it is refused with the approval gate until a current director has recorded an approval through rein_revision_approve, and the database decides which fields are material and which recorded approval counts. Limited to the approved Board channel and to senders whose current community record is a director, because the voters who may leave post-result feedback are the Board. A comment is never applied, a revision that is already effective is reported instead of applied twice, and the database assigns the new version. Applying a revision moves no money.',
       parameters: Type.Object(
         { revisionId: Type.String({ minLength: 1, maxLength: 64, description: 'Stored revision identifier' }) },
         { additionalProperties: false },
@@ -861,7 +861,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           const material = materialFields(revision.changedFields);
           if (material.length > 0 && revision.approvedByContactId === null) {
             const details = {
-              tool: 'rein_mvp_revision_apply',
+              tool: 'rein_revision_apply',
               ok: false as const,
               status: 'refused' as const,
               error: 'revision_not_approved',
@@ -892,7 +892,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           }
           const applied = written.version;
           const details = {
-            tool: 'rein_mvp_revision_apply',
+            tool: 'rein_revision_apply',
             ok: true,
             status: written.status,
             reason: written.reason,
@@ -928,7 +928,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           };
           return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
         } catch (error) {
-          return errorResult('rein_mvp_revision_apply', error);
+          return errorResult('rein_revision_apply', error);
         }
       },
     },

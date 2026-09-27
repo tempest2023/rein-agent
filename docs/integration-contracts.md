@@ -30,10 +30,12 @@ default.
 
 The slice's migrations live in the sibling Foundation repository `tempest2023/ReinProtocolFoundation`,
 which carries them on branch `tempest/agent-mvp-schema-and-welcome-email` (PR #13, open). The
-committed branch head is `32977bfb6cd6ae73b81aa4b396f9ae1cb67d2ac8` ("Make the database clock
-authoritative for ballot `cast_at`", 2026-09-27); the two MVP schema commits below are its
-ancestors and were first authored at `4bd5ce8` ("Add the Rein Agent MVP Slack identity, fund
-snapshot, and governance schema", 2026-09-26). The sibling repo holds pgTAP coverage in
+committed branch head is `f15c7eabbc65a4ec998125632d62db05e9aec6f4` ("Adopt long-term Rein
+governance names with legacy passthroughs", 2026-09-27); the two MVP schema commits below and the
+clock commit `32977bfb6cd6ae73b81aa4b396f9ae1cb67d2ac8` ("Make the database clock authoritative
+for ballot `cast_at`", 2026-09-27) are its ancestors, and the two schema files were first authored
+at `4bd5ce8` ("Add the Rein Agent MVP Slack identity, fund snapshot, and governance schema",
+2026-09-26). The sibling repo holds pgTAP coverage in
 `supabase/tests/rein_mvp_governance.sql`, `supabase/tests/rls.sql` and
 `supabase/tests/environment_parity.sql`, at a local plan count of 187 assertions (187/187, run
 twice in an isolated container at the current sibling head). The two **applied** migrations are
@@ -43,31 +45,42 @@ verified read-only on 2026-09-27 with `supabase migration list --linked` against
 | Migration | Adds |
 | --- | --- |
 | `20260924094436_rein_slack_identity_and_fund_snapshots.sql` | `rein_slack_links` and append-only `rein_fund_snapshots`, in both table sets |
-| `20260924095705_rein_mvp_proposals_polls_ballots.sql` | `rein_mvp_proposals`, `rein_mvp_polls` and `rein_mvp_ballots`, in both table sets |
+| `20260924095705_rein_mvp_proposals_polls_ballots.sql` | proposals, polls and ballots (originally `rein_mvp_proposals`, `rein_mvp_polls` and `rein_mvp_ballots`), in both table sets |
 
 The sibling branch now carries a third, **unapplied** migration:
-`20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`. It is committed at `32977bfb`, but the linked
-remote project does not have it; the database clock being authoritative for a ballot's `cast_at` is
-therefore **not in effect anywhere** yet. Applying it needs its own reviewed `supabase db push`, and
-no document here may be read as claiming it is applied.
+`20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`. It was committed at `32977bfb` and is still
+present at the current head `f15c7ea`, but the linked remote project does not have it; the database
+clock being authoritative for a ballot's `cast_at` is therefore **not in effect anywhere** yet.
+Applying it needs its own reviewed `supabase db push`, and no document here may be read as claiming
+it is applied.
+
+A fourth sibling migration is committed in PR #13 but **unapplied**:
+`20260927110000_rein_governance_names.sql`, committed at `f15c7ea` and ordered after `20260927103000`.
+It renames the five physical tables from `<env>_rein_mvp_*` to their long-term names and renames the
+two RPCs, then keeps the old table and RPC names reachable as read/write compatibility views and RPC
+wrappers for the transition. It is not applied to the linked project, so the deployed database still
+answers on the old names.
 
 **Applied order and compatibility.** They apply in filename order after the earlier community
 migrations (the `202608120001` and `202608130001` families, which already provide
 `<env>_contact_identities`): `20260924094436` first, then `20260924095705`. The second migration is
 additive to the first and defines the phase-2 shapes this slice uses (vote types, the approve-only
-ballot, the frozen candidate list, the `<env>_rein_mvp_finalize_poll` and
-`<env>_rein_mvp_approve_revision` RPCs), so the two are forward-compatible when applied in that
-order. Each migration creates the `dev_*` and `prod_*` objects in the same transaction (the first
-defines both table families explicitly, the second loops over `array['dev_', 'prod_']`), and
-`supabase migration list --linked` is project-level, so the applied schema covers both prefixes. The
-local app's `DATABASE_ENVIRONMENT=dev` is only a client-side default for which prefix a request
-reads; it is not evidence that only the `dev_*` schema exists.
+ballot, the frozen candidate list, the `<env>_rein_finalize_poll` and
+`<env>_rein_approve_revision` RPCs, created at that time under the old `mvp` names), so the two are forward-compatible when applied in that order.
+Each migration creates the `dev_*` and `prod_*` objects in the same transaction (the first defines
+both table families explicitly, the second loops over `array['dev_', 'prod_']`), and `supabase
+migration list --linked` is project-level, so the applied schema covers both prefixes. The local
+app's `DATABASE_ENVIRONMENT=dev` is only a client-side default for which prefix a request reads; it
+is not evidence that only the `dev_*` schema exists.
 
-**Migration order to apply.** The three sibling migrations apply in filename order after the
-`202608120001` / `202608130001` families: `20260924094436`, `20260924095705`, then
-`20260927103000`. The first two are already applied to the linked project; only the third is
-pending, and only a human-run `supabase db push` puts the clock rule into the linked project. When
-it is applied, both the `dev_*` and `prod_*` guards are the ones that assign `NEW.cast_at := now()`
+**Migration order to apply.** The sibling migrations apply in filename order after the
+`202608120001` / `202608130001` families: `20260924094436`, `20260924095705`, `20260927103000`,
+then `20260927110000`. The first two are already applied to the linked project; the third and fourth
+are pending, and only a human-run `supabase db push` (or an equivalent reviewed step) puts them into
+the linked project. Apply `20260927103000` before `20260927110000`, and apply the rename migration
+`20260927110000` before enabling agent code that calls the new tool, table or RPC names; until then
+the deployed schema and RPCs answer on the old `<env>_rein_mvp_*` names. When the clock migration is
+applied, both the `dev_*` and `prod_*` guards are the ones that assign `NEW.cast_at := now()`
 before the window check, because the sibling migration loops over both prefixes.
 
 **What the applied migrations do not prove.** Applying a migration is not the same as the Agent
@@ -117,9 +130,9 @@ Required contract properties:
   when the record was written.
 
 **Enforcement status.** The approve-only rule above is now the registered code path.
-`rein_mvp_poll_open` refuses a caller-supplied candidate list, cap or option label
+`rein_poll_open` refuses a caller-supplied candidate list, cap or option label
 (`policy_argument_rejected`, and `legacy_options_unsupported` at the write layer) and assembles the
-pool from stored proposals of the named vote type; `rein_mvp_vote` accepts `approvedProposalIds`
+pool from stored proposals of the named vote type; `rein_poll_vote` accepts `approvedProposalIds`
 only, an empty list is the abstention, and the database freezes the candidate list and both limits
 at insert time. The local migrations are the source of that enforcement. They are reviewed and
 committed in the sibling Foundation repository (`tempest2023/ReinProtocolFoundation`) and applied to
@@ -128,25 +141,28 @@ against that project: the enforcement described above is proven by local tests o
 here is a live end-to-end result. The concrete per-type cap and approval-budget values remain
 unapproved operator configuration.
 
-## Pending release gate: MVP naming removal
+## Naming and the rename migration
 
-A pre-launch review asks for the `mvp` naming to be removed across tools, tables, config and skills.
-That rename is **not done in this PR and must not be read as done**. Because the two migrations above
-are already applied to the linked project, the table and RPC names cannot be edited in place: the
-rename needs a **forward-compatibility migration** that creates the new names, keeps the existing
-`<env>_rein_mvp_*` names working for callers during the transition, and moves them over in a
-reviewed step. Until that migration exists and is applied, every current name below is authoritative:
+A pre-launch review asked for the `mvp` naming to be removed across tools, tables, config and skills.
+The names below are the current, stable interfaces. The plugin and its configuration use them today;
+the database reaches them through the forward migration `20260927110000_rein_governance_names.sql`,
+which is committed in PR #13 (at head `f15c7ea`) but **not applied** to the linked project. The
+migration renames the physical tables and RPCs and keeps the earlier `<env>_rein_mvp_*` table and RPC
+names reachable as read/write compatibility views and RPC wrappers during the transition. Apply the
+migration before enabling agent code that calls the new names; until then the deployed database still
+answers on the old names.
 
-| Interface | Names that would move |
+| Interface | Current names |
 | --- | --- |
-| Registered tools | `rein_mvp_my_status`, `rein_mvp_funds`, `rein_mvp_proposal_submit`, `rein_mvp_poll_open`, `rein_mvp_vote`, `rein_mvp_poll_result`, `rein_mvp_proposal_comment_suggest`, `rein_mvp_revision_approve`, `rein_mvp_revision_apply` |
-| Plugin config block | the `mvp` object under `plugins.entries.rein-operations.config`, including its `enabled` flag |
-| Tables | `<env>_rein_mvp_proposals`, `<env>_rein_mvp_polls`, `<env>_rein_mvp_ballots`, `<env>_rein_mvp_vote_types`, `<env>_rein_mvp_proposal_revisions` |
-| RPCs | `<env>_rein_mvp_finalize_poll`, `<env>_rein_mvp_approve_revision` |
-| Docs and skills | every reference to the names above, including this file, the acceptance matrix, the decision register and the agent test cases |
+| Registered tools | `rein_member_status`, `rein_funds`, `rein_governance_proposal_submit`, `rein_poll_open`, `rein_poll_vote`, `rein_poll_result`, `rein_proposal_comment_suggest`, `rein_revision_approve`, `rein_revision_apply` |
+| Plugin config block | the `foundationDb` object under `plugins.entries.rein-operations.config`, including its `enabled` flag |
+| Tables | `<env>_rein_proposals`, `<env>_rein_polls`, `<env>_rein_ballots`, `<env>_rein_vote_types`, `<env>_rein_proposal_revisions` |
+| RPCs | `<env>_rein_finalize_poll`, `<env>_rein_approve_revision` |
+| Compatibility names | `<env>_rein_mvp_*` tables and RPCs, kept alive by the rename migration's views and wrappers until callers move over |
 
-The gate is a release condition, not a defect in this PR: the tables and RPCs are already applied to
-the linked dev project, so a rename is a schema change with its own review, not a wording edit.
+The migration is a release gate, not a wording edit: the tables and RPCs are already applied to the
+linked dev project, so the rename is a schema change with its own review. No document claims it is
+applied or live.
 
 ## Money boundary
 
@@ -174,9 +190,12 @@ broader PRD is deferred.
 
 Everything below is a human step with a review; no Agent tool performs it.
 
-1. Both migrations are already applied to the linked project in filename order and define both the
-   `dev_*` and `prod_*` objects, so no further schema step is pending for either prefix there. Apply
-   them to any new environment in the same order, and never from a script that also runs the Agent.
+1. The two base migrations (`20260924094436` and `20260924095705`) are already applied to the linked
+   project in filename order and define both the `dev_*` and `prod_*` objects. The clock migration
+   (`20260927103000`) and the rename migration (`20260927110000`) are still pending there. Apply the
+   pending two in filename order, the clock migration first, then the rename; apply the rename before
+   enabling agent code that calls the new names. Apply them to any new environment in the same order,
+   and never from a script that also runs the Agent.
 2. Seed the email-to-contact identity rows (`<env>_contact_identities`), Contributor and director
    records, and an initial funds snapshot by hand, or through a reviewed administrative path. Do not
    seed fabricated people into a live environment.
@@ -186,7 +205,8 @@ Everything below is a human step with a review; no Agent tool performs it.
    app, the resolver stays off and every sender is unresolved.
 4. Record the approved native channel IDs and the one workspace ID in operator configuration, and
    point the two Supabase environment variables at server-side secrets.
-5. Enable the `mvp` config block explicitly. Until then, no MVP tool is registered.
+5. Enable the `foundationDb` config block explicitly. Until then, no database-backed tool is
+   registered.
 
 ## Not in this slice
 
