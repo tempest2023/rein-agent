@@ -47,15 +47,20 @@ migrations (the `202608120001` and `202608130001` families, which already provid
 additive to the first and defines the phase-2 shapes this slice uses (vote types, the approve-only
 ballot, the frozen candidate list, the `<env>_rein_mvp_finalize_poll` and
 `<env>_rein_mvp_approve_revision` RPCs), so the two are forward-compatible when applied in that
-order. The application was verified against the linked project with `DATABASE_ENVIRONMENT=dev`, so
-the applied rows are the `dev_*` table set; the `prod_*` set was not exercised and stays a separate
-decision. A later sibling change may add a further migration on top of `4bd5ce8`; that change is not
-part of this verified set, and no document here should be read as claiming it is applied.
+order. Each migration creates the `dev_*` and `prod_*` objects in the same transaction (the first
+defines both table families explicitly, the second loops over `array['dev_', 'prod_']`), and
+`supabase migration list --linked` is project-level, so the applied schema covers both prefixes. The
+local app's `DATABASE_ENVIRONMENT=dev` is only a client-side default for which prefix a request
+reads; it is not evidence that only the `dev_*` schema exists. A later sibling change may add a
+further migration on top of `4bd5ce8`; that change is not part of this verified set, and no document
+here should be read as claiming it is applied.
 
 **What the applied migrations do not prove.** Applying a migration is not the same as the Agent
-using it. No Slack workspace is connected, the Agent has no live database connection, and no
-end-to-end read, write or vote has run against the linked project. Every tool result in this PR is
-from local modules and synthetic tests.
+using it, and schema registration is not proof of any row. No Slack workspace is connected, the
+Agent has no live database connection, and no end-to-end read, write or vote has run against either
+prefix. Neither the `dev_*` nor the `prod_*` table set has verified data or verified Agent use, and
+the `prod_*` set is not a separate schema step to schedule: the objects already exist there. Every
+tool result in this PR is from local modules and synthetic tests.
 
 Required contract properties:
 
@@ -154,9 +159,9 @@ broader PRD is deferred.
 
 Everything below is a human step with a review; no Agent tool performs it.
 
-1. Both migrations are already applied to the linked project's `dev_*` set, in filename order; apply
-   them to `prod_*` only after a separate decision, and to any new environment in the same order.
-   Never apply them from a script that also runs the Agent.
+1. Both migrations are already applied to the linked project in filename order and define both the
+   `dev_*` and `prod_*` objects, so no further schema step is pending for either prefix there. Apply
+   them to any new environment in the same order, and never from a script that also runs the Agent.
 2. Seed the email-to-contact identity rows (`<env>_contact_identities`), Contributor and director
    records, and an initial funds snapshot by hand, or through a reviewed administrative path. Do not
    seed fabricated people into a live environment.

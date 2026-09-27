@@ -24,8 +24,9 @@ Six MVP tools exist against the organization's own database — `rein_mvp_my_sta
 and `rein_mvp_poll_result` write proposals, polls and ballots. They register **only** when an explicit
 `mvp` config block enables them, and enabling it hides the simulators and the legacy proposal tools.
 Two database migrations for that slice are committed in the sibling Foundation repository and applied
-to the linked `BeneficenceProtocol` project's `dev_*` table set (verified read-only 2026-09-27);
-`prod_*` is not applied, and no Agent tool has used the schema.
+to the linked `BeneficenceProtocol` project (verified read-only 2026-09-27). Each migration defines
+both the `dev_*` and `prod_*` objects in one transaction, so the applied schema covers both prefixes;
+what is not verified is any row or Agent use in either set.
 
 No Slack workspace, Discord, Foundation website or real member data is connected, and the Agent has no
 live database connection. A passed vote is a decision record: payments, reservations and publishing are not enabled,

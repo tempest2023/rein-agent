@@ -4,7 +4,7 @@
 
 Rein Agent 继续以官方 OpenClaw 源码作为运行时，业务代码只放在 `plugins/rein-operations/`。本次交付是**可重复验证的本地业务核心与开发演练**，不是已接入真实成员和资金的 NGO 生产系统。已确认的一项：**P0 用 Slack 作为唯一聊天平台**；**过渡期内成员、董事与可用资金以组织自有数据库为准**（Foundation 站点 Supabase，隔离的 `dev_*` 与 `prod_*` 表集），Slack 帐号只有在显式关联到社群记录后才起作用。仍未确认的是：加权投票与董事权重、权威会员名册的具体来源与同步方式、可用资金来源与其责任人、网站 API、材料保存期限和异常负责人。投票形态已确认（只投赞成票、没有反对、弃权不产生赞成票、按类型候选名额与每人批准额度、赞成票最高者通过、全员弃权不产生赢家、最高票并列不宣布正式赢家），但各类型的具体数值与平票口径仍待登记。`config/operations.example.json` 保持未批准状态；空白值不能解释为授权。
 
-**没有生产连接器验收。** 「Slack P0」与「自有数据库」是已确认的产品方向，不是已连通的集成：真实 Slack 应用与工作区尚未接入，Agent 也没有连接数据库，没有任何真实聊天、数据库或资金接口的端到端证据。两个迁移已提交（姊妹仓库 `tempest2023/ReinProtocolFoundation` 的 `4bd5ce8`），并已按文件名顺序应用到**已链接的 `BeneficenceProtocol` 项目**（project ref `ksgyfyysnojqrwfuyqwe`，`DATABASE_ENVIRONMENT=dev`，2026-09-27 以 `supabase migration list --linked` 只读核对，两个版本均显示为已应用）；这是**已应用但未被 Agent 使用**：schema 落在项目里，不等于有任何工具真的读写过它，`prod_*` 表集也未执行。本文件其余部分把本地 SQL 与自动测试的结果，与真实 Slack／生产环境的验收严格分开陈述。
+**没有生产连接器验收。** 「Slack P0」与「自有数据库」是已确认的产品方向，不是已连通的集成：真实 Slack 应用与工作区尚未接入，Agent 也没有连接数据库，没有任何真实聊天、数据库或资金接口的端到端证据。两个迁移已提交（姊妹仓库 `tempest2023/ReinProtocolFoundation` 的 `4bd5ce8`），并已按文件名顺序应用到**已链接的 `BeneficenceProtocol` 项目**（project ref `ksgyfyysnojqrwfuyqwe`，2026-09-27 以 `supabase migration list --linked` 只读核对，两个版本均显示为已应用）。两个迁移都在同一事务里定义 `dev_*` 与 `prod_*` 两套对象，`migration list` 又是项目级，因此**已应用的 schema 覆盖两个前缀**；应用里的 `DATABASE_ENVIRONMENT=dev` 只是客户端默认读哪一套，不等于只有 `dev_*` 建成了。这是**已应用但未被 Agent 使用**：schema 落在项目里，不等于有任何工具真的读写过它，两套表集的数据与使用情况都未验证。本文件其余部分把本地 SQL 与自动测试的结果，与真实 Slack／生产环境的验收严格分开陈述。
 
 业务核心覆盖提案与身份资格、投票计数与资金竞争、活动跟进与成果材料的确定性规则。`ledger.ts` 为本地演练提供原子快照、操作幂等回执和审计记录。外部频道、支付和网站发布均未连接。OpenClaw 插件默认提供状态、提案模拟和投票模拟工具；四个提案工具只在明确配置后注册，且帐号只取自宿主可信上下文。治理工具桥 `governance-tool-bridge.ts` 尚未在插件入口注册，也没有已批准的实时名册与平台。任何工具参数中自称的会员身份都不能视作已认证身份。
 
@@ -73,10 +73,10 @@ MVP 方向已落地 9 个工具，且**只在显式 `mvp` 配置块下注册**�
 
 1. **准备官方 Slack 插件与 Socket Mode。** 使用 `vendor/openclaw` 里随固定提交一起发布的官方 `slack` 插件，走 Socket Mode，不需要公网回调地址。在 Slack 侧创建应用、启用 Socket Mode、安装到唯一的目标工作区，并把 Bot 邀请进已批准的提案频道与 Board 频道。官方插件按 `mode: socket` 解析凭据：Socket Mode 需要 bot token 与 app-level token；签名密钥只在 HTTP 模式下才需要。若之后要启用 D13 的邮箱身份匹配，治理 Bot 应用还需安装 `users:read` 与 `users:read.email` 两个 Bot scope（目前未安装），并把该应用自己的 bot token 放进 `slackBotTokenEnvVar` 指向的服务端环境变量。
 2. **只放服务端环境变量引用。** 凭据只通过服务端环境变量或运行时自带的密钥存储注入，配置里只写变量名。仓库中不得出现任何令牌、签名密钥或工作区 ID；`scripts/check.mjs` 也会拒绝在插件文件里出现形如 JWT 或 `sb_secret_` 的字面量。工作区 ID 不是密钥，但同样不进仓库：它写进部署侧配置。
-3. **数据库迁移由人执行，并已对已链接项目完成。** 姊妹仓库的两个迁移已按文件名顺序应用到已链接的 `BeneficenceProtocol` 项目（project ref `ksgyfyysnojqrwfuyqwe`，`DATABASE_ENVIRONMENT=dev`）：2026-09-27 以 `supabase migration list --linked` 只读核对，两个版本都显示为已应用，`dev_*` 表集即为实际落库的表集。新增环境仍需按同一顺序复核应用：
+3. **数据库迁移由人执行，并已对已链接项目完成。** 姊妹仓库的两个迁移已按文件名顺序应用到已链接的 `BeneficenceProtocol` 项目（project ref `ksgyfyysnojqrwfuyqwe`）：2026-09-27 以 `supabase migration list --linked` 只读核对，两个版本都显示为已应用。两个迁移各自在同一事务里定义 `dev_*` 与 `prod_*` 对象（第二个迁移显式循环 `array['dev_', 'prod_']`），因此两套 schema 都已建好；新增环境仍需按同一顺序复核应用：
    - `20260924094436_rein_slack_identity_and_fund_snapshots.sql`：身份关联表与只追加的可用资金快照表。
    - `20260924095705_rein_mvp_proposals_polls_ballots.sql`：提案、投票、选票三张表，投票类型表 `rein_mvp_vote_types`（含 `max_candidates` 与 `max_approvals_per_voter`）、修订记录表 `rein_mvp_proposal_revisions` 与 `effective_revision_id` 列，以及冻结候选名单、按当前董事校验选票、`rein_mvp_finalize_poll` 计票与 `rein_mvp_approve_revision` 重大修订批准的触发器与 RPC。
-   两者都已在姊妹仓库 `4bd5ce8` 提交并应用到上述已链接项目；**已应用不等于已被 Agent 使用**：没有任何工具真的读写过这些表，也没有端到端证据。`prod_*` 表集尚未执行，要另做一次独立决定，不要用同一条自动化脚本顺带跑完。姊妹仓库之后若再新增迁移（例如选票 `cast_at` 的时钟调整），那是另一份**未包含在本次核对结果内**的变更，不得据此声称已应用。迁移不含具体的名额／批准额度数值：`rein_mvp_vote_types` 的行由人播种，结果由 RPC 在截止时按已存选票计算，不含政策默认值。
+   两者都已在姊妹仓库 `4bd5ce8` 提交并应用到上述已链接项目，且同时覆盖 `dev_*` 与 `prod_*` 两套对象；**已应用不等于已被 Agent 使用**：没有任何工具真的读写过这些表，也没有端到端证据，两套表集里的数据都未经核对。向 `prod_*` 写入真实数据要另做一次独立决定。姊妹仓库之后若再新增迁移（例如选票 `cast_at` 的时钟调整），那是另一份**未包含在本次核对结果内**的变更，不得据此声称已应用。迁移不含具体的名额／批准额度数值：`rein_mvp_vote_types` 的行由人播种，结果由 RPC 在截止时按已存选票计算，不含政策默认值。
 4. **播种也由人做。** 邮箱到联系人的身份行（`<env>_contact_identities`，每行一个规范化邮箱与一个唯一联系人）、Contributor 的 `active` 状态、董事的 `person_type`、第一条可用资金快照，以及每个提案类型在 `rein_mvp_vote_types` 中的 `max_candidates` 与 `max_approvals_per_voter` 都由人直接写库或走已复核的管理路径；Agent 不会创建这些记录，也不提供注册工具。具体名额与批准额度属运维配置，须组织批准后再写入；不要往真实环境灌入虚构人员。
 5. **记录已批准的频道 ID 与那一个工作区。** 提案频道与 Board 频道的原生 Slack 频道 ID 都要事先批准并写进配置；`slackTeamId` 必须正好是被服务的那个工作区。一个部署只服务一个工作区，因为 v2 工具上下文不带团队 ID；把同一部署指向多个工作区会让发送者匹配到错误的社群记录。
 6. **显式启用 `mvp` 配置块。** 在隔离网关的 `runtime/openclaw/openclaw.json` 中，为 `plugins.entries.rein-operations.config` 增加 `mvp` 对象，字段为 `enabled`、`platform: "slack"`、`slackTeamId`、`environment`（`dev` 或 `prod`，无隐式默认）、`proposalChannelIds`、`boardChannelIds`、`supabaseUrlEnvVar`、`supabaseServiceKeyEnvVar`，以及可选的 `identityEmailMatch`（默认 `disabled`，只有设为 `enabled` 时才需要 `slackBotTokenEnvVar` 命名一个已配置好的服务端变量）。配置里只写变量名，绝不写 token 值；未设置 `enabled: true` 时 9 个 MVP 工具都不注册。
@@ -142,7 +142,7 @@ MVP 方向已落地 9 个工具，且**只在显式 `mvp` 配置块下注册**�
 
    `discord` 仅示意配置格式，并非组织已选择的平台；也可填 `slack`，P0 只能启用一个。未明确设置 `enabled: true` 时四个提案业务工具不注册。当前插件尚未连接权威名册提供方，因此即使启用这四个工具，正式确认与提交也会返回 `authoritative_registry_required`；草稿与修订可用于隔离试运行。测试中的合成名册授权回调不能用于生产。当前工具调用 ID 只保证同一次调用重试的幂等，无法代替可信入站消息 ID 的跨调用唯一性验收。
 
-   若要试运行 MVP 切片，请改用同一个配置文件里的 `mvp` 块（完整步骤见上面的部署手册）：`enabled`、`platform: "slack"`、`slackTeamId`、`environment`（`dev` 或 `prod`，无隐式默认）、`proposalChannelIds`、`boardChannelIds`、`supabaseUrlEnvVar` 与 `supabaseServiceKeyEnvVar`。Supabase 地址与密钥只从服务端环境变量读取，绝不写入配置；启用 `mvp` 后注册 9 个 MVP 工具（含写入与结果反馈），并隐藏合成模拟器与旧提案工具。`slackTeamId` 必须是被服务的那一个工作区；`dev_*` 表集已在已链接项目应用，但 Agent 尚未连接、工具尚未使用过它，`prod_*` 也尚未执行，因此目前只能对着隔离数据库演练，不要指向生产数据。
+   若要试运行 MVP 切片，请改用同一个配置文件里的 `mvp` 块（完整步骤见上面的部署手册）：`enabled`、`platform: "slack"`、`slackTeamId`、`environment`（`dev` 或 `prod`，无隐式默认）、`proposalChannelIds`、`boardChannelIds`、`supabaseUrlEnvVar` 与 `supabaseServiceKeyEnvVar`。Supabase 地址与密钥只从服务端环境变量读取，绝不写入配置；启用 `mvp` 后注册 9 个 MVP 工具（含写入与结果反馈），并隐藏合成模拟器与旧提案工具。`slackTeamId` 必须是被服务的那一个工作区；`dev_*` 与 `prod_*` 两套 schema 已在已链接项目建好，但 Agent 尚未连接、工具尚未使用过任何一套，两套数据也都未核对，因此目前只能对着隔离数据库演练，不要指向生产数据。
 
 ## 上线前待办：移除 `mvp` 命名
 

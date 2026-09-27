@@ -75,8 +75,11 @@ both are **applied to the linked project**:
 append-only funds snapshots) and
 `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql` (proposals, polls, ballots)
 were verified read-only on 2026-09-27 with `supabase migration list --linked` against project ref
-`ksgyfyysnojqrwfuyqwe` (project name `BeneficenceProtocol`, `DATABASE_ENVIRONMENT=dev`), applied in
-filename order. The phase-two migration carries the vote types, the approve-only ballot shape, the
+`ksgyfyysnojqrwfuyqwe` (project name `BeneficenceProtocol`), applied in filename order. Each
+migration creates the `dev_*` and `prod_*` objects in the same transaction, and `migration list` is
+project-level, so the applied schema covers both prefixes; the app's `DATABASE_ENVIRONMENT=dev`
+default selects which prefix a request reads and is not proof that only the `dev_*` schema exists.
+The phase-two migration carries the vote types, the approve-only ballot shape, the
 frozen candidate list, the finalize RPC and the material-revision approval rule this document
 describes, with pgTAP coverage in the sibling repository. Applied schema is still not exercised by
 the Agent: no registered tool has read or written the linked tables, so no schema claim here should

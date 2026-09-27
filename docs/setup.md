@@ -225,9 +225,10 @@ plugin config names server environment variables rather than carrying credential
 
 `environment` has no implicit default and selects the `dev_` or `prod_` table set. `slackTeamId` must
 be the single workspace this installation serves. Enable this only against an isolated database. The
-two migrations are applied to the linked `BeneficenceProtocol` project's `dev_*` set, but the Agent
-has no connection to it and `prod_*` is not applied, so treat every environment as unseeded until a
-human runs the reviewed migration and seeding steps. The full sequence is in the
+two migrations are applied to the linked `BeneficenceProtocol` project and define both the `dev_*`
+and `prod_*` objects, but the Agent has no connection to it and neither set has verified data, so
+treat every environment as unseeded until a human runs the reviewed seeding steps. The full sequence
+is in the
 [deployment runbook](implementation-and-deployment-zh.md).
 
 All four `*EnvVar` fields name server environment variables; the values are read from the server

@@ -19,8 +19,9 @@ Rein Protocol Foundation 的组织运营 Agent：管理员、秘书与线上主�
 `rein_mvp_my_status` 与 `rein_mvp_funds` 只读，`rein_mvp_proposal_submit`、`rein_mvp_poll_open`、
 `rein_mvp_vote`、`rein_mvp_poll_result` 会写入提案、投票与选票。它们**只在显式启用 `mvp` 配置块时注册**，
 且启用后会隐藏合成模拟器与旧提案工具。该切片对应的两个数据库迁移已在姊妹仓库提交，
-并已应用到已链接的 `BeneficenceProtocol` 项目 `dev_*` 表集（2026-09-27 只读核对）；
-`prod_*` 尚未应用，Agent 也尚未使用这些表。
+并已应用到已链接的 `BeneficenceProtocol` 项目（2026-09-27 只读核对）。两个迁移都在同一事务里
+定义 `dev_*` 与 `prod_*` 两套对象，因此已应用的 schema 覆盖两个前缀；未经验证的是任一表集里的数据
+以及 Agent 是否使用过它们。
 
 尚未接入任何 Slack 工作区、Discord、官网或真实成员数据，Agent 也尚未连上真实数据库。通过投票只是决策记录：
 付款、预留与发布均未启用；加权投票、法定人数、回避、预算竞争、活动空间、提醒、文章与监督仍属延后项。
