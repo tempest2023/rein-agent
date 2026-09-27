@@ -68,9 +68,11 @@ local code with tests, but it is opt-in and off by default (`mvp.identityEmailMa
 `disabled`), and the scopes and bot token are not installed or configured, so no live workspace or
 database exercises it and the retained link table stays the read path until it is enabled. Two
 migrations are **tracked in the sibling Foundation repository**
-(`tempest2023/ReinProtocolFoundation`) at commit `4bd5ce8` ("Add the Rein Agent MVP Slack identity,
-fund snapshot, and governance schema") on branch `tempest/agent-mvp-schema-and-welcome-email`, and
-both are **applied to the linked project**:
+(`tempest2023/ReinProtocolFoundation`) on branch `tempest/agent-mvp-schema-and-welcome-email` (PR
+#13, open). Its current committed head is `32977bfb6cd6ae73b81aa4b396f9ae1cb67d2ac8` ("Make the
+database clock authoritative for ballot `cast_at`", 2026-09-27); the two MVP schema files were
+first authored at `4bd5ce8` ("Add the Rein Agent MVP Slack identity, fund snapshot, and governance
+schema"). Both MVP migrations are **applied to the linked project**:
 `supabase/migrations/20260924094436_rein_slack_identity_and_fund_snapshots.sql` (identity links,
 append-only funds snapshots) and
 `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql` (proposals, polls, ballots)
@@ -79,6 +81,10 @@ were verified read-only on 2026-09-27 with `supabase migration list --linked` ag
 migration creates the `dev_*` and `prod_*` objects in the same transaction, and `migration list` is
 project-level, so the applied schema covers both prefixes; the app's `DATABASE_ENVIRONMENT=dev`
 default selects which prefix a request reads and is not proof that only the `dev_*` schema exists.
+A third sibling migration, `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`, is committed at
+`32977bfb` but is **not applied** to the linked project, so its clock authority is not in effect
+anywhere. The sibling code's local pgTAP suite stands at 187/187 assertions at that same commit, run
+twice in an isolated container.
 The phase-two migration carries the vote types, the approve-only ballot shape, the
 frozen candidate list, the finalize RPC and the material-revision approval rule this document
 describes, with pgTAP coverage in the sibling repository. Applied schema is still not exercised by

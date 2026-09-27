@@ -28,18 +28,28 @@ in the organization's own database, not in this repository. Development and prod
 project with isolated `dev_*` and `prod_*` table sets; the environment selector has no implicit
 default.
 
-Two migrations live in the sibling Foundation repository `tempest2023/ReinProtocolFoundation`. They
-are tracked in commit `4bd5ce8` ("Add the Rein Agent MVP Slack identity, fund snapshot, and
-governance schema", 2026-09-26) on branch `tempest/agent-mvp-schema-and-welcome-email`, with pgTAP
-coverage in `supabase/tests/rein_mvp_governance.sql`, `supabase/tests/rls.sql` and
-`supabase/tests/environment_parity.sql`. Both are **applied to the linked project**, verified
-read-only on 2026-09-27 with `supabase migration list --linked` against project ref
+The slice's migrations live in the sibling Foundation repository `tempest2023/ReinProtocolFoundation`,
+which carries them on branch `tempest/agent-mvp-schema-and-welcome-email` (PR #13, open). The
+committed branch head is `32977bfb6cd6ae73b81aa4b396f9ae1cb67d2ac8` ("Make the database clock
+authoritative for ballot `cast_at`", 2026-09-27); the two MVP schema commits below are its
+ancestors and were first authored at `4bd5ce8` ("Add the Rein Agent MVP Slack identity, fund
+snapshot, and governance schema", 2026-09-26). The sibling repo holds pgTAP coverage in
+`supabase/tests/rein_mvp_governance.sql`, `supabase/tests/rls.sql` and
+`supabase/tests/environment_parity.sql`, at a local plan count of 187 assertions (187/187, run
+twice in an isolated container at the current sibling head). The two **applied** migrations are
+verified read-only on 2026-09-27 with `supabase migration list --linked` against project ref
 `ksgyfyysnojqrwfuyqwe` (project name `BeneficenceProtocol`), which lists both as remote:
 
 | Migration | Adds |
 | --- | --- |
 | `20260924094436_rein_slack_identity_and_fund_snapshots.sql` | `rein_slack_links` and append-only `rein_fund_snapshots`, in both table sets |
 | `20260924095705_rein_mvp_proposals_polls_ballots.sql` | `rein_mvp_proposals`, `rein_mvp_polls` and `rein_mvp_ballots`, in both table sets |
+
+The sibling branch now carries a third, **unapplied** migration:
+`20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`. It is committed at `32977bfb`, but the linked
+remote project does not have it; the database clock being authoritative for a ballot's `cast_at` is
+therefore **not in effect anywhere** yet. Applying it needs its own reviewed `supabase db push`, and
+no document here may be read as claiming it is applied.
 
 **Applied order and compatibility.** They apply in filename order after the earlier community
 migrations (the `202608120001` and `202608130001` families, which already provide
@@ -51,9 +61,14 @@ order. Each migration creates the `dev_*` and `prod_*` objects in the same trans
 defines both table families explicitly, the second loops over `array['dev_', 'prod_']`), and
 `supabase migration list --linked` is project-level, so the applied schema covers both prefixes. The
 local app's `DATABASE_ENVIRONMENT=dev` is only a client-side default for which prefix a request
-reads; it is not evidence that only the `dev_*` schema exists. A later sibling change may add a
-further migration on top of `4bd5ce8`; that change is not part of this verified set, and no document
-here should be read as claiming it is applied.
+reads; it is not evidence that only the `dev_*` schema exists.
+
+**Migration order to apply.** The three sibling migrations apply in filename order after the
+`202608120001` / `202608130001` families: `20260924094436`, `20260924095705`, then
+`20260927103000`. The first two are already applied to the linked project; only the third is
+pending, and only a human-run `supabase db push` puts the clock rule into the linked project. When
+it is applied, both the `dev_*` and `prod_*` guards are the ones that assign `NEW.cast_at := now()`
+before the window check, because the sibling migration loops over both prefixes.
 
 **What the applied migrations do not prove.** Applying a migration is not the same as the Agent
 using it, and schema registration is not proof of any row. No Slack workspace is connected, the
