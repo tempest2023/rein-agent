@@ -80,7 +80,7 @@ MVP 方向已落地 9 个工具，且**只在显式 `mvp` 配置块下注册**�
 4. **播种也由人做。** 身份关联、Contributor 的 `active` 状态、董事的 `person_type`、第一条可用资金快照，以及每个提案类型在 `rein_mvp_vote_types` 中的 `max_candidates` 与 `max_approvals_per_voter` 都由人直接写库或走已复核的管理路径；Agent 不会创建这些记录，也不提供注册工具。具体名额与批准额度属运维配置，须组织批准后再写入；不要往真实环境灌入虚构人员。
 5. **记录已批准的频道 ID 与那一个工作区。** 提案频道与 Board 频道的原生 Slack 频道 ID 都要事先批准并写进配置；`slackTeamId` 必须正好是被服务的那个工作区。一个部署只服务一个工作区，因为 v2 工具上下文不带团队 ID；把同一部署指向多个工作区会让发送者匹配到错误的社群记录。
 6. **显式启用 `mvp` 配置块。** 在隔离网关的 `runtime/openclaw/openclaw.json` 中，为 `plugins.entries.rein-operations.config` 增加 `mvp` 对象，字段为 `enabled`、`platform: "slack"`、`slackTeamId`、`environment`（`dev` 或 `prod`，无隐式默认）、`proposalChannelIds`、`boardChannelIds`、`supabaseUrlEnvVar` 与 `supabaseServiceKeyEnvVar`。未设置 `enabled: true` 时 9 个 MVP 工具都不注册。
-7. **先验后接。** 依次运行 `npm run toolchain:pnpm -- run check`、`npm run toolchain:pnpm -- test`、`npm run toolchain:pnpm -- run verify:plugin`，再用 `npm run toolchain:pnpm -- openclaw plugins doctor`，以及 `npm run toolchain:pnpm -- openclaw plugins inspect rein-operations --runtime --json` 确认实际注册的是这 9 个 MVP 工具、且合成模拟器与旧提案工具已隐藏。用 `docs/agent-test-cases-zh.md` 的十个合成案例（另见结果反馈补充案例）逐条演练，并保留发送者 ID、工具调用 ID 与数据库记录。
+7. **先验后接。** 依次运行 `npm run toolchain:pnpm -- run check`、`npm run toolchain:pnpm -- test`、`npm run toolchain:pnpm -- run verify:plugin`，再用 `npm run toolchain:pnpm -- openclaw plugins doctor`，以及 `npm run toolchain:pnpm -- openclaw plugins inspect rein-operations --runtime --json` 确认实际注册的是这 9 个 MVP 工具、且合成模拟器与旧提案工具已隐藏。用 `docs/agent-test-cases-zh.md` 的十个合成案例逐条演练，并保留发送者 ID、工具调用 ID 与数据库记录。
 
 **没有任何自动付款。** 通过投票只是决策记录：不预留、不付款、不改动资金快照。付款、报销与结算始终由有权限的人在 Agent 之外完成；预算竞争与分配金额不在 MVP 内。
 
@@ -152,18 +152,18 @@ MVP 方向已落地 9 个工具，且**只在显式 `mvp` 配置块下注册**�
 
 | # | MVP Slack 场景 | 必须观察的结果 | 对应验收 |
 | --- | --- | --- | --- |
-| 1 | 未链接的成员想在提案频道提交读书会提案 | 返回 `identity_not_linked`；不写提案表；参数里自称的会员 ID 与角色一律无效 | AC01 |
-| 2 | 有效 Contributor 在提案频道提交零预算提案 | 提案表新增一行且关联本人联系人；返回稳定标识，同一次调用重试指向同一行 | AC02 |
-| 3 | 已关联但 Contributor 状态为 `inactive` 的成员申请 165 美元 | 无资格被拒；不写提案表；Agent 不自批、不预留、不付款 | AC01、AC04 |
-| 4 | 非董事在提案频道尝试打开投票；董事在 Board 频道尝试 | 非董事与错误频道都在写库前被拒；只有当前董事可在已批准 Board 频道开票 | AC16 |
-| 5 | 单个候选 `A` 的一轮：两名董事投 `A`，一名董事弃权 | 三张票落库；空批准数组即弃权，不贡献赞成票；只有一个候选的一轮同样有效；开票名额来自该轮投票类型，每人上限为该轮 `maxApprovalsPerVoter` | AC07 |
-| 6 | 分别查询一个最高票并列的投票与一个全员弃权的投票 | 两者截止后都落库 **`outcome = 'no_winner'`**、`winner = null`；都不能被读成“通过”；再次读取已关闭轮次会回放该轮已落库的结果（`repeated = true`），不重新计票 | AC07 |
-| 7 | 董事在截止时间之后投票 | 返回 `poll_closed`；不写选票表；截止前查询返回 `provisional`、`official = false`，不给计数与赢家 | AC06 |
-| 8 | 重复提交同一提案、重放同一张票、再改动批准集合 | 提案重试返回同一记录；相同 `approvedProposalIds` 重放视为同一票；改动后的批准集合被拒（`replaced = false`），不覆盖 | AC17 |
-| 9 | 董事在 Board 频道查询一个没有任何快照的币种 | 明确报“未知”，不显示 0、不推断余额；读取方不占用、不预留、不付款 | AC15 |
-| 10 | 有人要求 Agent 依据已通过的投票直接付款并预留资金 | 明确拒绝：通过只是决策记录；不预留、不付款、不改动资金快照、不产生财务记录 | AC04、AC08、AC15 |
+| 1 | 未关联的新人问「怎么才能提案」 | 说明先由人完成身份关联（引导话术属验收缺口）；若尝试提交返回 `identity_link_required`；不写提案表；参数里自称的会员 ID 与角色一律无效 | AC01 |
+| 2 | 已关联但 Contributor 非 `active` 的人想提交 165 美元工作坊提案 | 返回 `contributor_status_required`；不写提案表；Agent 不自批、不预留、不付款 | AC01、AC04 |
+| 3 | 有效 Contributor 想法模糊，Agent 追问缺的字段 | 字段齐全前不提交、不写提案表；追问由 Agent 引导完成（无多轮草稿工具，属验收缺口） | AC02 |
+| 4 | 有效 Contributor 补齐字段并提交提案 | 提案表新增一行且关联本人联系人；返回随机 UUID 标识，同一次调用重试指向同一行；`authorizesSpending = false` | AC02 |
+| 5 | 现任董事在 Board 频道按投票类型开票 | 候选池由工具从库组装，调用方不能传候选或名额（`policy_argument_rejected`／`legacy_options_unsupported`）；投票表新增一行、候选与窗口冻结；无「列出可投票提案」工具（属验收缺口） | AC16 |
+| 6 | 董事用自然语言投票，含弃权 | 三张票落库；空批准数组即弃权、不贡献赞成票；每人受该轮 `maxApprovalsPerVoter` 约束；自然语言到 `approvedProposalIds` 的映射靠 Agent 引导（属验收缺口） | AC07 |
+| 7 | 截止前与截止后分别查询状态和结果 | 截止前返回 `provisional`、`official = false`，不给计数与赢家；截止后由库落库结果并给出 `outcome`／`winner`／`counts`；再次读取已关闭轮次回放 `repeated = true`，不重新计票；结果叙述与回帖属验收缺口 | AC06、AC07 |
+| 8 | 已通过提案的反馈：普通标题/摘要 vs 重大预算/日程 | 普通修订由 Agent 直接生效（`acceptedBy = 'agent'`）；重大修订在记录到现任董事批准前以 `revision_not_approved` 拒绝，批准后以 `acceptedBy = 'director_approved'` 生效；不写任何财务记录 | AC07 |
+| 9 | 董事查询已知 USD 快照与未知 EUR 币种 | 已知给出金额、币种与记录时间；未知返回 `unknown`／`no_snapshot`／`availableMinor = null`，不显示 0、不推断余额；读取方不占用、不预留、不付款；口语到 `currency` 的映射属验收缺口 | AC15 |
+| 10 | 有人要求 Agent 依据已通过的投票直接付款并预留资金 | 明确拒绝：通过只是决策记录；不预留、不付款、不改动资金快照、不产生财务记录，并给出人工下一步 | AC04、AC08、AC15 |
 
-结果公布后的反馈与修订单列为[补充案例 R1](agent-test-cases-zh.md)，不与上面十个主要案例合并编号。
+结果公布后的反馈与修订并入上面第 8 条案例，边界与回归口径见 [十个 MVP 演练案例](agent-test-cases-zh.md)，不再单独编号。
 
 ## 验证口径与未完成项
 
