@@ -103,17 +103,20 @@ manual team/user link prerequisite, is superseded for the Slack MVP by D13's ema
    snapshot with its currency and record time. It cannot create, edit, reserve, or spend funds.
 
 Local read-only building blocks for steps 1 and 4 exist (`foundation-db-reader.ts`,
-`mvp-read-tools.ts`) and are covered by tests, but no live database is connected. The registered
-write tools for steps 2 and 3 exist (`foundation-db-writer.ts`, `mvp-write-tools.ts`,
-`mvp-vote-tally.ts`) and register only under an explicit `mvp` config block. `rein_mvp_poll_open`
+`mvp-read-tools.ts`) and are covered by tests, and the two MVP migrations are applied to the linked
+`BeneficenceProtocol` project (`dev_*`, verified read-only on 2026-09-27 with
+`supabase migration list --linked`), but the Agent has no live database connection and no registered
+tool has exercised those tables. The registered write tools for steps 2 and 3 exist
+(`foundation-db-writer.ts`, `mvp-write-tools.ts`, `mvp-vote-tally.ts`) and register only under an
+explicit `mvp` config block. `rein_mvp_poll_open`
 takes its candidate cap from the stored vote type and assembles the pool itself from stored
 proposals, offering recently unselected ones too, so no caller supplies candidates, a cap or an
 option label; `rein_mvp_vote` accepts approvals only, bounded by the poll's own approval limit, and
 an empty list is the abstention. The `approvedProposalIds` argument replaces the earlier
 curator-supplied option list, and the database freezes the candidate list and both limits at insert
 time, so D04, D08 and D09 now have a registered code path. The concrete cap and approval-budget
-values are still operator configuration, and no live database or Slack workspace has exercised any
-of it.
+values are still operator configuration, and no Slack workspace and no Agent connection to the
+linked project has exercised any of it.
 
 Feedback revisions after a result have a registered path too:
 `rein_mvp_proposal_revisions` records a comment or a suggested revision, and a revision that moves a
@@ -155,6 +158,16 @@ the voting window length; channel and space mapping; and who may see an individu
 
 ## Recorded technical decisions
 
+- **Pending release gate: MVP naming removal.** A pre-launch review asks for the `mvp` naming to be
+  removed from tools, tables, config and skills. It is not removed in this PR. The two MVP
+  migrations are already applied to the linked `BeneficenceProtocol` `dev_*` set, so the
+  `<env>_rein_mvp_*` tables and RPCs cannot be renamed in place: the rename needs a
+  forward-compatibility migration that keeps the current names working while callers move over, plus
+  matching tool-name and config-key changes. The affected interfaces are listed in
+  [provider contracts](integration-contracts.md#pending-release-gate-mvp-naming-removal). Until that
+  migration is reviewed and applied, the current `rein_mvp_*` tool names, the `mvp` config block and
+  the `<env>_rein_mvp_*` table and RPC names stand.
+
 - The vendored runtime is the official source checkout, not a fork. It is pinned by the
   `vendor/openclaw` submodule pointer and updated only through the reviewed flow in
   [upstream](upstream.md). Read the live commit with `git ls-files -s vendor/openclaw` or
@@ -192,7 +205,7 @@ All items below are unresolved. PRD suggestions remain suggestions.
 | The MVP voting window length | First real vote |
 | Tie rule when the highest approval count is shared | First real vote that ties |
 | Who may see an individual ballot versus the published result | First real vote |
-| Whether the two MVP migrations in the sibling repo `tempest2023/ReinProtocolFoundation` (`supabase/migrations/20260924094436_rein_slack_identity_and_fund_snapshots.sql` and `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql`) are reviewed, merged and applied to the live `dev_*` and `prod_*` tables. They are committed at `4bd5ce8` on branch `tempest/agent-mvp-schema-and-welcome-email`, but not yet merged or applied to any live environment. | First real Slack link and funds read |
+| Whether the two MVP migrations in the sibling repo `tempest2023/ReinProtocolFoundation` (`supabase/migrations/20260924094436_rein_slack_identity_and_fund_snapshots.sql` and `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql`) should also be applied to the `prod_*` table set. Both are committed at `4bd5ce8` on branch `tempest/agent-mvp-schema-and-welcome-email` and applied, in filename order, to the linked `BeneficenceProtocol` `dev_*` set (verified read-only 2026-09-27 with `supabase migration list --linked`); `prod_*` is a separate decision. | Enabling the MVP against production data |
 | Installing the `users:read` and `users:read.email` bot scopes on the governance app, configuring its bot token, and enabling the implemented, opt-in D13 email resolver (`mvp.identityEmailMatch`) | Enabling the opt-in Slack identity path |
 | Zero-budget activity scope and exception authority | Automatic approval |
 | Cadence, timezone and notification lead time | Selection rounds |

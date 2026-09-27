@@ -187,9 +187,10 @@ local work does not touch a global `~/.openclaw` profile.
 - No chat platform, model provider or credential is connected.
 - `config/operations.example.json` is a design input, not native OpenClaw configuration, and
   nothing loads it.
-- The MVP slice exists as code but is not wired to anything: no Slack workspace, no live database, and
-  no migration applied to a live environment. Its nine tools stay unregistered until an operator
-  enables them explicitly.
+- The MVP slice exists as code but is not wired to anything: no Slack workspace and no live database
+  connection. Its two migrations are applied to the linked `BeneficenceProtocol` project's `dev_*`
+  set, but no tool has used that schema. Its nine tools stay unregistered until an operator enables
+  them explicitly.
 - The opt-in Slack identity email match is implemented and locally tested but disabled by default;
   the governance app's `users:read` and `users:read.email` bot scopes and its bot token are not
   installed or configured, so senders still resolve through the retained link table.
@@ -223,9 +224,10 @@ plugin config names server environment variables rather than carrying credential
 ```
 
 `environment` has no implicit default and selects the `dev_` or `prod_` table set. `slackTeamId` must
-be the single workspace this installation serves. Enable this only against an isolated database: the
-two migrations are not applied to any live environment. The full reviewed sequence, including the
-human migration and seeding steps, is in the
+be the single workspace this installation serves. Enable this only against an isolated database. The
+two migrations are applied to the linked `BeneficenceProtocol` project's `dev_*` set, but the Agent
+has no connection to it and `prod_*` is not applied, so treat every environment as unseeded until a
+human runs the reviewed migration and seeding steps. The full sequence is in the
 [deployment runbook](implementation-and-deployment-zh.md).
 
 All four `*EnvVar` fields name server environment variables; the values are read from the server

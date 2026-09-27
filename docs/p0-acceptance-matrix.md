@@ -58,7 +58,8 @@ trusted inbound message ID and the derivation is memoized per turn. A re-deliver
 retry in a new turn can still insert a second record, so these rows are not evidence of
 cross-process exactly-once behaviour.
 
-No live database is connected and no real Slack workspace is wired. One installation serves one Slack
+The Agent has no live database connection and no real Slack workspace is wired: the rows below are
+local module and synthetic-test evidence, not a production pass. One installation serves one Slack
 workspace; the pinned runtime supplies a trusted per-message sender in admitted channel and group
 messages as well as in DMs, but no team ID. Slack sender identity is specified by D13 as an exact
 match between the sender's Slack profile email and one `<env>_contact_identities` row, which needs
@@ -66,18 +67,27 @@ the governance app's `users:read` and `users:read.email` bot scopes; the resolve
 local code with tests, but it is opt-in and off by default (`mvp.identityEmailMatch` defaults to
 `disabled`), and the scopes and bot token are not installed or configured, so no live workspace or
 database exercises it and the retained link table stays the read path until it is enabled. Two
-migrations are now **tracked in the sibling Foundation repository**
+migrations are **tracked in the sibling Foundation repository**
 (`tempest2023/ReinProtocolFoundation`) at commit `4bd5ce8` ("Add the Rein Agent MVP Slack identity,
 fund snapshot, and governance schema") on branch `tempest/agent-mvp-schema-and-welcome-email`, and
-neither is applied to a live environment:
+both are **applied to the linked project**:
 `supabase/migrations/20260924094436_rein_slack_identity_and_fund_snapshots.sql` (identity links,
 append-only funds snapshots) and
-`supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql` (proposals, polls, ballots).
-The phase-two migration now carries the vote types, the approve-only ballot shape, the frozen
-candidate list, the finalize RPC and the material-revision approval rule this document describes, and
-it is committed with pgTAP coverage in the sibling repository. It is still not applied to any live
-environment, so no schema claim here should be treated as verified against live data. Nothing here
-is a production pass.
+`supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql` (proposals, polls, ballots)
+were verified read-only on 2026-09-27 with `supabase migration list --linked` against project ref
+`ksgyfyysnojqrwfuyqwe` (project name `BeneficenceProtocol`, `DATABASE_ENVIRONMENT=dev`), applied in
+filename order. The phase-two migration carries the vote types, the approve-only ballot shape, the
+frozen candidate list, the finalize RPC and the material-revision approval rule this document
+describes, with pgTAP coverage in the sibling repository. Applied schema is still not exercised by
+the Agent: no registered tool has read or written the linked tables, so no schema claim here should
+be treated as a live end-to-end result.
+
+The Supabase/PostgREST boundary itself has a local integration test,
+`tests/foundation-db-gateway.test.mjs`: it runs the reader and writer against a real HTTP loopback
+server that simulates the PostgREST routes and the Supabase gateway's header rules, covering both a
+modern `sb_secret_` key and a legacy `service_role` JWT, and asserting that a 401 becomes
+`auth_error` while a 5xx stays `http_error`. That is a transport-level test, not a live project or a
+real PostgREST instance.
 
 | AC | Current evidence | Status | Evidence still required for launch |
 | --- | --- | --- | --- |
@@ -103,3 +113,13 @@ is a production pass.
 | AC20 | `p0-rehearsal.test.mjs` chains synthetic zero-budget and funded activities through outcomes and finance records. | Synthetic rehearsal passed | Two sandbox runs with real selected-platform and website adapters plus finance reconciliation. |
 
 The integration requirements are in [provider contracts](integration-contracts.md), and the deployment/test instructions are in [the Chinese delivery record](implementation-and-deployment-zh.md). None of the rows is marked as a production pass until its provider evidence exists.
+
+## Pending release gate: MVP naming removal
+
+A pre-launch review asks for the `mvp` naming to be removed from tools, tables, config and skills.
+That rename is not done here and is tracked as a release gate in
+[provider contracts](integration-contracts.md#pending-release-gate-mvp-naming-removal). Because the
+two migrations are already applied to the linked project, it needs a forward-compatibility migration
+that keeps the current `rein_mvp_*` tool names, the `mvp` config block and the `<env>_rein_mvp_*`
+table and RPC names working while callers move over. Until that migration is reviewed and applied,
+every name in this matrix stands as written.

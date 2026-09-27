@@ -32,19 +32,30 @@ Two migrations live in the sibling Foundation repository `tempest2023/ReinProtoc
 are tracked in commit `4bd5ce8` ("Add the Rein Agent MVP Slack identity, fund snapshot, and
 governance schema", 2026-09-26) on branch `tempest/agent-mvp-schema-and-welcome-email`, with pgTAP
 coverage in `supabase/tests/rein_mvp_governance.sql`, `supabase/tests/rls.sql` and
-`supabase/tests/environment_parity.sql`. They are **not applied to any live environment**:
+`supabase/tests/environment_parity.sql`. Both are **applied to the linked project**, verified
+read-only on 2026-09-27 with `supabase migration list --linked` against project ref
+`ksgyfyysnojqrwfuyqwe` (project name `BeneficenceProtocol`), which lists both as remote:
 
 | Migration | Adds |
 | --- | --- |
 | `20260924094436_rein_slack_identity_and_fund_snapshots.sql` | `rein_slack_links` and append-only `rein_fund_snapshots`, in both table sets |
 | `20260924095705_rein_mvp_proposals_polls_ballots.sql` | `rein_mvp_proposals`, `rein_mvp_polls` and `rein_mvp_ballots`, in both table sets |
 
-**Reproduction requirement.** Reviewing, testing or deploying this PR against a real database needs
-that sibling repository at `4bd5ce8` or later on the branch above, applied in order after the
-earlier community migrations, to create the tables, triggers and the `<env>_rein_mvp_finalize_poll`
-and `<env>_rein_mvp_approve_revision` RPCs this PR calls. The sibling PR that carries that commit
-must be merged before this one is deployed; until then the schema is a reviewed local artifact and
-nothing here is verified against a live project.
+**Applied order and compatibility.** They apply in filename order after the earlier community
+migrations (the `202608120001` and `202608130001` families, which already provide
+`<env>_contact_identities`): `20260924094436` first, then `20260924095705`. The second migration is
+additive to the first and defines the phase-2 shapes this slice uses (vote types, the approve-only
+ballot, the frozen candidate list, the `<env>_rein_mvp_finalize_poll` and
+`<env>_rein_mvp_approve_revision` RPCs), so the two are forward-compatible when applied in that
+order. The application was verified against the linked project with `DATABASE_ENVIRONMENT=dev`, so
+the applied rows are the `dev_*` table set; the `prod_*` set was not exercised and stays a separate
+decision. A later sibling change may add a further migration on top of `4bd5ce8`; that change is not
+part of this verified set, and no document here should be read as claiming it is applied.
+
+**What the applied migrations do not prove.** Applying a migration is not the same as the Agent
+using it. No Slack workspace is connected, the Agent has no live database connection, and no
+end-to-end read, write or vote has run against the linked project. Every tool result in this PR is
+from local modules and synthetic tests.
 
 Required contract properties:
 
@@ -55,8 +66,9 @@ Required contract properties:
   is a veto rather than a grant: `revoked` blocks the sender, and `verified` with a conflicting
   contact blocks the sender. A missing, hidden, unmatched or ambiguous email fails closed instead of
   creating a link or a contact, and the resolver never writes a link row. The `<env>_contact_identities`
-  rows belong to the same sibling MVP schema as the link table, and neither is applied to a live
-  environment.
+  table is part of the earlier community schema, which the linked project already carries, so the
+  resolver's read target exists there; the email resolver itself is still off by default and has not
+  been exercised against that project.
 - `contributors.status = 'active'` is the only source of Contributor eligibility, and
   `people.person_type = 'director'` is the only source of Board eligibility. Free-text role fields
   are not consulted.
@@ -90,10 +102,31 @@ Required contract properties:
 pool from stored proposals of the named vote type; `rein_mvp_vote` accepts `approvedProposalIds`
 only, an empty list is the abstention, and the database freezes the candidate list and both limits
 at insert time. The local migrations are the source of that enforcement. They are reviewed and
-committed in the sibling Foundation repository (`tempest2023/ReinProtocolFoundation`), but they are
-still **not applied to any live `dev_*` or `prod_*` environment**, so no claim here is verified
-against live data. The concrete per-type cap and approval-budget values remain unapproved operator
-configuration.
+committed in the sibling Foundation repository (`tempest2023/ReinProtocolFoundation`) and applied to
+the linked `BeneficenceProtocol` project's `dev_*` set, but no registered tool has exercised them
+against that project: the enforcement described above is proven by local tests only, and nothing
+here is a live end-to-end result. The concrete per-type cap and approval-budget values remain
+unapproved operator configuration.
+
+## Pending release gate: MVP naming removal
+
+A pre-launch review asks for the `mvp` naming to be removed across tools, tables, config and skills.
+That rename is **not done in this PR and must not be read as done**. Because the two migrations above
+are already applied to the linked project, the table and RPC names cannot be edited in place: the
+rename needs a **forward-compatibility migration** that creates the new names, keeps the existing
+`<env>_rein_mvp_*` names working for callers during the transition, and moves them over in a
+reviewed step. Until that migration exists and is applied, every current name below is authoritative:
+
+| Interface | Names that would move |
+| --- | --- |
+| Registered tools | `rein_mvp_my_status`, `rein_mvp_funds`, `rein_mvp_proposal_submit`, `rein_mvp_poll_open`, `rein_mvp_vote`, `rein_mvp_poll_result`, `rein_mvp_proposal_comment_suggest`, `rein_mvp_revision_approve`, `rein_mvp_revision_apply` |
+| Plugin config block | the `mvp` object under `plugins.entries.rein-operations.config`, including its `enabled` flag |
+| Tables | `<env>_rein_mvp_proposals`, `<env>_rein_mvp_polls`, `<env>_rein_mvp_ballots`, `<env>_rein_mvp_vote_types`, `<env>_rein_mvp_proposal_revisions` |
+| RPCs | `<env>_rein_mvp_finalize_poll`, `<env>_rein_mvp_approve_revision` |
+| Docs and skills | every reference to the names above, including this file, the acceptance matrix, the decision register and the agent test cases |
+
+The gate is a release condition, not a defect in this PR: the tables and RPCs are already applied to
+the linked dev project, so a rename is a schema change with its own review, not a wording edit.
 
 ## Money boundary
 
@@ -121,8 +154,9 @@ broader PRD is deferred.
 
 Everything below is a human step with a review; no Agent tool performs it.
 
-1. Review and apply both migrations to the isolated `dev_*` set, then to `prod_*` only after a
-   separate decision. Never apply them from a script that also runs the Agent.
+1. Both migrations are already applied to the linked project's `dev_*` set, in filename order; apply
+   them to `prod_*` only after a separate decision, and to any new environment in the same order.
+   Never apply them from a script that also runs the Agent.
 2. Seed the email-to-contact identity rows (`<env>_contact_identities`), Contributor and director
    records, and an initial funds snapshot by hand, or through a reviewed administrative path. Do not
    seed fabricated people into a live environment.

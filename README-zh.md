@@ -18,10 +18,11 @@ Rein Protocol Foundation 的组织运营 Agent：管理员、秘书与线上主�
 完成一次简单的 Board 投票并公布结果、读取资金快照。切片已落地 6 个工具，对接组织自有数据库：
 `rein_mvp_my_status` 与 `rein_mvp_funds` 只读，`rein_mvp_proposal_submit`、`rein_mvp_poll_open`、
 `rein_mvp_vote`、`rein_mvp_poll_result` 会写入提案、投票与选票。它们**只在显式启用 `mvp` 配置块时注册**，
-且启用后会隐藏合成模拟器与旧提案工具。该切片对应的两个数据库迁移目前只存在于姊妹仓库本地，
-均未应用到线上环境。
+且启用后会隐藏合成模拟器与旧提案工具。该切片对应的两个数据库迁移已在姊妹仓库提交，
+并已应用到已链接的 `BeneficenceProtocol` 项目 `dev_*` 表集（2026-09-27 只读核对）；
+`prod_*` 尚未应用，Agent 也尚未使用这些表。
 
-尚未接入任何 Slack 工作区、Discord、官网或真实成员数据，也尚未连上真实数据库。通过投票只是决策记录：
+尚未接入任何 Slack 工作区、Discord、官网或真实成员数据，Agent 也尚未连上真实数据库。通过投票只是决策记录：
 付款、预留与发布均未启用；加权投票、法定人数、回避、预算竞争、活动空间、提醒、文章与监督仍属延后项。
 参见[开发与部署记录](docs/implementation-and-deployment-zh.md)。
 逐项验收状态见 [P0 验收矩阵](docs/p0-acceptance-matrix.md)。

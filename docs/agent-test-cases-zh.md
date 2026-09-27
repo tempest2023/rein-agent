@@ -2,7 +2,7 @@
 
 这些案例对应**已确认的 MVP 纵向切片**：Slack 身份解析（邮箱匹配） → Contributor 提案 → Board 只投赞成票的批准投票与结果 → 只读资金快照。范围与延后项见[决策登记册](decisions.md)，逐项证据见 [AC01–AC20 验收矩阵](p0-acceptance-matrix.md)。
 
-**当前一律为合成演练，不是上线验收。** 所有帐号、频道、提案、金额与投票都是虚构数据；尚未接入真实 Slack 工作区，也没有把任何数据库迁移应用到线上环境——**本轮不含任何实机安装或联调（no live setup）**。每条案例里的「用户可见」回复目前只是**期望行为**，其中尚未实现的对话引导已在各案例与[验收缺口](#验收缺口)标出；只有连上沙盒工作区与隔离数据库、并留下提供方证据之后，才可以逐条改判。
+**当前一律为合成演练，不是上线验收。** 所有帐号、频道、提案、金额与投票都是虚构数据；尚未接入真实 Slack 工作区，Agent 也尚未连接数据库——**本轮不含任何实机安装或联调（no live setup）**。两个迁移已在姊妹仓库 `4bd5ce8` 提交并应用到已链接的 `BeneficenceProtocol` 项目 `dev_*` 表集（2026-09-27 以 `supabase migration list --linked` 只读核对），但**已应用不等于已使用**：没有任何工具真的读写过这些表，也没有端到端证据。每条案例里的「用户可见」回复目前只是**期望行为**，其中尚未实现的对话引导已在各案例与[验收缺口](#验收缺口)标出；只有连上沙盒工作区与隔离数据库、并留下提供方证据之后，才可以逐条改判。
 
 **工具只把结果返回到调用它的那一轮，不自动回帖。** 每个案例的「工具 / 数据库」断言才是当前**已实现能力**，可以在合成演练里逐项复核；「用户可见」一栏描述 Agent 应如何用自然语言回应，属于验收目标而不是既成事实。
 
@@ -185,7 +185,8 @@
 - **反馈作者范围未确认**：数据库行允许有效 Contributor 作为 `author_contact_id`，当前注册工具只接受现任董事。
 - **平票口径未确认**：当前按「无赢家」落库，不得对外宣布为组织正式规则。
 - **Slack 邮箱身份解析已在本地实现，但默认关闭（案例 1）**：D13 规定的 `users.info` 资料邮箱匹配与 `<env>_contact_identities` 唯一行匹配已落在 `slack-email-lookup.ts` 与读取器的邮箱优先路径中，并有本地测试；`users:read`／`users:read.email` 两个 Bot scope 与 Bot token 尚未安装／未配置，`mvp.identityEmailMatch` 默认 `disabled`，未启用时读取器仍按 `rein_slack_links` 关联表解析。因此案例 1 的「邮箱对不上或缺失即失败关闭」在本地测试中已有覆盖，但尚未经真实工作区验收。
-- **没有任何真实端到端验收**：以上全部为合成演练；真实 Slack 工作区、隔离数据库与提供方证据都还没有接入。
+- **没有任何真实端到端验收**：以上全部为合成演练；真实 Slack 工作区与提供方证据都还没有接入，Agent 也尚未连接已应用迁移的数据库。
+- **`mvp` 命名尚未移除（上线前待办）**：审查要求在工具、表、配置与 skill 中移除 `mvp` 命名。因为迁移已应用到已链接项目，改名需要一份向前兼容迁移（先建新名、保留旧名过渡），受影响接口见[服务方接口契约](integration-contracts.md#pending-release-gate-mvp-naming-removal)；本文件所列的 `rein_mvp_*` 名称目前都以现状为准。
 
 ## 附录 A：运维与技术前提
 
@@ -193,7 +194,7 @@
 
 - **一个部署只服务一个 Slack 工作区。** 使用 Socket Mode 与官方 OpenClaw `slack` 插件；v2 工具上下文不携带团队 ID，因此 `slackTeamId` 必须正好是被服务的那个工作区。
 - **只放服务端环境变量引用。** Supabase 地址与密钥只从 `supabaseUrlEnvVar`、`supabaseServiceKeyEnvVar` 指向的服务端环境变量读取，绝不写入配置或结果。
-- **迁移由人执行。** 先在隔离库的 `dev_*` 表集按文件名顺序应用姊妹仓库的两个迁移：`20260924094436_rein_slack_identity_and_fund_snapshots.sql`（身份关联表与只追加的可用资金快照表）与 `20260924095705_rein_mvp_proposals_polls_ballots.sql`（提案、投票、选票三张表，投票类型表、修订记录表与 `effective_revision_id` 列，以及冻结候选名单、按当前董事校验选票、`rein_mvp_finalize_poll` 计票与 `rein_mvp_approve_revision` 重大修订批准）。两者目前都是**未跟踪的工作区文件**且**均未应用到任何线上环境**；第二阶段迁移虽已包含投票类型与只投赞成票的选票形状，但作为未提交内容，**不得据此声称 schema 已在线验证**。按类型的具体名额与批准额度需由人写入 `rein_mvp_vote_types`。
+- **迁移由人执行，且已对已链接项目完成。** 两个迁移已在姊妹仓库 `4bd5ce8` 提交，并按文件名顺序应用到已链接的 `BeneficenceProtocol` 项目 `dev_*` 表集：`20260924094436_rein_slack_identity_and_fund_snapshots.sql`（身份关联表与只追加的可用资金快照表）与 `20260924095705_rein_mvp_proposals_polls_ballots.sql`（提案、投票、选票三张表，投票类型表、修订记录表与 `effective_revision_id` 列，以及冻结候选名单、按当前董事校验选票、`rein_mvp_finalize_poll` 计票与 `rein_mvp_approve_revision` 重大修订批准）。2026-09-27 以 `supabase migration list --linked` 只读核对，两个版本都显示为已应用；**但已应用不是已使用**：Agent 尚未连接，没有任何工具真的读过或写过这些表，**不得据此声称 schema 已被端到端验证**。姊妹仓库之后若再新增迁移（例如选票 `cast_at` 的时钟调整），属于本次核对之外的变更，不得声称已应用。`prod_*` 表集尚未执行。按类型的具体名额与批准额度需由人写入 `rein_mvp_vote_types`。
 - **播种由人完成。** 邮箱到联系人的对应关系（`<env>_contact_identities`，每行一个规范化邮箱与一个唯一联系人）、Contributor 的 `active` 状态、董事的 `person_type`、第一条可用资金快照，以及每个提案类型在 `rein_mvp_vote_types` 中的 `max_candidates` 与 `max_approvals_per_voter` 都由人直接写库或走已复核的管理路径；Agent 不创建这些记录，也不提供注册工具。
 - **身份邮箱解析需要 Bot scope（尚未安装）。** D13 的邮箱匹配要求治理 Bot 应用装 `users:read` 与 `users:read.email` 两个 Bot scope；目前**未安装**，Bot token 也未配置，且 `mvp.identityEmailMatch` 默认 `disabled`，未启用时读取器仍按关联表解析，因此该路径不能用于真实演练。本地人工测试用户应用保持只用 `chat:write`，不加 Bot scope。
 - **显式启用 `mvp` 配置块。** 启用后注册 9 个 MVP 工具（2 读、4 写、3 个结果反馈），并隐藏合成模拟器与旧提案工具；未设置 `enabled: true` 时一个都不注册。
