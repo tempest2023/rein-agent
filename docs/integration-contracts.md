@@ -192,5 +192,7 @@ Everything below is a human step with a review; no Agent tool performs it.
 
 Weighted voting, quorum, recusal, competing-budget allocation, zero-budget fast track, activity
 spaces, reminders, outcome collection, articles, website publication, weekly oversight and pause
-controls stay deferred, and their local modules remain unregistered. Payment, signing, identity
-escalation and any on-chain or DAO migration remain outside the Agent.
+controls stay deferred. The activity, change, oversight and outbox cores are unreachable from the
+plugin entry and their implementation moved to a follow-up PR; the remaining deferred modules stay
+unregistered. Payment, signing, identity escalation and any on-chain or DAO migration remain outside
+the Agent.

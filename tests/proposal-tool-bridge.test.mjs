@@ -23,7 +23,6 @@ import {
   createProposalToolRegistration,
   PROPOSAL_TOOL_NAMES,
 } from '../plugins/rein-operations/proposal-tool-bridge.ts';
-import { createRegistrySnapshot, checkContributorEligibility } from '../plugins/rein-operations/registry-snapshot.ts';
 
 // The P0 chat platform is still undecided (docs/decisions.md), so the rehearsal uses a synthetic
 // label that cannot be mistaken for an adopted platform choice.
@@ -95,6 +94,21 @@ function toolsFor(registration, context) {
   return tools ? Object.fromEntries(tools.map(tool => [tool.name, tool])) : null;
 }
 
+// A minimal stand-in for the authoritative registry provider. The bridge only consumes the
+// `authorizeFormalAction` port contract (eligible / reason / memberId) and passes the request clock
+// as `input.at`, so this fake exercises that boundary directly and keeps the assertion shapes
+// stable. The concrete snapshot validator and eligibility checks are unreachable from this runtime
+// slice and were moved to a follow-up PR.
+const fakeRegistryProvider = ({ status = 'active', memberId = 'M-100', generatedAt = CLOCK, maxAgeMs = 60_000 } = {}) => {
+  return ({ at }) => {
+    const fresh = Date.parse(at) - Date.parse(generatedAt) <= maxAgeMs;
+    if (status !== 'active' || !fresh) {
+      return { eligible: false, reason: 'authoritative_registry_required', memberId: null };
+    }
+    return { eligible: true, reason: 'eligible', memberId };
+  };
+};
+
 test('formal actions fail closed without a current authoritative registry provider', async () => {
   const dir = tempDir();
   try {
@@ -122,18 +136,11 @@ test('formal action checks a current registry snapshot at the write boundary', a
     const store = createProposalStore({ path: join(dir, 'state.json') });
     seedContributor(store);
     let at = CLOCK;
-    const raw = (status = 'active', generatedAt = CLOCK) => ({
-      version: `registry-${status}-${generatedAt}`,
-      generatedAt,
-      platform: PLATFORM,
-      members: [{ memberId: 'M-100', status: 'active', roles: [{ role: 'contributor', status }] }],
-      links: [{ platform: PLATFORM, accountId: 'u-contributor', memberId: 'M-100', status: 'verified', verifiedAt: SEED_AT }],
-    });
-    let snapshot = createRegistrySnapshot(raw(), { at: CLOCK, maxAgeMs: 60_000 });
+    let provider = fakeRegistryProvider();
     const registration = createProposalToolRegistration({
       platform: PLATFORM, allowedNativeChannelIds: [CHANNEL], store,
       now: () => at,
-      authorizeFormalAction: input => checkContributorEligibility(snapshot, input),
+      authorizeFormalAction: input => provider(input),
     });
     const tools = toolsFor(registration, makeContext());
     const draft = await tools['rein_proposal_create'].execute('snapshot-draft', { fields: baseFields() });
@@ -144,20 +151,21 @@ test('formal action checks a current registry snapshot at the write boundary', a
     });
     assert.equal(confirmed.details.ok, true);
 
-    const reassigned = raw();
-    reassigned.members[0].memberId = 'M-200';
-    reassigned.links[0].memberId = 'M-200';
-    snapshot = createRegistrySnapshot(reassigned, { at: CLOCK, maxAgeMs: 60_000 });
+    // A reassignment moved the account to a different canonical member; the bridge must refuse to
+    // submit the draft whose persisted owner no longer matches the authoritative member.
+    provider = fakeRegistryProvider({ memberId: 'M-200' });
     const mismatched = await tools['rein_proposal_submit'].execute('snapshot-submit-mismatch', { proposalId });
     assert.equal(mismatched.details.ok, false);
     assert.match(mismatched.details.message, /authoritative_member_mismatch/);
 
-    snapshot = createRegistrySnapshot(raw('revoked'), { at: CLOCK, maxAgeMs: 60_000 });
+    provider = fakeRegistryProvider({ status: 'revoked' });
     const revoked = await tools['rein_proposal_submit'].execute('snapshot-submit-revoked', { proposalId });
     assert.equal(revoked.details.ok, false);
     assert.equal(revoked.details.causeCode, 'authoritative_registry_required');
 
-    snapshot = createRegistrySnapshot(raw(), { at: CLOCK, maxAgeMs: 60_000 });
+    // The provider is healthy again, but the request clock has moved past the snapshot's freshness
+    // window, so a stale registry must not authorize the formal write.
+    provider = fakeRegistryProvider();
     at = '2026-09-24T09:01:01Z';
     const stale = await tools['rein_proposal_submit'].execute('snapshot-submit-stale', { proposalId });
     assert.equal(stale.details.ok, false);

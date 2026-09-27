@@ -173,7 +173,7 @@ export function createProposalStore(options: {
     return { revision, state };
   };
 
-  // Port-compatible read for callers that only need the state (see activities.ts createLedgerStore).
+  // Port-compatible read for callers that only need the state.
   const load = () => snapshot().state;
 
   const commit = ({

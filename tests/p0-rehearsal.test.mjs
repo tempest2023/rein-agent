@@ -1,13 +1,15 @@
 // P0 cross-module rehearsals (PRD AC20; scenarios US02, US03, US04, US05, US06, US07, US15).
 //
-// These two rehearsals drive the real Rein modules end to end — the proposal core, the governance
-// engine, the activity operations core and the local rehearsal ledger — instead of restating their
-// unit tests. Each step names the module it crosses so the trace stays readable.
+// These two rehearsals drive the real Rein modules end to end — the proposal core and the governance
+// engine — instead of restating their unit tests. Each step names the module it crosses so the trace
+// stays readable.
 //
-// They are deliberately honest about the missing production adapters. No chat platform, website or
-// payment provider is connected, so every external effect stops as a pending outbox intent that a
-// human must reconcile. The rehearsal never asserts that an external action succeeded when only an
-// intent exists; those boundaries are recorded as assertions rather than prose.
+// Scope note: the activity operations core (activity spaces, reminders, outcomes, publication,
+// finance records and outbox intents) is unreachable from this runtime slice and moved to a follow-up
+// PR with its module and unit tests, so the segments that crossed it were deleted here instead of
+// stubbed. This file no longer asserts anything about activity execution, finance records or provider
+// delivery; the remaining steps are honest that no chat platform, website or payment provider is
+// connected.
 //
 // Run: node --test tests/p0-rehearsal.test.mjs
 
@@ -17,17 +19,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createLedger } from '../plugins/rein-operations/ledger.ts';
 import { createProposalCore, createState } from '../plugins/rein-operations/proposals.ts';
 import { createRound, castBallot, tallyProposal, tallyRound } from '../plugins/rein-operations/governance.ts';
-import {
-  createOperationsCore,
-  createCapabilityAuthorizer,
-  createLedgerStore,
-  recommendedChecklist,
-  CAPABILITIES,
-  OperationsError,
-} from '../plugins/rein-operations/activities.ts';
 import { resolveTrustedRequester } from '../plugins/rein-operations/request-context.ts';
 
 // The P0 chat platform is still undecided (docs/decisions.md). The rehearsal uses a synthetic label
@@ -42,19 +35,7 @@ const T = {
   submit: '2026-09-24T10:00:00Z',
   roundOpens: '2026-09-25T00:00:00Z',
   roundCloses: '2026-09-28T00:00:00Z',
-  approve: '2026-09-29T09:00:00Z',
-  prepare: '2026-11-06T16:00:00Z',
-  held: '2026-11-07T21:00:00Z',
-  review: '2026-11-10T09:00:00Z',
-  settle: '2026-11-12T09:00:00Z',
-  publish: '2026-11-13T09:00:00Z',
 };
-
-const ADMIN = { id: 'ops-admin', kind: 'human' };
-const AGENT = { id: 'rein-agent', kind: 'agent' };
-const FINANCE = { id: 'finance-1', kind: 'human' };
-
-const grantAll = actor => CAPABILITIES.map(capability => ({ actorId: actor.id, capability }));
 
 const ZERO_BUDGET_FIELDS = {
   title: 'Campus paper discussion: interpretability',
@@ -103,28 +84,7 @@ const FUNDED_FIELDS = {
   },
 };
 
-function activityHarness({ directory, grants, verifyContributor }) {
-  const ledger = createLedger(join(directory, 'rehearsal.json'));
-  const store = createLedgerStore(ledger, { key: 'p0-rehearsal', actor: 'rehearsal-runner' });
-  let clock = T.records;
-  const open = () =>
-    createOperationsCore({
-      now: () => clock,
-      authorize: createCapabilityAuthorizer(grants),
-      verifyContributor,
-      store,
-    });
-  return {
-    core: open(),
-    at: () => clock,
-    setClock: value => {
-      clock = value;
-    },
-    restart: open,
-  };
-}
-
-test('AC20 rehearsal A: zero-budget paper discussion from identity link to accepted outcome', () => {
+test('AC20 rehearsal A: zero-budget paper discussion from identity link to approved proposal', () => {
   const directory = mkdtempSync(join(tmpdir(), 'rein-p0-zero-budget-'));
   try {
     // ---- proposals core: authoritative records and verified identity links
@@ -315,80 +275,6 @@ test('AC20 rehearsal A: zero-budget paper discussion from identity link to accep
     assert.equal(outsideScopeSubmit.reason, 'event_type_outside_authorized_scope');
     assert.equal(outsideScopeSubmit.approved, false);
 
-    // ---- activities core: the approval basis carries over and preparation starts
-    const lead = { id: 'M-101', kind: 'human' };
-    const harness = activityHarness({
-      directory,
-      grants: [...grantAll(ADMIN), ...grantAll(AGENT), ...grantAll(lead)],
-      verifyContributor: memberId => memberId === 'M-101',
-    });
-    const { core } = harness;
-    harness.setClock(T.submit);
-    const activity = core.createActivity({
-      actor: ADMIN,
-      title: first.proposal.fields.title,
-      eventType: 'paper_discussion',
-      leadId: 'M-101',
-    });
-    core.transitionActivity({ actor: ADMIN, activityId: activity.id, to: 'confirmed' });
-    core.transitionActivity({ actor: ADMIN, activityId: activity.id, to: 'evaluating' });
-    const approved = core.transitionActivity({
-      actor: ADMIN,
-      activityId: activity.id,
-      to: 'approved',
-      basis: 'zero_budget_fast_track',
-      reference: first.proposalId,
-    });
-    assert.equal(approved.approval.basis, 'zero_budget_fast_track');
-    assert.equal(approved.approval.reference, first.proposalId, 'the approval cites the proposal behind it');
-
-    const checklist = recommendedChecklist('paper_discussion');
-    assert.ok(checklist.some(item => item.title === 'venue'));
-    assert.ok(checklist.some(item => item.title === 'outcome_collection'));
-
-    // ---- activities core: US03 — the event space stays an intent; no chat adapter is connected
-    const space = core.requestActivitySpace({ actor: lead, activityId: activity.id });
-    assert.equal(space.job.kind, 'create_space');
-    assert.equal(space.job.state, 'pending');
-    assert.equal(space.job.delivered, false);
-    assert.equal(space.job.providerReceipt, null);
-    assert.equal(space.space.state, 'pending');
-    assert.equal(space.created, false);
-    assert.equal(core.getActivity(activity.id).space.state, 'pending', 'no adapter may report a created space');
-    assert.ok(core.getActivityView({ activityId: activity.id }).notices.includes('approved; event space pending'));
-
-    // ---- activities core: execution and outcome review
-    harness.setClock(T.prepare);
-    core.transitionActivity({ actor: lead, activityId: activity.id, to: 'preparing' });
-    harness.setClock(T.held);
-    core.transitionActivity({ actor: lead, activityId: activity.id, to: 'completed' });
-    harness.setClock(T.review);
-    const outcome = core.submitOutcome({
-      actor: lead,
-      activityId: activity.id,
-      fields: {
-        actualStartAt: '2026-10-20T18:05:00Z',
-        actualEndAt: '2026-10-20T19:30:00Z',
-        actualLocation: 'University library room 204',
-        summary: 'Fourteen attendees discussed one interpretability paper.',
-        attendance: { count: 14, basis: 'sign-in sheet' },
-        actualExpensesMinor: 0,
-      },
-    });
-    assert.equal(outcome.status, 'materials_complete');
-    const reviewed = core.reviewOutcome({ actor: AGENT, activityId: activity.id, decision: 'accepted' });
-    assert.equal(reviewed.review.decision, 'accepted');
-    core.transitionActivity({ actor: lead, activityId: activity.id, to: 'accepted' });
-    const archived = core.transitionActivity({ actor: ADMIN, activityId: activity.id, to: 'archived' });
-    assert.equal(archived.state, 'archived');
-
-    // ---- finance never engaged, and the chain survives a restart
-    assert.equal(core.getFinance(activity.id).state, 'not_requested');
-    const restarted = harness.restart();
-    assert.equal(restarted.getActivity(activity.id).state, 'archived');
-    assert.equal(restarted.getOutcome(activity.id).review.decision, 'accepted');
-    assert.equal(restarted.getActivity(activity.id).approval.reference, first.proposalId);
-    assert.ok(core.listAuditEvents({ actor: ADMIN, activityId: activity.id }).length >= 8);
     assert.ok(
       proposals.state.audit.some(
         entry => entry.action === 'submit_for_assessment' && entry.subject === first.proposalId,
@@ -399,7 +285,7 @@ test('AC20 rehearsal A: zero-budget paper discussion from identity link to accep
   }
 });
 
-test('AC20 rehearsal B: funded workshop from proposal through frozen round, finance records and outcome', () => {
+test('AC20 rehearsal B: funded workshop from proposal through frozen round and allocation', () => {
   const directory = mkdtempSync(join(tmpdir(), 'rein-p0-funded-'));
   try {
     // ---- proposals core: authoritative member records
@@ -578,206 +464,6 @@ test('AC20 rehearsal B: funded workshop from proposal through frozen round, fina
     assert.equal(openResult.allocations[0].allocatedMinor, 0, 'unconfirmed funds are never committed');
     assert.ok(openResult.outstanding.includes('available_funds_unknown_pause_commitments'));
 
-    // ---- activities core: approval cites the governance decision, and finance follows the allocation
-    const allocation = result.allocations[0];
-    const allocationReference = `${result.roundId}:${allocation.proposalId}`;
-    const lead = { id: 'M-201', kind: 'human' };
-    const harness = activityHarness({
-      directory,
-      grants: [...grantAll(ADMIN), ...grantAll(AGENT), ...grantAll(FINANCE), ...grantAll(lead)],
-      verifyContributor: memberId => memberId === 'M-201',
-    });
-    const { core } = harness;
-    harness.setClock(T.approve);
-    const activity = core.createActivity({
-      actor: ADMIN,
-      title: submitted.proposal.fields.title,
-      eventType: 'workshop',
-      leadId: 'M-201',
-    });
-    core.transitionActivity({ actor: ADMIN, activityId: activity.id, to: 'confirmed' });
-    core.transitionActivity({ actor: ADMIN, activityId: activity.id, to: 'evaluating' });
-    assert.throws(
-      () =>
-        core.transitionActivity({
-          actor: ADMIN,
-          activityId: activity.id,
-          to: 'approved',
-          basis: 'looks_fine',
-          reference: 'x',
-        }),
-      error => error.code === 'approval_basis_required',
-      'approval needs an explicit basis, not an opinion',
-    );
-    core.transitionActivity({
-      actor: ADMIN,
-      activityId: activity.id,
-      to: 'approved',
-      basis: 'governance_decision',
-      reference: allocationReference,
-    });
-
-    const requested = core.requestFunding({
-      actor: lead,
-      activityId: activity.id,
-      amountMinor: budget.requestedAmountMinor,
-      currency: budget.currency,
-    });
-    assert.equal(requested.state, 'requested');
-    assert.equal(requested.requestedMinor, allocation.requestedAmountMinor, 'the agent does not inflate the request');
-    assert.throws(
-      () =>
-        core.recordPayment({
-          actor: FINANCE,
-          activityId: activity.id,
-          amountMinor: 9000,
-          currency: 'USD',
-          receiptReference: 'bank-transfer-early',
-          paidBy: 'M-201',
-        }),
-      error => error.code === 'invalid_transition',
-      'an unconfirmed payment is never recorded as paid',
-    );
-
-    const approvedFunding = core.approveFunding({
-      actor: FINANCE,
-      activityId: activity.id,
-      ceilingMinor: allocation.allocatedMinor,
-      currency: result.currency,
-      allocationReference,
-    });
-    assert.equal(approvedFunding.state, 'awaiting_allocation');
-    assert.equal(approvedFunding.approvedCeilingMinor, 18000);
-    assert.equal(approvedFunding.allocationReference, allocationReference);
-    core.reserveFunds({ actor: FINANCE, activityId: activity.id, amountMinor: 18000 });
-    assert.equal(core.getFinance(activity.id).state, 'reserved');
-
-    // ---- activities core: the event runs, and its outcome is reviewed
-    harness.setClock(T.prepare);
-    core.transitionActivity({ actor: lead, activityId: activity.id, to: 'preparing' });
-    harness.setClock(T.held);
-    core.transitionActivity({ actor: lead, activityId: activity.id, to: 'completed' });
-    harness.setClock(T.review);
-    const outcome = core.submitOutcome({
-      actor: lead,
-      activityId: activity.id,
-      fields: {
-        actualStartAt: '2026-11-07T17:05:00Z',
-        actualEndAt: '2026-11-07T20:00:00Z',
-        actualLocation: 'Community center room B',
-        summary: 'Twenty-two attendees completed the evaluation exercise.',
-        attendance: { count: 22, basis: 'registration desk count' },
-        actualExpensesMinor: 16500,
-      },
-    });
-    assert.equal(outcome.status, 'materials_complete');
-    core.reviewOutcome({ actor: AGENT, activityId: activity.id, decision: 'accepted' });
-    core.transitionActivity({ actor: lead, activityId: activity.id, to: 'accepted' });
-
-    // ---- finance: after the event, payments are human-entered receipts, never provider calls
-    harness.setClock(T.settle);
-    assert.throws(
-      () => core.enqueueExternalIntent({ actor: FINANCE, activityId: activity.id, kind: 'pay_invoice', payload: {} }),
-      error => error instanceof OperationsError && error.code === 'payment_not_supported',
-      'this core never initiates a payment',
-    );
-    core.recordPayment({
-      actor: FINANCE,
-      activityId: activity.id,
-      amountMinor: 9000,
-      currency: 'USD',
-      receiptReference: 'bank-transfer-0001',
-      paidBy: 'M-201',
-    });
-    assert.equal(core.getFinance(activity.id).state, 'partially_paid');
-    core.recordPayment({
-      actor: FINANCE,
-      activityId: activity.id,
-      amountMinor: 9000,
-      currency: 'USD',
-      receiptReference: 'bank-transfer-0002',
-      paidBy: 'M-201',
-    });
-    assert.equal(core.getFinance(activity.id).state, 'paid');
-
-    // ---- finance: AC15 — actual spend settles against the reservation; overspend needs review
-    assert.throws(
-      () => core.recordSettlement({ actor: FINANCE, activityId: activity.id, actualMinor: 20000, unusedReleasedMinor: 0 }),
-      error => error.code === 'notes_required',
-      'an overspend is not silently approved',
-    );
-    const settlement = core.recordSettlement({
-      actor: FINANCE,
-      activityId: activity.id,
-      actualMinor: 16500,
-      unusedReleasedMinor: 1500,
-    });
-    assert.equal(settlement.state, 'settled');
-    assert.equal(settlement.actualMinor, 16500);
-    assert.equal(settlement.unusedReleasedMinor, 1500);
-
-    // ---- activities core: publication and its adapter boundary
-    harness.setClock(T.publish);
-    const publication = core.createPublicationDraft({
-      actor: lead,
-      activityId: activity.id,
-      title: 'Workshop recap',
-      body: 'Twenty-two attendees worked through the evaluation exercise.',
-      channels: ['website', 'chat'],
-    });
-    core.requestFactConfirmation({ actor: lead, publicationId: publication.id });
-    assert.throws(
-      () => core.confirmFacts({ actor: { id: 'B-1', kind: 'human' }, publicationId: publication.id }),
-      error => error.code === 'unauthorized',
-      'only the activity lead confirms facts',
-    );
-    const blocked = core.confirmFacts({ actor: lead, publicationId: publication.id });
-    assert.equal(blocked.confirmed, false);
-    assert.deepEqual(blocked.missingConsents, ['website', 'chat']);
-    core.recordConsent({ actor: lead, activityId: activity.id, channel: 'website', granted: true });
-    core.recordConsent({ actor: lead, activityId: activity.id, channel: 'chat', granted: true });
-    assert.equal(core.confirmFacts({ actor: lead, publicationId: publication.id }).confirmed, true);
-
-    const publishAttempt = core.publishPublication({ actor: ADMIN, publicationId: publication.id });
-    assert.equal(publishAttempt.published, false);
-    assert.equal(publishAttempt.job.state, 'pending');
-    const publishing = core.getPublication(publication.id);
-    assert.equal(publishing.state, 'publishing');
-    assert.equal(publishing.url, null);
-    const publishJob = core
-      .listExternalIntents({ actor: ADMIN, activityId: activity.id })
-      .find(job => job.kind === 'publish_article');
-    assert.equal(publishJob.delivered, false, 'no website adapter is connected');
-    assert.equal(publishJob.providerReceipt, null);
-
-    // ---- activities core: archive is blocked until the unresolved publication is withdrawn
-    assert.throws(
-      () => core.transitionActivity({ actor: ADMIN, activityId: activity.id, to: 'archived' }),
-      error => error.code === 'archive_blocked',
-    );
-    core.withdrawPublication({
-      actor: ADMIN,
-      publicationId: publication.id,
-      reason: 'rehearsal: no website adapter connected; publish intent left pending',
-    });
-    const archived = core.transitionActivity({ actor: ADMIN, activityId: activity.id, to: 'archived' });
-    assert.equal(archived.state, 'archived');
-
-    // ---- traceability across all four modules, surviving a restart
-    const finance = core.getFinance(activity.id);
-    assert.equal(finance.state, 'settled');
-    assert.equal(finance.allocationReference, allocationReference);
-    assert.deepEqual(
-      finance.history.map(entry => entry.to),
-      ['requested', 'awaiting_allocation', 'reserved', 'partially_paid', 'paid', 'settled'],
-    );
-    const restarted = harness.restart();
-    assert.equal(restarted.getActivity(activity.id).state, 'archived');
-    assert.equal(restarted.getActivity(activity.id).approval.reference, allocationReference);
-    assert.equal(restarted.getFinance(activity.id).state, 'settled');
-    assert.equal(restarted.getOutcome(activity.id).review.decision, 'accepted');
-    assert.equal(restarted.getPublication(publication.id).state, 'withdrawn');
-    assert.equal(restarted.getActivityView({ activityId: activity.id }).publication.state, 'withdrawn');
     assert.ok(
       proposals.state.audit.some(
         entry => entry.action === 'submit_for_assessment' && entry.subject === draft.proposalId,

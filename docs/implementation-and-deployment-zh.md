@@ -6,7 +6,7 @@ Rein Agent 继续以官方 OpenClaw 源码作为运行时，业务代码只放�
 
 **没有生产连接器验收。** 「Slack P0」与「自有数据库」是已确认的产品方向，不是已连通的集成：真实 Slack 应用与工作区尚未接入，Agent 也没有连接数据库，没有任何真实聊天、数据库或资金接口的端到端证据。两个 MVP 迁移已在姊妹仓库 `tempest2023/ReinProtocolFoundation` 的分支 `tempest/agent-mvp-schema-and-welcome-email`（PR #13，当前提交 `32977bfb6cd6ae73b81aa4b396f9ae1cb67d2ac8`，两个文件最初提交于 `4bd5ce8`）提交，并已按文件名顺序应用到**已链接的 `BeneficenceProtocol` 项目**（project ref `ksgyfyysnojqrwfuyqwe`，2026-09-27 以 `supabase migration list --linked` 只读核对，两个版本均显示为已应用）。两个迁移都在同一事务里定义 `dev_*` 与 `prod_*` 两套对象，`migration list` 又是项目级，因此**已应用的 schema 覆盖两个前缀**；应用里的 `DATABASE_ENVIRONMENT=dev` 只是客户端默认读哪一套，不等于只有 `dev_*` 建成了。姊妹仓库在 `32977bfb` 上另有第三个迁移 `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`（选票 `cast_at` 改由数据库时钟决定）：**它已提交，但尚未应用到已链接项目**，因此该时钟规则目前不在任何地方生效；姊妹仓库该提交的本地 pgTAP 为 187/187，在隔离容器中跑了两遍。这是**已应用但未被 Agent 使用**：schema 落在项目里，不等于有任何工具真的读写过它，两套表集的数据与使用情况都未验证。本文件其余部分把本地 SQL 与自动测试的结果，与真实 Slack／生产环境的验收严格分开陈述。
 
-业务核心覆盖提案与身份资格、投票计数与资金竞争、活动跟进与成果材料的确定性规则。`ledger.ts` 为本地演练提供原子快照、操作幂等回执和审计记录。外部频道、支付和网站发布均未连接。OpenClaw 插件默认提供状态、提案模拟和投票模拟工具；四个提案工具只在明确配置后注册，且帐号只取自宿主可信上下文。治理工具桥 `governance-tool-bridge.ts` 尚未在插件入口注册，也没有已批准的实时名册与平台。任何工具参数中自称的会员身份都不能视作已认证身份。
+业务核心在本 PR 内覆盖提案与身份资格、投票计数与资金竞争的确定性规则。`ledger.ts` 为本地演练提供原子快照、操作幂等回执和审计记录。外部频道、支付和网站发布均未连接。OpenClaw 插件默认提供状态、提案模拟和投票模拟工具；四个提案工具只在明确配置后注册，且帐号只取自宿主可信上下文。活动、变更、监督、外部投递与治理持久化/工具桥这一组模块从本 PR 拆分出去，实现改到后续 PR；它们在当前运行时不可达。任何工具参数中自称的会员身份都不能视作已认证身份。
 
 MVP 方向已落地 9 个工具，且**只在显式 `mvp` 配置块下注册**：只读的 `rein_mvp_my_status` 与 `rein_mvp_funds`（`foundation-db-reader.ts`、`mvp-read-tools.ts`）；写入的 `rein_mvp_proposal_submit`、`rein_mvp_poll_open`、`rein_mvp_vote`、`rein_mvp_poll_result`（`foundation-db-writer.ts`、`mvp-write-tools.ts`）；以及结果反馈的 `rein_mvp_proposal_comment_suggest`、`rein_mvp_revision_approve`、`rein_mvp_revision_apply`（`mvp-feedback-tools.ts`）。启用 `mvp` 时合成模拟器与旧提案工具被隐藏；未启用时它们照旧。真实 Slack 工作区尚未接入，Agent 也尚未连接数据库；两个迁移已应用到已链接项目的 `dev_*` 表集，但没有任何工具真的使用过它。
 
@@ -15,25 +15,17 @@ MVP 方向已落地 9 个工具，且**只在显式 `mvp` 配置块下注册**�
 | `proposals.ts` | 权威会员记录与帐号链接、Contributor 资格、提案版本与确认、完整性检查、显式授权的零预算路径、资助路由 | 真实会员名册与可信平台请求者 |
 | `proposal-store.ts` | 提案状态在本地账本的事务化保存、重启恢复、幂等回执及旧版本写入拒绝 | 生产数据库、名册同步和备份迁移 |
 | `proposal-tool-bridge.ts` | 可选的 OpenClaw v2 提案创建、修订、确认与提交工具；只读取宿主可信发送者及频道，在写入前复核调用有效性 | 批准的平台与频道、权威名册同步及真实聊天验收 |
-| `registry-snapshot.ts` | 校验权威名册快照的版本、时效、帐号冲突和有效角色；每次查询重查时效 | 权威提供方、更新流程和组织批准的最长快照年龄 |
 | `governance.ts` | 冻结轮次、资格与截止、票据替换/回避/计数、预算竞争与待分配状态 | 正式投票入口、批准的计票规则、权威可用资金 |
-| `governance-store.ts` | 治理轮次本地持久化与被拒投票审计 | 生产数据库及正式计票入口 |
-| `governance-tool-bridge.ts` | 使用 OpenClaw v2 可信发送者、董事频道与当前名册快照的投票/回避/轮次结果工具工厂 | 组织批准的规则、真实名册提供方与平台接入；`index.ts` 当前未注册该工具桥，且无已批准的实时名册与平台 |
-| `activities.ts` | 三维状态、任务提醒、材料与渠道同意、成果审核、财务记录区分、外部效果意图与异常；任务完成后自动取消追办提醒；提醒派发必须显式配置 IANA 时区；每个活动至多一篇规范文章，文章回链是独立的 `post_article_link` 意图；资金额度调整单列为 `finance.approve_adjust` 审计事件；未决超支的恢复分四步且顺序固定：授权提高上限（`finance.approve`）→ 单独补预留（`finance.reserve`）→ 记录付款 → 结算，任一步都不能由普通结算或模型改写；未付清的承诺不允许结算 | 频道、网站、注册、财务提供方；真实可用资金核对 |
 | `ledger.ts` | 单文件事务、幂等回执和本地审计；供演练的 store 端口使用 | 生产数据库、备份、迁移与访问控制 |
 | `request-context.ts` | 从 OpenClaw 的可信发送者/频道上下文绑定帐号，未配置平台与频道时拒绝；提供最终写入前的调用有效性检查，以及随名册撤销实时变化的 Contributor 查询 | 选定平台、会员名册和业务工具绑定 |
-| `oversight.ts` | 按范围暂停/恢复、异常去重与处理、周报、授权策略与未发出的待处理意图 | 真正的通知派发、监督界面与已批准的运营策略 |
-| `changes.ts` | 活动变更分类、负责人交接与取消的确定性计划；保留待执行指令与通知意图 | 将计划以事务方式应用到活动、报名、提醒及财务记录，并投递通知 |
-| `change-coordinator.ts` | 将已接受的变更中少量有明确活动核心 API 的指令交接执行，包括治理批准后的资金申请与额度记录；先记待执行标记，再记逐项结果；无法执行的指令逐项保留原因 | 跨核心原子事务、提醒/报名/负责人等完整传播、异常交接后的人工核对 |
-| `outbox-runner.ts` | 外部意图的受众检查、确认闸门、按幂等键查重、未知结果恢复及提供方回执写回 | 具备幂等键语义的单平台和网站提供方；生产环境任务调度 |
 | `index.ts` | 默认注册 `rein_status`、`rein_simulate_proposal`、`rein_simulate_vote`；明确配置后再注册四个提案工具；启用 `mvp` 配置块时改为注册 9 个 MVP 工具（2 读 + 4 写 + 3 个结果反馈），并隐藏合成模拟器与旧提案工具 | 活动、成果、发布与监督等完整业务工具 |
 | `foundation-db-reader.ts` / `mvp-read-tools.ts` | 只读身份关联与可用资金快照，暴露 `rein_mvp_my_status`、`rein_mvp_funds` | 真实数据库连接与已审阅的迁移 |
 | `foundation-db-writer.ts` / `mvp-write-tools.ts` | 提案提交、打开投票、投票与结果四个写工具；写入 `rein_mvp_proposals`、`rein_mvp_polls`、`rein_mvp_ballots`，并读取 `rein_mvp_vote_types` 取该类型的名额与批准额度 | 真实数据库连接；不产生任何付款或预留 |
 | `mvp-feedback-tools.ts`（配合 `foundation-db-writer.ts` 与 `mvp-proposal-feedback.ts`） | 结果公布后的反馈三工具：`rein_mvp_proposal_comment_suggest` 记录评论或修订建议，`rein_mvp_revision_approve` 记录现任董事对重大修订的批准，`rein_mvp_revision_apply` 使已记录的修订成为生效版本；写入 `rein_mvp_proposal_revisions` 并经 `rein_mvp_approve_revision` 批准 | 真实数据库连接与真实 Slack 验收；不产生任何付款或预留 |
 
-对 PRD R08 补充了一个实际运营中的边界：标成“零申请额”但仍要求报销的提案，应先补足金额，再进入董事评选；不能误走零预算快速通道。这一说明已同步到中英文 PRD。文章事实确认现在必须由活动负责人执行，且依赖服务端提供的 Contributor 资格查询；调用参数自称“active”不会获得发布资格。
+对 PRD R08 补充了一个实际运营中的边界：标成“零申请额”但仍要求报销的提案，应先补足金额，再进入董事评选；不能误走零预算快速通道。这一说明已同步到中英文 PRD。文章事实确认必须由活动负责人执行且依赖服务端提供的 Contributor 资格查询这一规则，随活动核心一并改到后续 PR；对应的要求仍保留在 PRD 与验收矩阵中作为后续范围。
 
-活动核心本次还收紧了若干确定性边界：任务标记完成后，用于追办该任务的提醒自动取消（原因记为 `task_completed`），不再打扰；提醒派发在未显式配置 IANA 时区时以 `timezone_required` 拒绝，核心不提供组织默认时区；每个活动至多保留一篇规范文章，重复草稿或再次确认会被 `publication_exists` 拒绝，发布回链走独立的 `post_article_link` 意图，只在文章已发布且意图带有规范 URL 时投递到活动自己的聊天空间，文章记录本身不声称回链已送达，回执时间 `linkReturnedAt` 只在投递拿到送达回执（或对账确认）后写入，普通确认或模型输出都不会写入该时间；对已承诺资金的额度调整记入 `finance.approve_adjust` 审计事件，且不得低于已预留或已支付的金额；记录结算时若实际支出超过已记录付款则以 `unpaid_obligation` 拒绝，已记录的超支被冻结，恢复必须走相互独立、顺序固定的四步——授权提高上限（`finance.approve`）、补预留（`finance.reserve`）、记录付款、结算——任一步都不能由普通结算或模型改写。可用资金目前只在本地演练账本上核对，尚未接入真实资金来源做可用性验证。
+活动核心的确定性边界**不属于本 PR**：任务完成自动取消追办提醒、`timezone_required` 提醒派发、每活动至多一篇规范文章与独立 `post_article_link` 回链意图、`finance.approve_adjust` 额度调整审计，以及未决超支必须按「授权提高上限（`finance.approve`）→ 补预留（`finance.reserve`）→ 记录付款 → 结算」固定顺序恢复等规则，随 `activities.ts` 一并改到后续 PR，目前在当前运行时不可达。这些要求仍保留在 PRD 与 [P0 验收矩阵](p0-acceptance-matrix.md) 中作为后续范围。
 
 ## P0 MVP 纵向切片：范围与现状
 
@@ -42,7 +34,7 @@ MVP 方向已落地 9 个工具，且**只在显式 `mvp` 配置块下注册**�
 
 | MVP 步骤 | 当前代码 | 仍缺 |
 | --- | --- | --- |
-| Slack 身份关联 | `registry-snapshot.ts`、`request-context.ts`，以及只读的 `foundation-db-reader.ts`（测试见 `tests/foundation-db-reader.test.mjs`；边界集成测试见 `tests/foundation-db-gateway.test.mjs`） | Slack 应用、已批准的工作区与频道 ID，以及 Agent 到已链接数据库的真实连接（身份关联迁移已在姊妹仓库分支 `tempest/agent-mvp-schema-and-welcome-email`（PR #13，提交 `32977bfb`）提交并应用到已链接项目） |
+| Slack 身份关联 | `request-context.ts`，以及只读的 `foundation-db-reader.ts`（测试见 `tests/foundation-db-reader.test.mjs`；边界集成测试见 `tests/foundation-db-gateway.test.mjs`）；旧权威名册路径的 `registry-snapshot.ts` 当前不可达，已改到后续 PR | Slack 应用、已批准的工作区与频道 ID，以及 Agent 到已链接数据库的真实连接（身份关联迁移已在姊妹仓库分支 `tempest/agent-mvp-schema-and-welcome-email`（PR #13，提交 `32977bfb`）提交并应用到已链接项目） |
 | Contributor 提案 | `proposals.ts`、`proposal-store.ts`、可选的四工具提案桥，以及 MVP 模式下注册的 `rein_mvp_proposal_submit`（`mvp-write-tools.ts`） | 接入 Slack 对话，以及数据库中「有效 Contributor」的权威来源 |
 | Board 批准投票与结果 | `mvp-write-tools.ts` 注册 `rein_mvp_poll_open`、`rein_mvp_vote`、`rein_mvp_poll_result`（`foundation-db-writer.ts` 为落库方，`mvp-vote-tally.ts` 为等权计票模块）；开票工具从已存投票类型取候选名额并自行组装候选池（含此前未入选的提案），投票工具只收 `approvedProposalIds`、受该轮 `maxApprovalsPerVoter` 约束、空数组即弃权，截止后由 `rein_mvp_finalize_poll` 落库结果；`governance.ts` 仍保留旧的加权轮次模型且不注册 | 按类型的具体名额与批准额度数值、已批准的投票名单与平票规则的确认；尚未经过真实 Slack 验收 |
 | 只读资金快照 | `foundation-db-reader.ts` 读取只追加快照，`mvp-read-tools.ts` 在已批准的 Board 频道提供 `rein_mvp_funds` | Agent 到已链接数据库的真实连接；快照表迁移已在姊妹仓库分支 `tempest/agent-mvp-schema-and-welcome-email`（PR #13，提交 `32977bfb`）提交并应用到已链接项目，但没有任何工具真的读过它 |

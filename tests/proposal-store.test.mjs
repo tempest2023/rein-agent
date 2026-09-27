@@ -411,7 +411,7 @@ test('the proposal slot stays independent of other modules in the same ledger', 
     const store = createProposalStore({ ledger });
     recordMembership(store, { expectedRevision: 0 });
 
-    // Another module owns its own slot in the same file (activities.ts uses `reinOperations`).
+    // Another module can own its own slot in the same ledger file, keyed independently.
     ledger.transact({
       key: 'activities:1',
       actor: 'operations-core',

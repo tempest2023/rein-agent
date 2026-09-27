@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-The local deterministic cores for proposals, governance, activities and a rehearsal ledger are implemented and tested. The milestones below remain open as **production acceptance**: trusted identity, chat and website adapters, approved policy, provider receipts and end-to-end pilot evidence are still required. See [implementation and deployment](implementation-and-deployment-zh.md).
+The local deterministic cores for proposals, governance and a rehearsal ledger are implemented and tested. The activity, change, oversight and outbox cores are unreachable from the plugin entry and their implementation moved to a follow-up PR. The milestones below remain open as **production acceptance**: trusted identity, chat and website adapters, approved policy, provider receipts and end-to-end pilot evidence are still required. See [implementation and deployment](implementation-and-deployment-zh.md).
 
 For a requirement-by-requirement status, see the [P0 acceptance matrix](p0-acceptance-matrix.md).
 
