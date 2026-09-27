@@ -56,6 +56,11 @@
             "enum": ["dev", "prod"],
             "description": "Selects the dev_ or prod_ database table set. Required, with no implicit default."
           },
+          "identityEmailMatch": {
+            "enum": ["enabled", "disabled"],
+            "default": "disabled",
+            "description": "Opt-in email-first identity matching. Off by default, and off means the reader consults the verified Slack link rows only, exactly as before the option existed. Enabled, one current Slack profile email that matches exactly one contact_identities email row is itself the grant: it resolves a sender whose Slack account has no link row, and it also resolves a sender whose retained verified link names the same contact. It is not a fallback that a manual link overrides. A link that names a different contact and a revoked link both fail closed, so an address change or a stale link can never bypass an administrator's decision. Enabling it requires slackBotTokenEnvVar; a bot token with users:read and users:read.email is read from the server process environment, never from this config."
+          },
           "proposalChannelIds": {
             "type": "array",
             "items": { "type": "string" },
@@ -82,6 +87,11 @@
             "type": "string",
             "minLength": 1,
             "description": "Name of the server environment variable that holds the server-only key used to sign one proposal confirmation token. The prepare step of rein_mvp_proposal_submit returns a short-lived token bound to the proposer and the exact proposal text, and the confirm step refuses to write until that token is echoed back with an explicit author confirmation. The key is never stored in config, status, results or error messages."
+          },
+          "slackBotTokenEnvVar": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of the server environment variable that holds the Slack bot token with users:read and users:read.email, used only when identityEmailMatch is enabled. The token is read from the server process environment and is never stored in config, status, results or error messages; the tools register without it while email matching is disabled."
           }
         },
         "additionalProperties": false

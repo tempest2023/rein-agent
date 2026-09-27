@@ -12,7 +12,11 @@ deferred; see [decisions](decisions.md).
 | Transport | Socket Mode against the official plugin that ships in the pinned upstream checkout; no public webhook path is required. |
 | Credentials | A bot token and an app-level token, supplied through the server environment or the runtime's own secret store. No token, signing secret or team ID may appear in this repository, in plugin config, or in any tool result. |
 | Workspace | Exactly one Slack workspace per installation. |
-| Sender | The acting user comes from the runtime's trusted per-message sender (`requesterSenderId`), which admitted channel and group messages carry the same way as DMs. No tool argument, display name or role label establishes identity. |
+| Sender | The acting user comes from the runtime's trusted per-message sender (`requesterSenderId`), which admitted channel and group messages carry the same way as DMs. No tool argument, display name or role label establishes identity; the community identity behind that sender is resolved as described below. |
+| Sender email lookup | The receiving bot resolves the trusted sender's current Slack profile email with `users.info`, which requires the governance app to hold the bot scopes `users:read` and `users:read.email`. This path is opt-in and not installed: no Slack workspace is connected, and until the scopes are installed on the governance app the sender stays unresolved. The local human test user app keeps `chat:write` as its only scope and carries no bot scope, so it cannot perform this lookup. |
+| Email to community record | The returned email is normalized and must match exactly one `<env>_contact_identities` row. The contact and its current Contributor or director role are derived from that row at request time. Resolution never creates, updates or persists a Slack link, and the Slack team stays fixed operator configuration. |
+| Legacy link rows | `<env>_rein_slack_links` is retained as a legacy and revocation record, not as a grant. A `revoked` row vetoes the sender, and a `verified` row whose contact conflicts with the matched email also vetoes the sender. The Agent writes no link row. |
+| Unresolved sender | A missing or hidden profile email, an email that matches no row or more than one row, or a matched row with no usable contact fails closed: the sender may ask questions but cannot submit, vote or act, and no governance record is written. |
 | Channels | Explicitly approved proposal and Board channel IDs, in native Slack form. A call from any other channel is refused before any database access. |
 | Missing team ID | The trusted tool context carries the platform, the channel and the sender, but no Slack team or workspace ID. The team is fixed operator configuration, so pointing one installation at several workspaces would resolve senders against the wrong community records. |
 | Outbound messages | The MVP tools return results to the calling turn and do not post to Slack on their own. The result tool in particular only returns the result; nothing auto-posts it back to the channel. Any future posting must persist intent plus an idempotency key before delivery. |
@@ -44,8 +48,15 @@ nothing here is verified against a live project.
 
 Required contract properties:
 
-- One identity link maps one Slack team/user pair to one community record. Display names never
-  establish identity, and one person with several accounts must resolve to one canonical contact.
+- One `<env>_contact_identities` row maps one normalized email to one community contact, and the
+  Slack MVP resolves a sender by a single exact email match against that table, deriving the contact
+  and its current role at request time. Display names never establish identity, and one person with
+  several Slack accounts that share one email resolves to one canonical contact. A retained link row
+  is a veto rather than a grant: `revoked` blocks the sender, and `verified` with a conflicting
+  contact blocks the sender. A missing, hidden, unmatched or ambiguous email fails closed instead of
+  creating a link or a contact, and the resolver never writes a link row. The `<env>_contact_identities`
+  rows belong to the same sibling MVP schema as the link table, and neither is applied to a live
+  environment.
 - `contributors.status = 'active'` is the only source of Contributor eligibility, and
   `people.person_type = 'director'` is the only source of Board eligibility. Free-text role fields
   are not consulted.
@@ -112,10 +123,13 @@ Everything below is a human step with a review; no Agent tool performs it.
 
 1. Review and apply both migrations to the isolated `dev_*` set, then to `prod_*` only after a
    separate decision. Never apply them from a script that also runs the Agent.
-2. Seed identity links, Contributor and director records, and an initial funds snapshot by hand, or
-   through a reviewed administrative path. Do not seed fabricated people into a live environment.
-3. Create the Slack app, enable Socket Mode, install it into the single target workspace, and invite
-   the bot to the approved proposal and Board channels.
+2. Seed the email-to-contact identity rows (`<env>_contact_identities`), Contributor and director
+   records, and an initial funds snapshot by hand, or through a reviewed administrative path. Do not
+   seed fabricated people into a live environment.
+3. Create the Slack app, enable Socket Mode, install it into the single target workspace with the
+   bot scopes `users:read` and `users:read.email` that the email resolver needs, and invite the bot
+   to the approved proposal and Board channels. Until those scopes are installed on the governance
+   app, the resolver stays off and every sender is unresolved.
 4. Record the approved native channel IDs and the one workspace ID in operator configuration, and
    point the two Supabase environment variables at server-side secrets.
 5. Enable the `mvp` config block explicitly. Until then, no MVP tool is registered.

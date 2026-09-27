@@ -72,6 +72,7 @@ const closedMember = (status, reason) => ({
   status,
   reason,
   contactId: null,
+  matchedBy: null,
   isActiveContributor: false,
   isDirector: false,
   httpStatus: null,
@@ -86,6 +87,7 @@ test('a verified link resolves to the canonical contact, an active Contributor a
     status: 'resolved',
     reason: 'resolved',
     contactId: CONTACT,
+    matchedBy: 'slack_link',
     isActiveContributor: true,
     isDirector: true,
     httpStatus: null,
@@ -265,6 +267,7 @@ test('a member without a Contributor row still resolves, and director follows th
     status: 'resolved',
     reason: 'resolved',
     contactId: CONTACT,
+    matchedBy: 'slack_link',
     isActiveContributor: false,
     isDirector: true,
     httpStatus: null,
@@ -533,6 +536,8 @@ test('invalid reader configuration is rejected at construction without echoing t
     [{ ...base, environment: 'staging' }, "environment must be 'dev' or 'prod'"],
     [{ ...base, slackTeamId: '' }, 'slackTeamId'],
     [{ ...base, slackTeamId: 'not a team id' }, 'slackTeamId'],
+    [{ ...base, emailLookup: {} }, 'emailLookup must implement lookupEmail'],
+    [{ ...base, emailLookup: 'not a lookup' }, 'emailLookup must implement lookupEmail'],
     [{ ...base, fetch: 'not a function' }, 'fetch implementation is required'],
   ];
   for (const [config, expected] of attempts) {
@@ -579,4 +584,350 @@ test('a loopback http project URL is allowed, and the key still travels in heade
     assert.equal(calls[0].init.headers.apikey, SECRET);
     assert.ok(!calls[0].url.includes(SECRET), 'the key never appears in a URL');
   }
+});
+
+// --- Optional email-first identity ------------------------------------------------------------
+// The injected lookup stands in for `createSlackEmailLookup(...)`: no live Slack call is made, and
+// every test asserts which evidence the reader actually consulted.
+
+const EMAIL = 'member@rein.example';
+
+const foundEmail = (email = EMAIL) => ({
+  status: 'found',
+  reason: 'found',
+  normalizedEmail: email,
+  httpStatus: null,
+});
+
+const identityRow = (overrides = {}) => ({
+  contact_id: CONTACT,
+  identity_kind: 'email',
+  normalized_value: EMAIL,
+  ...overrides,
+});
+
+/** Record each Slack lookup the reader performs and answer with one fixed result or a callback. */
+function emailLookupFor(answer) {
+  const calls = [];
+  return {
+    calls,
+    async lookupEmail(slackUserId) {
+      calls.push(slackUserId);
+      if (typeof answer === 'function') return answer(slackUserId);
+      if (answer instanceof Error) throw answer;
+      return answer;
+    },
+  };
+}
+
+test('an email-first lookup resolves a member with no Slack link row and names its evidence', async () => {
+  const emailLookup = emailLookupFor(foundEmail());
+  const { reader, calls } = readerFor(
+    {
+      dev_rein_slack_links: [],
+      dev_contact_identities: [identityRow()],
+      dev_community_contacts: [{ id: CONTACT }],
+      dev_contributors: [{ id: CONTRIBUTOR, contact_id: CONTACT, status: 'active' }],
+      dev_people: [{ contact_id: CONTACT, contributor_id: CONTRIBUTOR, person_type: 'director' }],
+    },
+    { emailLookup },
+  );
+
+  const result = await reader.resolveSlackMember(USER);
+
+  assert.deepEqual(result, {
+    status: 'resolved',
+    reason: 'resolved',
+    contactId: CONTACT,
+    matchedBy: 'contact_email',
+    isActiveContributor: true,
+    isDirector: true,
+    httpStatus: null,
+  });
+  assert.deepEqual(emailLookup.calls, [USER]);
+  assert.deepEqual(
+    calls.map(call => call.table),
+    ['dev_rein_slack_links', 'dev_contact_identities', 'dev_community_contacts', 'dev_contributors', 'dev_people'],
+  );
+  const identityCall = calls[1];
+  assert.equal(identityCall.params.get('identity_kind'), 'eq.email');
+  assert.equal(identityCall.params.get('normalized_value'), `eq.${EMAIL}`);
+  assert.equal(identityCall.params.get('select'), 'contact_id,identity_kind,normalized_value');
+  assert.equal(identityCall.params.get('limit'), '2');
+  for (const call of calls) {
+    assert.equal(call.init.headers.apikey, SECRET);
+    assert.ok(!call.url.includes(SECRET));
+  }
+  // The address is a database filter value, never part of the answer.
+  assert.ok(!JSON.stringify(result).includes(EMAIL));
+});
+
+test('the email path re-normalizes the provider address before the identity filter', async () => {
+  const emailLookup = emailLookupFor(foundEmail('  Member@Rein.Example  '));
+  const { reader, calls } = readerFor(
+    {
+      dev_rein_slack_links: [],
+      dev_contact_identities: [identityRow()],
+      dev_community_contacts: [{ id: CONTACT }],
+      dev_contributors: [],
+      dev_people: [],
+    },
+    { emailLookup },
+  );
+
+  const result = await reader.resolveSlackMember(USER);
+
+  assert.equal(result.status, 'resolved');
+  assert.equal(calls[1].params.get('normalized_value'), `eq.${EMAIL}`);
+});
+
+test('an address with no contact identity is a fixed not-linked reason and reads no member record', async () => {
+  const { reader, calls } = readerFor(
+    { dev_rein_slack_links: [], dev_contact_identities: [] },
+    { emailLookup: emailLookupFor(foundEmail()) },
+  );
+
+  const result = await reader.resolveSlackMember(USER);
+
+  assert.deepEqual(result, closedMember('identity_not_linked', 'identity_email_not_found'));
+  assert.deepEqual(calls.map(call => call.table), ['dev_rein_slack_links', 'dev_contact_identities']);
+});
+
+test('two identity rows for one address are ambiguous and resolve to nothing', async () => {
+  const { reader } = readerFor(
+    { dev_rein_slack_links: [], dev_contact_identities: [identityRow(), identityRow({ contact_id: OTHER_CONTACT })] },
+    { emailLookup: emailLookupFor(foundEmail()) },
+  );
+
+  const result = await reader.resolveSlackMember(USER);
+
+  assert.deepEqual(result, closedMember('identity_not_linked', 'identity_email_ambiguous'));
+});
+
+test('a malformed identity row fails closed before any member record is read', async (t) => {
+  const cases = [
+    ['a row that is not an object', [null], 'identity_email_row_malformed'],
+    ['an email row for another address', [identityRow({ normalized_value: 'other@rein.example' })], 'identity_email_row_out_of_scope'],
+    ['a row of another identity kind', [identityRow({ identity_kind: 'github' })], 'identity_email_row_out_of_scope'],
+    ['a contact id that is not a UUID', [identityRow({ contact_id: 'contact-1' })], 'identity_email_contact_id_malformed'],
+    ['a missing contact id', [identityRow({ contact_id: null })], 'identity_email_contact_id_malformed'],
+  ];
+  for (const [name, rows, reason] of cases) {
+    await t.test(name, async () => {
+      const { reader, calls } = readerFor(
+        { dev_rein_slack_links: [], dev_contact_identities: rows },
+        { emailLookup: emailLookupFor(foundEmail()) },
+      );
+      const result = await reader.resolveSlackMember(USER);
+      assert.equal(result.status, 'identity_link_malformed');
+      assert.equal(result.reason, reason);
+      assert.equal(result.contactId, null);
+      assert.equal(result.matchedBy, null);
+      assert.deepEqual(calls.map(call => call.table), ['dev_rein_slack_links', 'dev_contact_identities']);
+    });
+  }
+});
+
+test('a lookup outcome that is not a match keeps its own fixed reason and asks no identity question', async (t) => {
+  const cases = [
+    ['a deleted account', { status: 'deleted', reason: 'user_deleted', normalizedEmail: null, httpStatus: 200 }, 'identity_email_deleted'],
+    ['another workspace', { status: 'wrong_team', reason: 'team_mismatch', normalizedEmail: null, httpStatus: 200 }, 'identity_email_team_mismatch'],
+    ['no address on the profile', { status: 'no_email', reason: 'email_missing', normalizedEmail: null, httpStatus: 200 }, 'identity_email_missing'],
+    ['an invisible user', { status: 'not_found', reason: 'user_not_found', normalizedEmail: null, httpStatus: 200 }, 'identity_email_user_not_found'],
+    ['a bot account', { status: 'not_human', reason: 'user_not_human', normalizedEmail: null, httpStatus: 200 }, 'identity_email_not_human'],
+    ['a malformed provider body', { status: 'malformed', reason: 'response_malformed', normalizedEmail: null, httpStatus: 200 }, 'identity_email_lookup_malformed'],
+  ];
+  for (const [name, answer, reason] of cases) {
+    await t.test(name, async () => {
+      const { reader, calls } = readerFor({ dev_rein_slack_links: [] }, { emailLookup: emailLookupFor(answer) });
+      const result = await reader.resolveSlackMember(USER);
+      assert.deepEqual(result, closedMember('identity_not_linked', reason));
+      assert.deepEqual(calls.map(call => call.table), ['dev_rein_slack_links']);
+    });
+  }
+});
+
+test('an unavailable lookup is unavailable rather than a not-linked answer', async (t) => {
+  const answers = [
+    ['an authentication failure', { status: 'unavailable', reason: 'auth_error', normalizedEmail: null, httpStatus: 200 }],
+    ['a transport failure', { status: 'unavailable', reason: 'transport_error', normalizedEmail: null, httpStatus: null }],
+    ['a lookup that throws', new Error('socket hang up')],
+    ['a lookup with no shape', 'not a result'],
+  ];
+  for (const [name, answer] of answers) {
+    await t.test(name, async () => {
+      const { reader, calls } = readerFor({ dev_rein_slack_links: [] }, { emailLookup: emailLookupFor(answer) });
+      const result = await reader.resolveSlackMember(USER);
+      assert.equal(result.status, 'unavailable');
+      assert.equal(result.reason, 'identity_email_lookup_unavailable');
+      assert.equal(result.contactId, null);
+      assert.equal(result.matchedBy, null);
+      assert.deepEqual(calls.map(call => call.table), ['dev_rein_slack_links']);
+    });
+  }
+});
+
+test('an unknown lookup status is treated as malformed evidence, not as a match', async () => {
+  const { reader } = readerFor(
+    { dev_rein_slack_links: [] },
+    { emailLookup: emailLookupFor({ status: 'weird', reason: 'weird', normalizedEmail: EMAIL, httpStatus: 200 }) },
+  );
+
+  const result = await reader.resolveSlackMember(USER);
+
+  assert.deepEqual(result, closedMember('identity_not_linked', 'identity_email_lookup_malformed'));
+});
+
+test('a revoked link vetoes the email path, which is never consulted', async () => {
+  const emailLookup = emailLookupFor(foundEmail());
+  const { reader, calls } = readerFor(
+    linkedHandlers({
+      dev_rein_slack_links: [linkRow({ status: 'revoked', revoked_at: '2026-09-21T00:00:00+00:00' })],
+      dev_contact_identities: [identityRow()],
+    }),
+    { emailLookup },
+  );
+
+  const result = await reader.resolveSlackMember(USER);
+
+  assert.deepEqual(result, closedMember('identity_link_revoked', 'identity_link_revoked'));
+  assert.equal(emailLookup.calls.length, 0, 'a revoked link must not be re-opened by an address match');
+  assert.deepEqual(calls.map(call => call.table), ['dev_rein_slack_links']);
+});
+
+test('a verified link that agrees with the matched email grants nothing on its own', async () => {
+  const emailLookup = emailLookupFor(foundEmail());
+  const { reader, calls } = readerFor(
+    linkedHandlers({ dev_contact_identities: [identityRow()] }),
+    { emailLookup },
+  );
+
+  const result = await reader.resolveSlackMember(USER);
+
+  // D13: the address match is the grant, so the evidence is named as the email even when a
+  // retained verified link happens to agree with it.
+  assert.equal(result.status, 'resolved');
+  assert.equal(result.contactId, CONTACT);
+  assert.equal(result.matchedBy, 'contact_email');
+  assert.deepEqual(emailLookup.calls, [USER]);
+  assert.deepEqual(
+    calls.map(call => call.table),
+    ['dev_rein_slack_links', 'dev_contact_identities', 'dev_community_contacts', 'dev_contributors', 'dev_people'],
+  );
+  assert.equal(calls[2].params.get('select'), 'id,deleted_at');
+});
+
+test('a verified link that contradicts the account address fails closed instead of picking one', async () => {
+  const { reader, calls } = readerFor(
+    linkedHandlers({
+      dev_rein_slack_links: [linkRow()],
+      dev_contact_identities: [identityRow({ contact_id: OTHER_CONTACT })],
+    }),
+    { emailLookup: emailLookupFor(foundEmail()) },
+  );
+
+  const result = await reader.resolveSlackMember(USER);
+
+  assert.deepEqual(result, closedMember('identity_link_conflict', 'identity_email_conflict'));
+  assert.deepEqual(
+    calls.map(call => call.table),
+    ['dev_rein_slack_links', 'dev_contact_identities'],
+    'the conflicting link contact is never read',
+  );
+});
+
+test('a verified link grants nothing when the current address cannot be resolved', async (t) => {
+  const cases = [
+    [
+      'the lookup cannot answer',
+      { status: 'unavailable', reason: 'transport_error', normalizedEmail: null, httpStatus: null },
+      [identityRow()],
+      'unavailable',
+      'identity_email_lookup_unavailable',
+    ],
+    [
+      'the profile publishes no address',
+      { status: 'no_email', reason: 'email_missing', normalizedEmail: null, httpStatus: 200 },
+      [identityRow()],
+      'identity_not_linked',
+      'identity_email_missing',
+    ],
+    [
+      'the address matches no contact identity',
+      foundEmail(),
+      [],
+      'identity_not_linked',
+      'identity_email_not_found',
+    ],
+  ];
+  for (const [name, answer, identityRows, status, reason] of cases) {
+    await t.test(name, async () => {
+      const { reader, calls } = readerFor(
+        linkedHandlers({ dev_contact_identities: identityRows }),
+        { emailLookup: emailLookupFor(answer) },
+      );
+      const result = await reader.resolveSlackMember(USER);
+      assert.equal(result.status, status);
+      assert.equal(result.reason, reason);
+      assert.equal(result.contactId, null, 'a retained link row is not a grant under D13');
+      assert.equal(result.matchedBy, null);
+      assert.ok(
+        !calls.some(call => call.table === 'dev_community_contacts'),
+        'no member record is read for a sender who stays unidentified',
+      );
+    });
+  }
+});
+
+test('a soft-deleted contact fails closed under D13 while the link-only reader is unchanged', async (t) => {
+  await t.test('the matched contact is soft-deleted', async () => {
+    const { reader, calls } = readerFor(
+      {
+        dev_rein_slack_links: [],
+        dev_contact_identities: [identityRow()],
+        dev_community_contacts: [{ id: CONTACT, deleted_at: VERIFIED_AT }],
+      },
+      { emailLookup: emailLookupFor(foundEmail()) },
+    );
+    const result = await reader.resolveSlackMember(USER);
+    assert.equal(result.status, 'member_record_malformed');
+    assert.equal(result.reason, 'contact_deleted');
+    assert.equal(result.contactId, null);
+    assert.deepEqual(
+      calls.map(call => call.table),
+      ['dev_rein_slack_links', 'dev_contact_identities', 'dev_community_contacts'],
+    );
+  });
+  await t.test('the deletion marker is not a usable instant', async () => {
+    const { reader } = readerFor(
+      {
+        dev_rein_slack_links: [],
+        dev_contact_identities: [identityRow()],
+        dev_community_contacts: [{ id: CONTACT, deleted_at: 'sometime' }],
+      },
+      { emailLookup: emailLookupFor(foundEmail()) },
+    );
+    const result = await reader.resolveSlackMember(USER);
+    assert.equal(result.reason, 'contact_deleted_at_malformed');
+  });
+  await t.test('a link-only reader ignores the marker, as it did before the email path', async () => {
+    const { reader } = readerFor(
+      linkedHandlers({ dev_community_contacts: [{ id: CONTACT, deleted_at: VERIFIED_AT }] }),
+    );
+    const result = await reader.resolveSlackMember(USER);
+    assert.equal(result.status, 'resolved');
+    assert.equal(result.matchedBy, 'slack_link');
+  });
+});
+
+test('legacy behaviour is unchanged when no email lookup is injected', async () => {
+  // With no lookup the reader must not reach Slack at all: the fake transport answers only Supabase
+  // tables and throws on anything else.
+  const { reader, calls } = readerFor({ dev_rein_slack_links: [] });
+
+  const result = await reader.resolveSlackMember(USER);
+
+  assert.deepEqual(result, closedMember('identity_not_linked', 'identity_not_linked'));
+  assert.deepEqual(calls.map(call => call.table), ['dev_rein_slack_links']);
+  assert.ok(Object.keys(reader).includes('resolveSlackMember'));
 });

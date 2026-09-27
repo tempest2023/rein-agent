@@ -11,6 +11,9 @@
 //     verified_at, verified_by, revoked_at)      -- status is 'verified' or 'revoked'
 //   public.<env>_rein_fund_snapshots(currency, available_minor, recorded_at, recorded_by,
 //     source_note)                               -- human entered, integer minor units
+//   public.<env>_contact_identities(id, contact_id, identity_kind, normalized_value, created_at)
+//                                                -- unique on (identity_kind, normalized_value);
+//                                                   an email row stores lower(trim(email))
 //   public.<env>_community_contacts(id)
 //   public.<env>_contributors(id, contact_id, status)
 //   public.<env>_people(contact_id, contributor_id, person_type)
@@ -28,11 +31,27 @@
 //   so the team is fixed operator configuration. This reader proves that a Slack user ID is linked
 //   inside the configured team. It cannot prove that a later caller is that user, so callers must
 //   take the sender ID from trusted host context and must never accept a model-supplied ID.
+// - Identity follows D13 once an email lookup is injected (`emailLookup`, for example
+//   `createSlackEmailLookup(...)`): the sender's current Slack profile email must match exactly one
+//   `<env>_contact_identities` email row, and that match is the **only** grant. Every request
+//   derives the contact and its current role again, and nothing here creates, updates or persists a
+//   link. The retained `<env>_rein_slack_links` table is no longer a grant: a `revoked` row vetoes
+//   the sender, a `verified` row whose contact conflicts with the matched email vetoes the sender,
+//   and a `verified` row that agrees grants nothing by itself. A missing or hidden profile email, a
+//   lookup that cannot answer, an email matching no row or more than one row, a matched contact that
+//   is soft-deleted, and a matched contact with no usable record all fail closed. Without an
+//   injected lookup this module keeps its earlier link-only behaviour unchanged.
 // - This module only reads. It never reserves, approves, spends or reconciles money, and a funds
 //   answer is an operator-entered figure, not a payment instruction.
 // - Nothing here reads a clock, so freshness, expiry and deadline rules stay with the caller.
 // - `people.person_type` is the only role source used. Free-text `people.role` and the publication
 //   state are never selected, because neither establishes eligibility (R02).
+
+import {
+  normalizeEmailAddress,
+  type SlackEmailLookup,
+  type SlackEmailLookupResult,
+} from './slack-email-lookup.ts';
 
 export type FoundationEnvironment = 'dev' | 'prod';
 
@@ -48,6 +67,13 @@ export interface FoundationDbReaderConfig {
    * context does not carry a trusted team ID, so a caller-supplied one could not be verified.
    */
   slackTeamId: string;
+  /**
+   * Optional Slack email identity source, for example `createSlackEmailLookup(...)`. Absent, this
+   * reader reads the verified Slack link only and never contacts Slack. Present, D13 applies: the
+   * profile email must match exactly one existing `contact_identities` email row, and that match is
+   * the only grant. Link rows then only veto.
+   */
+  emailLookup?: SlackEmailLookup;
   /** Injectable for tests. Defaults to the global fetch. */
   fetch?: typeof globalThis.fetch;
 }
@@ -59,6 +85,7 @@ export type SlackMemberStatus =
   | 'identity_link_ambiguous'
   | 'identity_link_revoked'
   | 'identity_link_malformed'
+  | 'identity_link_conflict'
   | 'member_record_malformed'
   | 'unavailable';
 
@@ -68,6 +95,12 @@ export interface SlackMemberResolution {
   reason: string;
   /** Canonical contact ID. Non-null only when `status` is `'resolved'`. */
   contactId: string | null;
+  /**
+   * Which evidence resolved the member: `'slack_link'` for a verified `rein_slack_links` row,
+   * `'contact_email'` for a Slack profile email that matched a `contact_identities` email row.
+   * Null whenever `status` is not `'resolved'`.
+   */
+  matchedBy: 'slack_link' | 'contact_email' | null;
   /** True only for a Contributor row whose `status` is exactly `'active'`. */
   isActiveContributor: boolean;
   /** Derived from `people.person_type = 'director'` via `contact_id` or `contributor_id`. */
@@ -127,6 +160,19 @@ const ISO_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?
 const LINK_STATUSES = Object.freeze(['verified', 'revoked']);
 const CONTRIBUTOR_STATUSES = Object.freeze(['active', 'inactive']);
 const PERSON_TYPES = Object.freeze(['director', 'core_contributor']);
+/**
+ * Fixed reason for each Slack email-lookup outcome that means "no usable address", so a caller
+ * never reads provider text and never mistakes a missing scope for a missing member.
+ */
+const EMAIL_LOOKUP_REASONS: Record<string, string> = {
+  invalid_request: 'identity_email_lookup_invalid',
+  not_found: 'identity_email_user_not_found',
+  no_email: 'identity_email_missing',
+  deleted: 'identity_email_deleted',
+  not_human: 'identity_email_not_human',
+  wrong_team: 'identity_email_team_mismatch',
+  malformed: 'identity_email_lookup_malformed',
+};
 
 /**
  * Supabase serves two generations of server key and they travel differently. A legacy
@@ -181,6 +227,7 @@ const slackMemberFailure = (
   status,
   reason,
   contactId: null,
+  matchedBy: null,
   isActiveContributor: false,
   isDirector: false,
   httpStatus,
@@ -244,6 +291,16 @@ export function createFoundationDbReader(config: FoundationDbReaderConfig): Foun
     throw configError('slackTeamId must be a Slack ID such as T01234567');
   }
 
+  // The email-first path is optional and off unless an operator injects a lookup. A present but
+  // unusable object is a configuration error rather than a silent fallback to the link-only path.
+  const emailLookup = config?.emailLookup;
+  if (emailLookup !== undefined && typeof emailLookup?.lookupEmail !== 'function') {
+    throw configError('emailLookup must implement lookupEmail');
+  }
+  // Under D13 the email match is the grant, so the matched contact must still be usable. The
+  // link-only reader keeps its earlier behaviour, including for a soft-deleted contact.
+  const requiresUsableContact = emailLookup !== undefined;
+
   const fetchImpl = config?.fetch ?? globalThis.fetch;
   if (typeof fetchImpl !== 'function') throw configError('a fetch implementation is required');
 
@@ -281,6 +338,195 @@ export function createFoundationDbReader(config: FoundationDbReaderConfig): Foun
     return { ok: true, rows: body };
   };
 
+  /**
+   * The member-record proof shared by both evidence paths: the contact exists exactly once, its
+   * optional Contributor row is consistent, and `people.person_type` decides the director flag.
+   * Both paths must prove the same thing, so neither one may carry its own copy of these rules.
+   */
+  const resolveMemberRecord = async (
+    contactId: string,
+  ): Promise<{ ok: true; isActiveContributor: boolean; isDirector: boolean } | { ok: false; result: SlackMemberResolution }> => {
+    const contacts = await requestRows(`${tablePrefix}community_contacts`, {
+      select: 'id,deleted_at',
+      id: `eq.${contactId}`,
+      limit: '2',
+    });
+    if (!contacts.ok) {
+      return { ok: false, result: slackMemberFailure('unavailable', contacts.reason, contacts.httpStatus) };
+    }
+    if (contacts.rows.length === 0) {
+      return { ok: false, result: slackMemberFailure('member_record_malformed', 'contact_missing') };
+    }
+    if (contacts.rows.length > 1) {
+      return { ok: false, result: slackMemberFailure('member_record_malformed', 'contact_ambiguous') };
+    }
+    const rawContact = contacts.rows[0];
+    if (!isPlainObject(rawContact) || rawContact.id !== contactId) {
+      return { ok: false, result: slackMemberFailure('member_record_malformed', 'contact_row_malformed') };
+    }
+    // D13 derives the contact from the email match, so a soft-deleted contact is not a usable
+    // grant. `null` and an absent marker both mean "not deleted"; a present but unparseable marker
+    // is a malformed record rather than an implicit live contact.
+    if (requiresUsableContact && rawContact.deleted_at !== null && rawContact.deleted_at !== undefined) {
+      if (isoInstant(rawContact.deleted_at) === null) {
+        return { ok: false, result: slackMemberFailure('member_record_malformed', 'contact_deleted_at_malformed') };
+      }
+      return { ok: false, result: slackMemberFailure('member_record_malformed', 'contact_deleted') };
+    }
+
+    const contributors = await requestRows(`${tablePrefix}contributors`, {
+      select: 'id,contact_id,status',
+      contact_id: `eq.${contactId}`,
+      limit: '2',
+    });
+    if (!contributors.ok) {
+      return { ok: false, result: slackMemberFailure('unavailable', contributors.reason, contributors.httpStatus) };
+    }
+    if (contributors.rows.length > 1) {
+      return { ok: false, result: slackMemberFailure('member_record_malformed', 'contributor_ambiguous') };
+    }
+    let contributorId: string | null = null;
+    let isActiveContributor = false;
+    if (contributors.rows.length === 1) {
+      const rawContributor = contributors.rows[0];
+      if (!isPlainObject(rawContributor)) {
+        return { ok: false, result: slackMemberFailure('member_record_malformed', 'contributor_row_malformed') };
+      }
+      const contributor = optionalUuid(rawContributor.id);
+      if (!contributor) {
+        return { ok: false, result: slackMemberFailure('member_record_malformed', 'contributor_id_malformed') };
+      }
+      if (rawContributor.contact_id !== contactId) {
+        return { ok: false, result: slackMemberFailure('member_record_malformed', 'contributor_contact_mismatch') };
+      }
+      const contributorStatus = rawContributor.status;
+      if (typeof contributorStatus !== 'string' || !CONTRIBUTOR_STATUSES.includes(contributorStatus)) {
+        return { ok: false, result: slackMemberFailure('member_record_malformed', 'contributor_status_malformed') };
+      }
+      contributorId = contributor;
+      isActiveContributor = contributorStatus === 'active';
+    }
+
+    // A director may be linked through the contact or through the Contributor record, so both keys
+    // are queried. `people` is unique on `contact_id` and on `contributor_id`, so at most two rows
+    // can match.
+    const peopleParams: Record<string, string> = { select: 'contact_id,contributor_id,person_type', limit: '3' };
+    if (contributorId) peopleParams.or = `(contact_id.eq.${contactId},contributor_id.eq.${contributorId})`;
+    else peopleParams.contact_id = `eq.${contactId}`;
+    const people = await requestRows(`${tablePrefix}people`, peopleParams);
+    if (!people.ok) {
+      return { ok: false, result: slackMemberFailure('unavailable', people.reason, people.httpStatus) };
+    }
+
+    let isDirector = false;
+    for (const rawPerson of people.rows) {
+      if (!isPlainObject(rawPerson)) {
+        return { ok: false, result: slackMemberFailure('member_record_malformed', 'person_row_malformed') };
+      }
+      const personContactId = optionalUuid(rawPerson.contact_id);
+      const personContributorId = optionalUuid(rawPerson.contributor_id);
+      if (personContactId === undefined || personContributorId === undefined) {
+        return { ok: false, result: slackMemberFailure('member_record_malformed', 'person_identifier_malformed') };
+      }
+      const personType = rawPerson.person_type;
+      if (typeof personType !== 'string' || !PERSON_TYPES.includes(personType)) {
+        return { ok: false, result: slackMemberFailure('member_record_malformed', 'person_type_malformed') };
+      }
+      const matchesContact = personContactId === contactId;
+      const matchesContributor = contributorId !== null && personContributorId === contributorId;
+      if (!matchesContact && !matchesContributor) {
+        return { ok: false, result: slackMemberFailure('member_record_malformed', 'person_row_out_of_scope') };
+      }
+      if (personType === 'director') isDirector = true;
+    }
+
+    return { ok: true, isActiveContributor, isDirector };
+  };
+
+  /**
+   * The D13 probe and the only grant once a lookup is injected. The Slack lookup supplies an
+   * address; this reader re-normalizes it locally and matches it against `<env>_contact_identities`,
+   * which is unique on `(identity_kind, normalized_value)`. Every outcome is closed: a matched
+   * contact, or a result that a caller returns as-is.
+   */
+  const resolveEmailIdentity = async (
+    userId: string,
+  ): Promise<{ kind: 'matched'; contactId: string } | { kind: 'closed'; result: SlackMemberResolution }> => {
+    let raw: SlackEmailLookupResult | null = null;
+    try {
+      raw = await emailLookup!.lookupEmail(userId);
+    } catch {
+      // A lookup that throws is a broken provider, never a match.
+      raw = null;
+    }
+    if (!isPlainObject(raw) || typeof raw.status !== 'string') {
+      return {
+        kind: 'closed',
+        result: slackMemberFailure('unavailable', 'identity_email_lookup_unavailable'),
+      };
+    }
+    const lookupHttpStatus = typeof raw.httpStatus === 'number' ? raw.httpStatus : null;
+    if (raw.status !== 'found') {
+      if (raw.status === 'unavailable') {
+        return {
+          kind: 'closed',
+          result: slackMemberFailure('unavailable', 'identity_email_lookup_unavailable', lookupHttpStatus),
+        };
+      }
+      const reason = EMAIL_LOOKUP_REASONS[raw.status] ?? 'identity_email_lookup_malformed';
+      return { kind: 'closed', result: slackMemberFailure('identity_not_linked', reason) };
+    }
+
+    // A provider is not trusted to hand the reader a value that is placed in a database filter.
+    const email = normalizeEmailAddress(raw.normalizedEmail);
+    if (email === null) {
+      return { kind: 'closed', result: slackMemberFailure('identity_not_linked', 'identity_email_missing') };
+    }
+
+    const identities = await requestRows(`${tablePrefix}contact_identities`, {
+      select: 'contact_id,identity_kind,normalized_value',
+      identity_kind: 'eq.email',
+      normalized_value: `eq.${email}`,
+      // The table is unique on (identity_kind, normalized_value); a second row is a contract breach.
+      limit: '2',
+    });
+    if (!identities.ok) {
+      return {
+        kind: 'closed',
+        result: slackMemberFailure('unavailable', identities.reason, identities.httpStatus),
+      };
+    }
+    if (identities.rows.length === 0) {
+      return { kind: 'closed', result: slackMemberFailure('identity_not_linked', 'identity_email_not_found') };
+    }
+    if (identities.rows.length > 1) {
+      return { kind: 'closed', result: slackMemberFailure('identity_not_linked', 'identity_email_ambiguous') };
+    }
+    const rawIdentity = identities.rows[0];
+    if (!isPlainObject(rawIdentity)) {
+      return {
+        kind: 'closed',
+        result: slackMemberFailure('identity_link_malformed', 'identity_email_row_malformed'),
+      };
+    }
+    // Re-check the row locally: a row outside the exact email claim is never a match, whatever the
+    // server-side filter returned.
+    if (rawIdentity.identity_kind !== 'email' || rawIdentity.normalized_value !== email) {
+      return {
+        kind: 'closed',
+        result: slackMemberFailure('identity_link_malformed', 'identity_email_row_out_of_scope'),
+      };
+    }
+    const contactId = optionalUuid(rawIdentity.contact_id);
+    if (!contactId) {
+      return {
+        kind: 'closed',
+        result: slackMemberFailure('identity_link_malformed', 'identity_email_contact_id_malformed'),
+      };
+    }
+    return { kind: 'matched', contactId };
+  };
+
   const resolveSlackMember = async (slackUserId: string): Promise<SlackMemberResolution> => {
     const userId = typeof slackUserId === 'string' ? slackUserId.trim() : '';
     if (!SLACK_ID_PATTERN.test(userId)) {
@@ -295,108 +541,81 @@ export function createFoundationDbReader(config: FoundationDbReaderConfig): Foun
       limit: '2',
     });
     if (!links.ok) return slackMemberFailure('unavailable', links.reason, links.httpStatus);
-    if (links.rows.length === 0) return slackMemberFailure('identity_not_linked', 'identity_not_linked');
     if (links.rows.length > 1) return slackMemberFailure('identity_link_ambiguous', 'identity_link_ambiguous');
 
-    const rawLink = links.rows[0];
-    if (!isPlainObject(rawLink)) return slackMemberFailure('identity_link_malformed', 'link_row_malformed');
-    // Re-check scope locally: a row outside the configured team is never a match, whatever the
-    // server-side filter returned.
-    if (rawLink.slack_team_id !== slackTeamId || rawLink.slack_user_id !== userId) {
-      return slackMemberFailure('identity_link_malformed', 'link_row_out_of_scope');
-    }
-    const contactId = optionalUuid(rawLink.contact_id);
-    if (!contactId) return slackMemberFailure('identity_link_malformed', 'link_contact_id_malformed');
-    const linkStatus = rawLink.status;
-    if (typeof linkStatus !== 'string' || !LINK_STATUSES.includes(linkStatus)) {
-      return slackMemberFailure('identity_link_malformed', 'link_status_malformed');
-    }
-    // Both the verified and the revoked state must keep the verification decision they rest on.
-    if (isoInstant(rawLink.verified_at) === null || nonEmptyText(rawLink.verified_by) === null) {
-      return slackMemberFailure('identity_link_malformed', 'link_verification_missing');
-    }
-    if (linkStatus === 'revoked') {
-      if (isoInstant(rawLink.revoked_at) === null) {
-        return slackMemberFailure('identity_link_malformed', 'link_revocation_missing');
+    let linkedContactId: string | null = null;
+    if (links.rows.length === 1) {
+      const rawLink = links.rows[0];
+      if (!isPlainObject(rawLink)) return slackMemberFailure('identity_link_malformed', 'link_row_malformed');
+      // Re-check scope locally: a row outside the configured team is never a match, whatever the
+      // server-side filter returned.
+      if (rawLink.slack_team_id !== slackTeamId || rawLink.slack_user_id !== userId) {
+        return slackMemberFailure('identity_link_malformed', 'link_row_out_of_scope');
       }
-      return slackMemberFailure('identity_link_revoked', 'identity_link_revoked');
-    }
-    if (rawLink.revoked_at !== null) {
-      return slackMemberFailure('identity_link_malformed', 'link_revoked_at_unexpected');
+      const contactId = optionalUuid(rawLink.contact_id);
+      if (!contactId) return slackMemberFailure('identity_link_malformed', 'link_contact_id_malformed');
+      const linkStatus = rawLink.status;
+      if (typeof linkStatus !== 'string' || !LINK_STATUSES.includes(linkStatus)) {
+        return slackMemberFailure('identity_link_malformed', 'link_status_malformed');
+      }
+      // Both the verified and the revoked state must keep the verification decision they rest on.
+      if (isoInstant(rawLink.verified_at) === null || nonEmptyText(rawLink.verified_by) === null) {
+        return slackMemberFailure('identity_link_malformed', 'link_verification_missing');
+      }
+      if (linkStatus === 'revoked') {
+        if (isoInstant(rawLink.revoked_at) === null) {
+          return slackMemberFailure('identity_link_malformed', 'link_revocation_missing');
+        }
+        // The veto: a revoked link returns before the optional email probe, so a later address
+        // change can never restore an identity an administrator deliberately revoked.
+        return slackMemberFailure('identity_link_revoked', 'identity_link_revoked');
+      }
+      if (rawLink.revoked_at !== null) {
+        return slackMemberFailure('identity_link_malformed', 'link_revoked_at_unexpected');
+      }
+      linkedContactId = contactId;
     }
 
-    const contacts = await requestRows(`${tablePrefix}community_contacts`, {
-      select: 'id',
-      id: `eq.${contactId}`,
-      limit: '2',
-    });
-    if (!contacts.ok) return slackMemberFailure('unavailable', contacts.reason, contacts.httpStatus);
-    if (contacts.rows.length === 0) return slackMemberFailure('member_record_malformed', 'contact_missing');
-    if (contacts.rows.length > 1) return slackMemberFailure('member_record_malformed', 'contact_ambiguous');
-    const rawContact = contacts.rows[0];
-    if (!isPlainObject(rawContact) || rawContact.id !== contactId) {
-      return slackMemberFailure('member_record_malformed', 'contact_row_malformed');
+    // Link-only reader: a verified link is the grant, exactly as before the email path existed. A
+    // revoked link already returned above.
+    if (!emailLookup) {
+      if (linkedContactId === null) return slackMemberFailure('identity_not_linked', 'identity_not_linked');
+      const record = await resolveMemberRecord(linkedContactId);
+      if (!record.ok) return record.result;
+      return {
+        status: 'resolved',
+        reason: 'resolved',
+        contactId: linkedContactId,
+        matchedBy: 'slack_link',
+        isActiveContributor: record.isActiveContributor,
+        isDirector: record.isDirector,
+        httpStatus: null,
+      };
     }
 
-    const contributors = await requestRows(`${tablePrefix}contributors`, {
-      select: 'id,contact_id,status',
-      contact_id: `eq.${contactId}`,
-      limit: '2',
-    });
-    if (!contributors.ok) return slackMemberFailure('unavailable', contributors.reason, contributors.httpStatus);
-    if (contributors.rows.length > 1) {
-      return slackMemberFailure('member_record_malformed', 'contributor_ambiguous');
+    // D13: the current profile email match is the only grant. It runs after the link table so a
+    // revoked link has already vetoed the sender. A lookup that cannot answer, a missing or hidden
+    // address, and an email that matches no row or more than one row all fail closed, whether or not
+    // a link row exists.
+    const outcome = await resolveEmailIdentity(userId);
+    if (outcome.kind === 'closed') return outcome.result;
+    // A retained verified link whose contact conflicts with the matched email vetoes the sender, so
+    // a stale or wrong manual link can never be silently bypassed, and a conflicting one can never
+    // be silently chosen over the live address.
+    if (linkedContactId !== null && linkedContactId !== outcome.contactId) {
+      return slackMemberFailure('identity_link_conflict', 'identity_email_conflict');
     }
-    let contributorId: string | null = null;
-    let isActiveContributor = false;
-    if (contributors.rows.length === 1) {
-      const rawContributor = contributors.rows[0];
-      if (!isPlainObject(rawContributor)) {
-        return slackMemberFailure('member_record_malformed', 'contributor_row_malformed');
-      }
-      const contributor = optionalUuid(rawContributor.id);
-      if (!contributor) return slackMemberFailure('member_record_malformed', 'contributor_id_malformed');
-      if (rawContributor.contact_id !== contactId) {
-        return slackMemberFailure('member_record_malformed', 'contributor_contact_mismatch');
-      }
-      const contributorStatus = rawContributor.status;
-      if (typeof contributorStatus !== 'string' || !CONTRIBUTOR_STATUSES.includes(contributorStatus)) {
-        return slackMemberFailure('member_record_malformed', 'contributor_status_malformed');
-      }
-      contributorId = contributor;
-      isActiveContributor = contributorStatus === 'active';
-    }
-
-    // A director may be linked through the contact or through the Contributor record, so both keys
-    // are queried. `people` is unique on `contact_id` and on `contributor_id`, so at most two rows
-    // can match.
-    const peopleParams: Record<string, string> = { select: 'contact_id,contributor_id,person_type', limit: '3' };
-    if (contributorId) peopleParams.or = `(contact_id.eq.${contactId},contributor_id.eq.${contributorId})`;
-    else peopleParams.contact_id = `eq.${contactId}`;
-    const people = await requestRows(`${tablePrefix}people`, peopleParams);
-    if (!people.ok) return slackMemberFailure('unavailable', people.reason, people.httpStatus);
-
-    let isDirector = false;
-    for (const rawPerson of people.rows) {
-      if (!isPlainObject(rawPerson)) return slackMemberFailure('member_record_malformed', 'person_row_malformed');
-      const personContactId = optionalUuid(rawPerson.contact_id);
-      const personContributorId = optionalUuid(rawPerson.contributor_id);
-      if (personContactId === undefined || personContributorId === undefined) {
-        return slackMemberFailure('member_record_malformed', 'person_identifier_malformed');
-      }
-      const personType = rawPerson.person_type;
-      if (typeof personType !== 'string' || !PERSON_TYPES.includes(personType)) {
-        return slackMemberFailure('member_record_malformed', 'person_type_malformed');
-      }
-      const matchesContact = personContactId === contactId;
-      const matchesContributor = contributorId !== null && personContributorId === contributorId;
-      if (!matchesContact && !matchesContributor) {
-        return slackMemberFailure('member_record_malformed', 'person_row_out_of_scope');
-      }
-      if (personType === 'director') isDirector = true;
-    }
-
-    return { status: 'resolved', reason: 'resolved', contactId, isActiveContributor, isDirector, httpStatus: null };
+    const record = await resolveMemberRecord(outcome.contactId);
+    if (!record.ok) return record.result;
+    return {
+      status: 'resolved',
+      reason: 'resolved',
+      contactId: outcome.contactId,
+      matchedBy: 'contact_email',
+      isActiveContributor: record.isActiveContributor,
+      isDirector: record.isDirector,
+      httpStatus: null,
+    };
   };
 
   const readAvailableFunds = async (currency: string): Promise<AvailableFunds> => {

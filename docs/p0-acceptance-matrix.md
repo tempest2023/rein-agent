@@ -60,10 +60,16 @@ cross-process exactly-once behaviour.
 
 No live database is connected and no real Slack workspace is wired. One installation serves one Slack
 workspace; the pinned runtime supplies a trusted per-message sender in admitted channel and group
-messages as well as in DMs, but no team ID. Two migrations are now **tracked in the sibling
-Foundation repository** (`tempest2023/ReinProtocolFoundation`) at commit `4bd5ce8` ("Add the Rein
-Agent MVP Slack identity, fund snapshot, and governance schema") on branch
-`tempest/agent-mvp-schema-and-welcome-email`, and neither is applied to a live environment:
+messages as well as in DMs, but no team ID. Slack sender identity is specified by D13 as an exact
+match between the sender's Slack profile email and one `<env>_contact_identities` row, which needs
+the governance app's `users:read` and `users:read.email` bot scopes; the resolver is implemented in
+local code with tests, but it is opt-in and off by default (`mvp.identityEmailMatch` defaults to
+`disabled`), and the scopes and bot token are not installed or configured, so no live workspace or
+database exercises it and the retained link table stays the read path until it is enabled. Two
+migrations are now **tracked in the sibling Foundation repository**
+(`tempest2023/ReinProtocolFoundation`) at commit `4bd5ce8` ("Add the Rein Agent MVP Slack identity,
+fund snapshot, and governance schema") on branch `tempest/agent-mvp-schema-and-welcome-email`, and
+neither is applied to a live environment:
 `supabase/migrations/20260924094436_rein_slack_identity_and_fund_snapshots.sql` (identity links,
 append-only funds snapshots) and
 `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql` (proposals, polls, ballots).
@@ -75,7 +81,7 @@ is a production pass.
 
 | AC | Current evidence | Status | Evidence still required for launch |
 | --- | --- | --- | --- |
-| AC01 | `proposals.test.mjs` rejects formal submission by an unlinked account; `proposal-tool-bridge.test.mjs` proves a first unlinked sender can draft using host identity and cannot confirm; `foundation-db-reader.test.mjs` resolves a sender only through a verified identity link in the configured team. | Local tool and reader tested; no live database | Selected-platform sender joined to the authoritative current member registry. |
+| AC01 | `proposals.test.mjs` rejects formal submission by an unidentified account; `proposal-tool-bridge.test.mjs` proves a first unidentified sender can draft using host identity and cannot confirm; `foundation-db-reader.test.mjs` resolves a sender only through a verified identity link in the configured team. The D13 email resolver — trusted sender to a `users.info` profile email, exact match to one `<env>_contact_identities` row, contact and current role derived per request, a `revoked` or conflicting `verified` link row vetoing, and a missing, hidden, unmatched or ambiguous email failing closed — is implemented in local code and covered by `slack-email-lookup.test.mjs` and `foundation-db-reader.test.mjs`, but it is opt-in and off by default, so the reader still resolves through the link table unless `mvp.identityEmailMatch` is enabled. | Local tool, link-based reader and email resolver tested; the resolver is implemented but disabled by default, and its bot scopes and token are not installed or configured | The installed `users:read` and `users:read.email` scopes, a configured bot token, the resolver enabled against a live workspace, and a selected-platform sender joined to the authoritative current member registry. A normally invited member whose profile email is unmatched or missing is expected to fail closed as unidentified rather than to be treated as an ordinary unlinked user. |
 | AC02 | `proposals.test.mjs` checks fields, versions and reconfirmation; `proposal-tool-bridge.test.mjs` exercises guarded create/revise/confirm/submit calls. | Local tool tested | Real chat conversation that gathers fields across messages and returns the confirmed summary. |
 | AC03 | `proposals.test.mjs` checks explicit zero-budget authorization and blockers. | Core tested | Approved policy scope, responsible exception handler and real fast-track rehearsal. |
 | AC04 | `proposals.test.mjs` routes complete funding requests to governance, including small amounts. | Core tested | Live Board round presentation and provider-backed proposal records. |

@@ -29,6 +29,7 @@
 
 import { Type } from 'typebox';
 import { createFoundationDbReader } from './foundation-db-reader.ts';
+import { createSlackEmailLookup } from './slack-email-lookup.ts';
 import type { AvailableFunds, FoundationEnvironment, SlackMemberResolution } from './foundation-db-reader.ts';
 import { assertCurrentInvocation } from './request-context.ts';
 
@@ -55,9 +56,10 @@ export interface MvpReadToolsOptions {
   /**
    * The `mvp` block of plugin config, read as untrusted input. Expected keys: `enabled`,
    * `platform` (`slack`), `slackTeamId`, `environment` (`dev` or `prod`), `proposalChannelIds`,
-   * `boardChannelIds`, `supabaseUrlEnvVar` and `supabaseServiceKeyEnvVar`. The last two name server
-   * environment variables; no credential is ever read from config. Absent or `enabled: false`
-   * registers no tools.
+   * `boardChannelIds`, `supabaseUrlEnvVar`, `supabaseServiceKeyEnvVar`, the optional
+   * `identityEmailMatch` (`enabled` or `disabled`) and the optional `slackBotTokenEnvVar`. The
+   * environment-variable keys name server variables; no credential is ever read from config.
+   * Absent or `enabled: false` registers no tools.
    */
   config?: Record<string, unknown>;
   /** Server environment holding the referenced values. Defaults to `process.env`. */
@@ -116,6 +118,17 @@ function readEnvReference(reference: unknown, field: string): string {
   return (reference as string).trim();
 }
 
+/**
+ * Read the email-first identity matching mode. It is opt-in: absent or `disabled` keeps the
+ * database-only behavior this slice had before the option existed, and any other value is an
+ * operator error rather than a silently ignored typo.
+ */
+function readIdentityEmailMatch(value: unknown): 'enabled' | 'disabled' {
+  if (value === undefined || value === null) return 'disabled';
+  if (value === 'enabled' || value === 'disabled') return value;
+  configError('mvp.identityEmailMatch must be "enabled" or "disabled"');
+}
+
 /** Resolve one referenced value from the server environment, or fail without echoing it. */
 function readEnvValue(env: Record<string, string | undefined>, name: string, field: string): string {
   const value = env?.[name];
@@ -157,16 +170,42 @@ function resolveMvpReadConfig(options: MvpReadToolsOptions | undefined): Resolve
   const urlReference = readEnvReference(config.supabaseUrlEnvVar, 'supabaseUrlEnvVar');
   const keyReference = readEnvReference(config.supabaseServiceKeyEnvVar, 'supabaseServiceKeyEnvVar');
 
+  // Optional email-first identity evidence. Off by default, and the bot token is only demanded when
+  // this process builds its own reader. A name that is present at all is still checked, because a
+  // typo in the variable name is a configuration error either way.
+  const identityEmailMatch = readIdentityEmailMatch(config.identityEmailMatch);
+  const botTokenReference =
+    identityEmailMatch === 'enabled' && config.slackBotTokenEnvVar !== undefined
+      ? readEnvReference(config.slackBotTokenEnvVar, 'slackBotTokenEnvVar')
+      : null;
+
   let reader: MvpReadToolReader | undefined = options?.reader;
   if (!reader) {
     const env = options?.env ?? process.env;
+    // With email matching on, the bot token variable must be named before any value is read, so a
+    // missing name fails on the configuration instead of behind an unrelated missing value.
+    const tokenReference =
+      identityEmailMatch === 'enabled'
+        ? (botTokenReference ?? readEnvReference(config.slackBotTokenEnvVar, 'slackBotTokenEnvVar'))
+        : null;
     const supabaseUrl = readEnvValue(env, urlReference, 'supabaseUrlEnvVar');
     const serviceRoleKey = readEnvValue(env, keyReference, 'supabaseServiceKeyEnvVar');
+    // The reader gets one lookup bound to this workspace and one bot token. The token is read from
+    // the named server environment variable and never reaches config, a status, a result or an
+    // error message.
+    const emailLookup =
+      tokenReference !== null
+        ? createSlackEmailLookup({
+            botToken: readEnvValue(env, tokenReference, 'slackBotTokenEnvVar'),
+            slackTeamId,
+          })
+        : undefined;
     reader = createFoundationDbReader({
       supabaseUrl,
       serviceRoleKey,
       environment: environment as FoundationEnvironment,
       slackTeamId,
+      ...(emailLookup ? { emailLookup } : {}),
     });
   }
   if (

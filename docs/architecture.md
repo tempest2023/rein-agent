@@ -37,7 +37,7 @@ flowchart LR
   Outbox --> Website[Foundation website adapter: deferred from the MVP]
   Admin[Authorized operators] --> Domain
   Upstream[Upstream OpenClaw releases] -. reviewed pin bump .-> Gateway
-  Data[Foundation Supabase: members, directors, Slack links, funds snapshots] -. read-only reader implemented, no live connection .-> Domain
+  Data[Foundation Supabase: members, directors, contact identities, link vetoes, funds snapshots] -. read-only reader implemented, no live connection .-> Domain
 ```
 
 Discord is not drawn: no Discord surface is connected, and its general-participant scope (onboarding,
@@ -76,7 +76,7 @@ proposal, a simple Board approval vote with a recorded result, and a read-only f
 
 ```mermaid
 flowchart LR
-  Link[Administrator links a Slack user to a community record] --> Propose[Linked Contributor submits a simple proposal]
+  Identify[Bot reads the sender's Slack email and matches one contact identity row] --> Propose[Matched Contributor submits a simple proposal]
   Propose --> Vote[Eligible directors record approvals or abstain]
   Vote --> Result[Agent records the result and returns it to the call]
   Funds[Latest human-entered funds snapshot] -. read-only .-> Result
@@ -85,7 +85,7 @@ flowchart LR
 
 | MVP step | Local code today | Still required |
 | --- | --- | --- |
-| Slack identity | `registry-snapshot.ts` validates a supplied snapshot and its account links; `request-context.ts` binds a host sender; `foundation-db-reader.ts` and `mvp-read-tools.ts` resolve a sender against the identity-link table. | A Slack app, approved workspace and channel IDs, and the reviewed identity-link table. The migration that adds it is uncommitted and, as reported, not applied to the live project. |
+| Slack identity | `registry-snapshot.ts` validates a supplied snapshot and its account links; `request-context.ts` binds a host sender; `foundation-db-reader.ts` and `mvp-read-tools.ts` resolve a sender. Under D13 that resolver matches the sender's Slack profile email against exactly one `<env>_contact_identities` row at each request when it is on, with no persisted link and with a revoked or conflicting link row kept only as a veto. The resolver exists in `slack-email-lookup.ts` plus the reader's email-first path and is covered by local tests, but it is opt-in and off by default (`mvp.identityEmailMatch`), and the `users:read` / `users:read.email` bot scopes and bot token it needs are not installed or configured, so by default the reader still resolves against the identity-link table. | The installed bot scopes, a configured bot token, the resolver enabled, a Slack app, approved workspace and channel IDs, and the reviewed identity records. The migration that adds it is uncommitted and, as reported, not applied to the live project. |
 | Contributor proposal | `proposals.ts` and `proposal-store.ts` with the optional proposal bridge. | A Slack conversation wired to the bridge plus the database-backed active-Contributor source. |
 | Board approval vote and result | `mvp-write-tools.ts` registers `rein_mvp_poll_open`, `rein_mvp_vote` and `rein_mvp_poll_result`. The round takes its candidate cap from the stored vote type and the tool reads the candidate pool from the database itself, so no caller supplies candidates, a cap or an option label; an options-only call is refused with `legacy_options_unsupported`. `rein_mvp_vote` accepts `approvedProposalIds` only, bounded by the poll's own `maxApprovalsPerVoter`, and an empty list is the abstention; the database freezes the candidate list and both limits at insert time. `mvp-vote-tally.ts` counts a frozen eligible list at one equal weight per member, and `governance.ts` holds the older weighted round model that stays unregistered. | An approved voter list and confirmation of the highest-count tie rule. No tool posts to Slack, so the result returns to the calling turn only. |
 | Read-only funds snapshot | `foundation-db-reader.ts` reads the append-only snapshot table and `mvp-read-tools.ts` exposes `rein_mvp_funds` to approved Board channels. | A live database connection and the reviewed snapshot table, whose migration is committed in the sibling repository `tempest2023/ReinProtocolFoundation` at `4bd5ce8`, but not applied to the live project. |
@@ -99,7 +99,15 @@ per-message sender (`requesterSenderId`) in an admitted Slack DM and equally in 
 or group message, so channel traffic is not a weaker source of identity than a DM. What the
 version-2 tool context does not carry is a Slack team or workspace ID, so the team is fixed
 operator configuration and pointing one installation at several workspaces would resolve senders
-against the wrong community records.
+against the wrong community records. The community identity behind that sender is resolved under
+D13: the bot reads the sender's current Slack profile email with `users.info` (bot scopes
+`users:read` and `users:read.email`), normalizes it, and requires an exact match to exactly one
+`<env>_contact_identities` row, deriving the contact and its current role without persisting a link.
+A missing, hidden, unmatched or ambiguous email fails closed, and a retained revoked or conflicting
+link row vetoes the sender. That path is opt-in and off by default: the resolver ships in
+`slack-email-lookup.ts` with local tests, but the scopes and bot token are not installed or
+configured, no Slack workspace is connected, and without the opt-in the shipped reader still
+resolves through the retained link table.
 
 Channel roles are separated (D12). Slack is the internal governance surface for the core circle,
 meaning core board members and core contributors; Board voting, fund review and event review happen

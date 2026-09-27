@@ -28,8 +28,8 @@
 - **工具 / 数据库**：
   - 身份解析按 D13 **失败关闭**：资料邮箱缺失、隐藏、对不上任何行、命中多行，或命中的记录没有可用联系人时，都不解析出联系人与角色；`rein_mvp_my_status` 不给出可用的联系人／角色。
   - 若本轮调用 `rein_mvp_proposal_submit`，返回 `ok = false` 并失败关闭；`rein_mvp_proposals` 不新增行。
-  - **原因码随实现而定。** 邮箱解析路径（D13）尚未实现，现有读取器仍走关联表；演练时必须读取当前注册工具的实际返回值，不要引用 `identity_not_linked`、`identity_link_required` 之类的固定字面量，也不要断言所有未解析路径都返回同一个词。参数里自称的 `contactId`、`memberId` 或角色一律不作为身份依据。
-- **缺口**：D13 的邮箱解析（`users.info` 加 `users:read`／`users:read.email` 两个 Bot scope）**尚未实现，scope 也未安装**，现有实现仍按关联表解析；因此本条既是「身份未解析即失败关闭」的期望行为，也是当前验收缺口，见[验收缺口](#验收缺口)。「怎么才能提案」的分步对话引导同样只有 `workspace/AGENTS.md` 的持久原则引导，尚无确定性流程，也未经真实对话验证。
+  - **原因码随实现而定。** 邮箱解析路径（D13）已在本地代码与测试中就绪，但默认关闭（`mvp.identityEmailMatch` 默认 `disabled`），Bot scope 与 Bot token 也未安装／未配置，未启用时现有读取器仍走关联表；演练时必须读取当前注册工具的实际返回值，不要引用 `identity_not_linked`、`identity_link_required` 之类的固定字面量，也不要断言所有未解析路径都返回同一个词。参数里自称的 `contactId`、`memberId` 或角色一律不作为身份依据。
+- **缺口**：D13 的邮箱解析（`users.info` 加 `users:read`／`users:read.email` 两个 Bot scope）**已在本地代码与测试中就绪，但默认关闭**（`mvp.identityEmailMatch` 默认 `disabled`），scope 与 Bot token 均未安装／未配置，未启用时现有实现仍按关联表解析；因此本条既是「身份未解析即失败关闭」的期望行为，也是当前验收缺口，见[验收缺口](#验收缺口)。「怎么才能提案」的分步对话引导同样只有 `workspace/AGENTS.md` 的持久原则引导，尚无确定性流程，也未经真实对话验证。
 
 ## 2. 已关联但非有效 Contributor 想提案（AC01、AC04）
 
@@ -184,6 +184,7 @@
 - **没有结果叙述或回帖**：案例 7 的解释性叙述与频道回帖都未实现，工具只返回结果字段。
 - **反馈作者范围未确认**：数据库行允许有效 Contributor 作为 `author_contact_id`，当前注册工具只接受现任董事。
 - **平票口径未确认**：当前按「无赢家」落库，不得对外宣布为组织正式规则。
+- **Slack 邮箱身份解析已在本地实现，但默认关闭（案例 1）**：D13 规定的 `users.info` 资料邮箱匹配与 `<env>_contact_identities` 唯一行匹配已落在 `slack-email-lookup.ts` 与读取器的邮箱优先路径中，并有本地测试；`users:read`／`users:read.email` 两个 Bot scope 与 Bot token 尚未安装／未配置，`mvp.identityEmailMatch` 默认 `disabled`，未启用时读取器仍按 `rein_slack_links` 关联表解析。因此案例 1 的「邮箱对不上或缺失即失败关闭」在本地测试中已有覆盖，但尚未经真实工作区验收。
 - **没有任何真实端到端验收**：以上全部为合成演练；真实 Slack 工作区、隔离数据库与提供方证据都还没有接入。
 
 ## 附录 A：运维与技术前提
@@ -193,7 +194,8 @@
 - **一个部署只服务一个 Slack 工作区。** 使用 Socket Mode 与官方 OpenClaw `slack` 插件；v2 工具上下文不携带团队 ID，因此 `slackTeamId` 必须正好是被服务的那个工作区。
 - **只放服务端环境变量引用。** Supabase 地址与密钥只从 `supabaseUrlEnvVar`、`supabaseServiceKeyEnvVar` 指向的服务端环境变量读取，绝不写入配置或结果。
 - **迁移由人执行。** 先在隔离库的 `dev_*` 表集按文件名顺序应用姊妹仓库的两个迁移：`20260924094436_rein_slack_identity_and_fund_snapshots.sql`（身份关联表与只追加的可用资金快照表）与 `20260924095705_rein_mvp_proposals_polls_ballots.sql`（提案、投票、选票三张表，投票类型表、修订记录表与 `effective_revision_id` 列，以及冻结候选名单、按当前董事校验选票、`rein_mvp_finalize_poll` 计票与 `rein_mvp_approve_revision` 重大修订批准）。两者目前都是**未跟踪的工作区文件**且**均未应用到任何线上环境**；第二阶段迁移虽已包含投票类型与只投赞成票的选票形状，但作为未提交内容，**不得据此声称 schema 已在线验证**。按类型的具体名额与批准额度需由人写入 `rein_mvp_vote_types`。
-- **播种由人完成。** 身份关联、Contributor 的 `active` 状态、董事的 `person_type`、第一条可用资金快照，以及每个提案类型在 `rein_mvp_vote_types` 中的 `max_candidates` 与 `max_approvals_per_voter` 都由人直接写库或走已复核的管理路径；Agent 不创建这些记录，也不提供注册工具。
+- **播种由人完成。** 邮箱到联系人的对应关系（`<env>_contact_identities`，每行一个规范化邮箱与一个唯一联系人）、Contributor 的 `active` 状态、董事的 `person_type`、第一条可用资金快照，以及每个提案类型在 `rein_mvp_vote_types` 中的 `max_candidates` 与 `max_approvals_per_voter` 都由人直接写库或走已复核的管理路径；Agent 不创建这些记录，也不提供注册工具。
+- **身份邮箱解析需要 Bot scope（尚未安装）。** D13 的邮箱匹配要求治理 Bot 应用装 `users:read` 与 `users:read.email` 两个 Bot scope；目前**未安装**，Bot token 也未配置，且 `mvp.identityEmailMatch` 默认 `disabled`，未启用时读取器仍按关联表解析，因此该路径不能用于真实演练。本地人工测试用户应用保持只用 `chat:write`，不加 Bot scope。
 - **显式启用 `mvp` 配置块。** 启用后注册 9 个 MVP 工具（2 读、4 写、3 个结果反馈），并隐藏合成模拟器与旧提案工具；未设置 `enabled: true` 时一个都不注册。
 - **每轮记录。** 记录入站事件的发送者 ID、工具调用 ID、Agent 回复、数据库记录与拒绝原因。所有拒绝都走固定原因码，且不返回 Supabase 地址、密钥、团队 ID 或私密联系人标识。
 - **Agent 不自动回帖。** 当前工具只把结果返回到调用它的那一轮；把结果回帖到 Slack 的消息发送尚未实现，因此各案例只核对工具返回，不核对频道回帖。
@@ -202,7 +204,8 @@
 
 | 数据库对象 | 何时新增 |
 | --- | --- |
-| `<env>_rein_slack_links` | 由人播种身份关联；Agent 只读，不写入 |
+| `<env>_contact_identities` | 由人播种：每行一个规范化邮箱与一个社群联系人；身份按邮箱在这里精确匹配（D13），Agent 只读，不写入 |
+| `<env>_rein_slack_links` | **遗留记录**：不再作为身份凭据，保留下来只作撤销与冲突否决（`revoked` 否决该发送者；`verified` 但与邮箱匹配结果的联系人冲突也否决）。Agent 只读，不写入 |
 | `<env>_rein_mvp_proposals` | `rein_mvp_proposal_submit` 成功时新增一行；同一轮对话里的同一调用重试不新增第二行 |
 | `<env>_rein_mvp_polls` | `rein_mvp_poll_open` 成功时新增一行，候选名单与窗口就此固定；`candidate_limit` 与 `max_approvals_per_voter` 由数据库从投票类型冻结，不由调用方给出 |
 | `<env>_rein_mvp_ballots` | `rein_mvp_vote` 成功时新增一行，`approved_proposal_ids` 为该人批准的候选人（可多个，空数组即弃权）；`(poll_id, voter_contact_id)` 唯一，同一投票同一人改投会被拒 |

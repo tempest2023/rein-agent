@@ -17,6 +17,8 @@ const CONTACT = '11111111-1111-4111-8111-111111111111';
 const URL_ENV = 'REIN_SUPABASE_URL';
 const KEY_ENV = 'REIN_SUPABASE_SERVICE_ROLE_KEY';
 const SECRET = 'sb_secret_unit_test_0000000000000000';
+const BOT_TOKEN_ENV = 'REIN_SLACK_BOT_TOKEN';
+const BOT_TOKEN = 'xoxb-unit-test-0000000000000001';
 
 const baseConfig = Object.freeze({
   enabled: true,
@@ -138,6 +140,134 @@ test('the Supabase key is read from the server environment and never appears in 
   assert.deepEqual(tools.map(tool => tool.name), [...MVP_READ_TOOL_NAMES]);
   assert.ok(!JSON.stringify(tools).includes(SECRET));
   assert.ok(!JSON.stringify(tools).includes(URL_ENV));
+});
+
+test('email identity matching is off by default and needs no Slack bot token', () => {
+  for (const config of [baseConfig, { ...baseConfig, identityEmailMatch: 'disabled' }]) {
+    const { reader } = createFakeReader();
+    const registration = createMvpReadToolRegistration({ config, reader });
+    const tools = registration.create({
+      messageChannel: 'slack',
+      nativeChannelId: BOARD_CHANNEL,
+      requesterSenderId: SENDER,
+      assertInvocationCurrent() {},
+    });
+    assert.deepEqual(tools.map(tool => tool.name), [...MVP_READ_TOOL_NAMES]);
+  }
+});
+
+test('an unknown identityEmailMatch value fails loudly instead of being ignored', () => {
+  const { reader } = createFakeReader();
+  for (const value of ['yes', 'true', 1]) {
+    assert.throws(
+      () => createMvpReadToolRegistration({ config: { ...baseConfig, identityEmailMatch: value }, reader }),
+      /identityEmailMatch must be "enabled" or "disabled"/,
+    );
+  }
+});
+
+test('an injected reader needs no bot token even with email identity matching enabled', () => {
+  const { reader, calls } = createFakeReader();
+  const registration = createMvpReadToolRegistration({
+    config: { ...baseConfig, identityEmailMatch: 'enabled' },
+    reader,
+  });
+  const tools = registration.create({
+    messageChannel: 'slack',
+    nativeChannelId: BOARD_CHANNEL,
+    requesterSenderId: SENDER,
+    assertInvocationCurrent() {},
+  });
+  assert.deepEqual(tools.map(tool => tool.name), [...MVP_READ_TOOL_NAMES]);
+  assert.equal(calls.member.length, 0);
+});
+
+test('email identity matching names the bot token variable and never echoes its value', () => {
+  const enabled = { ...baseConfig, identityEmailMatch: 'enabled' };
+  // No variable name at all: enabling the option without it is an operator error.
+  assert.throws(
+    () => createMvpReadToolRegistration({ config: enabled, env: {} }),
+    /mvp\.slackBotTokenEnvVar must name a server environment variable/,
+  );
+  // A name that is present but malformed fails the same way, without quoting the value.
+  assert.throws(
+    () =>
+      createMvpReadToolRegistration({ config: { ...enabled, slackBotTokenEnvVar: 'NOT A NAME' }, env: {} }),
+    /mvp\.slackBotTokenEnvVar must name a server environment variable/,
+  );
+  // The name is valid but the server environment holds no value: the failure names the variable,
+  // never a credential.
+  const named = { ...enabled, slackBotTokenEnvVar: BOT_TOKEN_ENV };
+  assert.throws(
+    () =>
+      createMvpReadToolRegistration({
+        config: named,
+        env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET },
+      }),
+    error => error.code === 'mvp_env_value_missing' && error.message.includes(BOT_TOKEN_ENV),
+  );
+
+  const registration = createMvpReadToolRegistration({
+    config: named,
+    env: {
+      [URL_ENV]: 'https://project-ref.supabase.co',
+      [KEY_ENV]: SECRET,
+      [BOT_TOKEN_ENV]: BOT_TOKEN,
+    },
+  });
+  const tools = registration.create({
+    messageChannel: 'slack',
+    nativeChannelId: BOARD_CHANNEL,
+    requesterSenderId: SENDER,
+    assertInvocationCurrent() {},
+  });
+  assert.deepEqual(tools.map(tool => tool.name), [...MVP_READ_TOOL_NAMES]);
+  assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN), 'the bot token never appears in a tool');
+  assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN_ENV), 'the variable name never appears in a tool');
+});
+
+test('enabled email matching builds one lookup that presents the bot token only as a header', async () => {
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    requests.push({ url: String(url), headers: init.headers ?? {} });
+    // The link table is empty and the Slack provider reports no such user, so the sender resolves
+    // as unlinked without a second database read.
+    if (String(url).startsWith('https://slack.com/')) {
+      return new Response(JSON.stringify({ ok: false, error: 'user_not_found' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const registration = createMvpReadToolRegistration({
+      config: { ...baseConfig, identityEmailMatch: 'enabled', slackBotTokenEnvVar: BOT_TOKEN_ENV },
+      env: {
+        [URL_ENV]: 'https://project-ref.supabase.co',
+        [KEY_ENV]: SECRET,
+        [BOT_TOKEN_ENV]: BOT_TOKEN,
+      },
+    });
+    const tools = registration.create({
+      messageChannel: 'slack',
+      nativeChannelId: BOARD_CHANNEL,
+      requesterSenderId: SENDER,
+      assertInvocationCurrent() {},
+    });
+    const result = await tools.find(tool => tool.name === 'rein_mvp_my_status').execute('call-1', {});
+
+    assert.equal(result.details.status, 'identity_not_linked');
+    assert.equal(result.details.reason, 'identity_email_user_not_found');
+    const slackRequest = requests.find(request => request.url.startsWith('https://slack.com/api/users.info?'));
+    assert.ok(slackRequest, 'the enabled email matching must probe the Slack profile');
+    assert.equal(slackRequest.headers.authorization, `Bearer ${BOT_TOKEN}`);
+    assert.ok(requests.every(request => !request.url.includes(BOT_TOKEN)), 'the token never travels in a URL');
+    assert.ok(!JSON.stringify(result.details).includes(BOT_TOKEN));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('my status reports the trusted sender without leaking the private contact ID', async () => {

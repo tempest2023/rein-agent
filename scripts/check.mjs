@@ -43,11 +43,30 @@ assert.deepEqual(manifest.contracts.tools, [
 const mvpSchema = manifest.configSchema.properties.mvp;
 assert.equal(mvpSchema.additionalProperties, false, 'mvp config block must reject unknown keys');
 assert.deepEqual(Object.keys(mvpSchema.properties).sort(), [
-  'boardChannelIds', 'enabled', 'environment', 'platform', 'proposalChannelIds',
-  'proposalConfirmationKeyEnvVar', 'slackTeamId', 'supabaseServiceKeyEnvVar', 'supabaseUrlEnvVar',
+  'boardChannelIds', 'enabled', 'environment', 'identityEmailMatch', 'platform',
+  'proposalChannelIds', 'proposalConfirmationKeyEnvVar', 'slackBotTokenEnvVar', 'slackTeamId',
+  'supabaseServiceKeyEnvVar', 'supabaseUrlEnvVar',
 ]);
-for (const field of ['supabaseUrlEnvVar', 'supabaseServiceKeyEnvVar', 'proposalConfirmationKeyEnvVar']) {
+for (const field of ['supabaseUrlEnvVar', 'supabaseServiceKeyEnvVar', 'proposalConfirmationKeyEnvVar', 'slackBotTokenEnvVar']) {
   assert.match(mvpSchema.properties[field].description, /environment variable/i, `mvp.${field} must name a server environment variable`);
+}
+// Email-first identity matching is opt-in and off by default, so the Slack bot token it needs is
+// named but never required while the option is disabled.
+assert.deepEqual(mvpSchema.properties.identityEmailMatch.enum, ['enabled', 'disabled']);
+assert.equal(mvpSchema.properties.identityEmailMatch.default, 'disabled');
+assert.ok(existsSync(resolve(root, 'plugins/rein-operations/slack-email-lookup.ts')), 'Missing plugins/rein-operations/slack-email-lookup.ts');
+assert.ok(
+  pluginPackage.files.includes('slack-email-lookup.ts'),
+  'package files must ship slack-email-lookup.ts',
+);
+for (const p of ['mvp-read-tools.ts', 'mvp-write-tools.ts', 'mvp-feedback-tools.ts']) {
+  const source = read(`plugins/rein-operations/${p}`);
+  assert.ok(
+    source.includes("from './slack-email-lookup.ts'") &&
+      source.includes("identityEmailMatch") &&
+      source.includes("slackBotTokenEnvVar"),
+    `${p} must wire the opt-in email identity match through its own config check`,
+  );
 }
 assert.ok(existsSync(resolve(root, 'plugins/rein-operations/mvp-read-tools.ts')), 'Missing plugins/rein-operations/mvp-read-tools.ts');
 assert.ok(pluginPackage.files.includes('mvp-read-tools.ts'), 'package files must ship mvp-read-tools.ts');

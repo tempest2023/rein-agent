@@ -23,6 +23,15 @@ is derived from the confirmed text, so re-confirming the same version addresses 
 instead of inserting a second proposal. The signing secret is the server-only environment variable
 named by `proposalConfirmationKeyEnvVar`; it never appears in a token, a result or a log.
 
+Slack sender identity follows D13 and is opt-in. `identityEmailMatch` is `"disabled"` by default, and
+while it is disabled the reader resolves senders through the retained identity-link table and
+`slackBotTokenEnvVar` is never read. Enabling it needs the governance app's bot scopes `users:read`
+and `users:read.email` plus that app's bot token in the named server environment variable; a missing
+or hidden profile email, an email that matches no `<env>_contact_identities` row or more than one,
+and a revoked or conflicting retained link row all fail closed. The lookup ships in
+`slack-email-lookup.ts` with local tests. The scopes and token are not installed or configured
+today, no Slack workspace is connected, and nothing here is verified against a live workspace.
+
 Post-result feedback follows one confirmed rule with two sides. An **ordinary** revision, one that
 moves only the title or the summary, is accepted and made effective by the Agent itself: the Agent
 may apply a reasonable ordinary suggestion in the caller's turn through `rein_mvp_revision_apply`,

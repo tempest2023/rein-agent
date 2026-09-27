@@ -20,6 +20,7 @@
     "change-coordinator.ts",
     "outbox-runner.ts",
     "foundation-db-reader.ts",
+    "slack-email-lookup.ts",
     "mvp-read-tools.ts",
     "foundation-db-writer.ts",
     "mvp-vote-tally.ts",

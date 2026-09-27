@@ -11,8 +11,10 @@ tunnel and passes that same address to the helper through `SLACK_TEST_REDIRECT_U
 keeps listening on plain `http://127.0.0.1:8765`.
 
 Do not add user scopes to the existing governance app. Adding `chat:write` as a user scope there would
-let any authorizing Board member's token post as them, which collides with the open app-scope decision
-in [decisions.md](decisions.md).
+let any authorizing Board member's token post as them, which collides with the app-scope boundary in
+[decisions.md](decisions.md). The governance app does need two **bot** scopes for the D13 email
+match — `users:read` and `users:read.email` — and those are not installed yet; keep them on the
+governance app and keep them out of this test app.
 
 ## What the app is
 
@@ -32,6 +34,20 @@ intended configuration:
 A desktop redirect is not allowed to request bot scopes, which is why the scope list is user-only.
 The manifest contains no credential and is safe to review and commit; the client ID it produces is
 also non-secret, and the app has **no client secret** in this flow.
+
+## What this app is not: the identity email lookup
+
+Slack sender identity for the MVP is resolved on the **governance bot app**, not here (D13 in
+[decisions.md](decisions.md)). That bot calls `users.info` with the bot scopes `users:read` and
+`users:read.email`, normalizes the sender's profile email, and requires an exact match to exactly one
+`<env>_contact_identities` row. The resolver exists in local code (`slack-email-lookup.ts`) with
+local tests, but it is opt-in and off by default (`mvp.identityEmailMatch` defaults to `disabled`),
+and those scopes and the governance bot token are not installed or configured, so nothing in this
+guide should be read as claiming the lookup is live.
+
+This test app keeps its single user scope `chat:write` and takes no bot scope. Adding bot scopes here
+would not help the identity path, because the lookup runs on the app that receives the inbound
+message, and it would blur the line between a human message-injection tool and the governance app.
 
 ## Redirect URL: quick tunnel plus loopback listener
 
@@ -149,13 +165,23 @@ The harness verifies every token with `auth.test` and refuses any workspace or i
 Prioritize these five accounts for future scenario tests: they are the only identities with verified
 user tokens, and each can post as a real human into the two approved test channels below.
 
-| Account | Environment variable | Slack user id |
-| --- | --- | --- |
-| `lead` (sending identity) | `SLACK_USER_TOKEN_LEAD` | `U0C4V074CTW` |
-| `member` | `SLACK_USER_TOKEN_MEMBER` | `U0C5KLD8Z5E` |
-| `dir1` | `SLACK_USER_TOKEN_DIR1` | `U0C4L74033P` |
-| `dir2` | `SLACK_USER_TOKEN_DIR2` | `U0C4T82EPPB` |
-| `dir3` | `SLACK_USER_TOKEN_DIR3` | `U0C4L74QGCD` |
+| Account | Environment variable | Slack user id | Role (dev fixture) |
+| --- | --- | --- | --- |
+| `lead` (sending identity) | `SLACK_USER_TOKEN_LEAD` | `U0C4V074CTW` | Contributor (active) |
+| `member` | `SLACK_USER_TOKEN_MEMBER` | `U0C5KLD8Z5E` | Contributor (inactive) |
+| `dir1` | `SLACK_USER_TOKEN_DIR1` | `U0C4L74033P` | Director |
+| `dir2` | `SLACK_USER_TOKEN_DIR2` | `U0C4T82EPPB` | Director |
+| `dir3` | `SLACK_USER_TOKEN_DIR3` | `U0C4L74QGCD` | Director |
+
+The role column names seeded `dev_*` community fixtures in the local development database, not Slack
+permissions and not real member records. The role is resolved from the current database rows at
+request time (`dev_contributors` / `dev_directors`), and the operator's OAuth token neither grants
+nor changes any role. Scenario mapping: AC02 (`lead-1`, active Contributor) is `lead`; AC03 / AC04
+(`member-2`, inactive Contributor) is `member`; AC04 / AC05 / AC06 / R1 (current directors) are
+`dir1` / `dir2` / `dir3`. The unmatched-email case needs a separate Slack user whose profile email
+matches no `<env>_contact_identities` row, or whose profile email is hidden; none of these five
+accounts represents that case. Under D13 identity is resolved from that email match, so no account
+here relies on a `dev_rein_slack_links` row.
 
 User ids and channel ids are non-secret Slack identifiers; the harness source
 `scripts/slack-test-lib.mjs` holds the same lists.

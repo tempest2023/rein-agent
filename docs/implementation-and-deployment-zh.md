@@ -71,15 +71,15 @@ MVP 方向已落地 9 个工具，且**只在显式 `mvp` 配置块下注册**�
 
 以下步骤把 MVP 切片接到**一个** Slack 沙盒工作区与一个隔离数据库。每一步都需要人执行并复核；Agent 不参与建表、播种、建应用或写入凭据。全部完成前不要指向生产数据，也不要把任何真实成员资料或凭据写入仓库。
 
-1. **准备官方 Slack 插件与 Socket Mode。** 使用 `vendor/openclaw` 里随固定提交一起发布的官方 `slack` 插件，走 Socket Mode，不需要公网回调地址。在 Slack 侧创建应用、启用 Socket Mode、安装到唯一的目标工作区，并把 Bot 邀请进已批准的提案频道与 Board 频道。官方插件按 `mode: socket` 解析凭据：Socket Mode 需要 bot token 与 app-level token；签名密钥只在 HTTP 模式下才需要。
+1. **准备官方 Slack 插件与 Socket Mode。** 使用 `vendor/openclaw` 里随固定提交一起发布的官方 `slack` 插件，走 Socket Mode，不需要公网回调地址。在 Slack 侧创建应用、启用 Socket Mode、安装到唯一的目标工作区，并把 Bot 邀请进已批准的提案频道与 Board 频道。官方插件按 `mode: socket` 解析凭据：Socket Mode 需要 bot token 与 app-level token；签名密钥只在 HTTP 模式下才需要。若之后要启用 D13 的邮箱身份匹配，治理 Bot 应用还需安装 `users:read` 与 `users:read.email` 两个 Bot scope（目前未安装），并把该应用自己的 bot token 放进 `slackBotTokenEnvVar` 指向的服务端环境变量。
 2. **只放服务端环境变量引用。** 凭据只通过服务端环境变量或运行时自带的密钥存储注入，配置里只写变量名。仓库中不得出现任何令牌、签名密钥或工作区 ID；`scripts/check.mjs` 也会拒绝在插件文件里出现形如 JWT 或 `sb_secret_` 的字面量。工作区 ID 不是密钥，但同样不进仓库：它写进部署侧配置。
 3. **数据库迁移由人执行。** 先在隔离库的 `dev_*` 表集按文件名顺序应用姊妹仓库的两个迁移，并复核结果：
    - `20260924094436_rein_slack_identity_and_fund_snapshots.sql`：身份关联表与只追加的可用资金快照表。
    - `20260924095705_rein_mvp_proposals_polls_ballots.sql`：提案、投票、选票三张表，投票类型表 `rein_mvp_vote_types`（含 `max_candidates` 与 `max_approvals_per_voter`）、修订记录表 `rein_mvp_proposal_revisions` 与 `effective_revision_id` 列，以及冻结候选名单、按当前董事校验选票、`rein_mvp_finalize_poll` 计票与 `rein_mvp_approve_revision` 重大修订批准的触发器与 RPC。
    两者都**尚未提交**（姊妹仓库中为未跟踪文件）且**尚未应用**到线上；`prod_*` 表集要另做一次独立决定后再执行，不要用同一条自动化脚本顺带跑完。迁移不含具体的名额／批准额度数值：`rein_mvp_vote_types` 的行由人播种，结果由 RPC 在截止时按已存选票计算，不含政策默认值。
-4. **播种也由人做。** 身份关联、Contributor 的 `active` 状态、董事的 `person_type`、第一条可用资金快照，以及每个提案类型在 `rein_mvp_vote_types` 中的 `max_candidates` 与 `max_approvals_per_voter` 都由人直接写库或走已复核的管理路径；Agent 不会创建这些记录，也不提供注册工具。具体名额与批准额度属运维配置，须组织批准后再写入；不要往真实环境灌入虚构人员。
+4. **播种也由人做。** 邮箱到联系人的身份行（`<env>_contact_identities`，每行一个规范化邮箱与一个唯一联系人）、Contributor 的 `active` 状态、董事的 `person_type`、第一条可用资金快照，以及每个提案类型在 `rein_mvp_vote_types` 中的 `max_candidates` 与 `max_approvals_per_voter` 都由人直接写库或走已复核的管理路径；Agent 不会创建这些记录，也不提供注册工具。具体名额与批准额度属运维配置，须组织批准后再写入；不要往真实环境灌入虚构人员。
 5. **记录已批准的频道 ID 与那一个工作区。** 提案频道与 Board 频道的原生 Slack 频道 ID 都要事先批准并写进配置；`slackTeamId` 必须正好是被服务的那个工作区。一个部署只服务一个工作区，因为 v2 工具上下文不带团队 ID；把同一部署指向多个工作区会让发送者匹配到错误的社群记录。
-6. **显式启用 `mvp` 配置块。** 在隔离网关的 `runtime/openclaw/openclaw.json` 中，为 `plugins.entries.rein-operations.config` 增加 `mvp` 对象，字段为 `enabled`、`platform: "slack"`、`slackTeamId`、`environment`（`dev` 或 `prod`，无隐式默认）、`proposalChannelIds`、`boardChannelIds`、`supabaseUrlEnvVar` 与 `supabaseServiceKeyEnvVar`。未设置 `enabled: true` 时 9 个 MVP 工具都不注册。
+6. **显式启用 `mvp` 配置块。** 在隔离网关的 `runtime/openclaw/openclaw.json` 中，为 `plugins.entries.rein-operations.config` 增加 `mvp` 对象，字段为 `enabled`、`platform: "slack"`、`slackTeamId`、`environment`（`dev` 或 `prod`，无隐式默认）、`proposalChannelIds`、`boardChannelIds`、`supabaseUrlEnvVar`、`supabaseServiceKeyEnvVar`，以及可选的 `identityEmailMatch`（默认 `disabled`，只有设为 `enabled` 时才需要 `slackBotTokenEnvVar` 命名一个已配置好的服务端变量）。配置里只写变量名，绝不写 token 值；未设置 `enabled: true` 时 9 个 MVP 工具都不注册。
 7. **先验后接。** 依次运行 `npm run toolchain:pnpm -- run check`、`npm run toolchain:pnpm -- test`、`npm run toolchain:pnpm -- run verify:plugin`，再用 `npm run toolchain:pnpm -- openclaw plugins doctor`，以及 `npm run toolchain:pnpm -- openclaw plugins inspect rein-operations --runtime --json` 确认实际注册的是这 9 个 MVP 工具、且合成模拟器与旧提案工具已隐藏。用 `docs/agent-test-cases-zh.md` 的十个合成案例逐条演练，并保留发送者 ID、工具调用 ID 与数据库记录。
 
 **没有任何自动付款。** 通过投票只是决策记录：不预留、不付款、不改动资金快照。付款、报销与结算始终由有权限的人在 Agent 之外完成；预算竞争与分配金额不在 MVP 内。

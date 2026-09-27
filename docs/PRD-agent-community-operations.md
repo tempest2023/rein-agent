@@ -69,10 +69,16 @@ Most of these recommendations are deferred from the MVP; §2.3 lists what is def
 The organization wants one working vertical slice on real data before the rest of this document
 becomes relevant. The confirmed MVP is:
 
-1. **Slack identity.** An administrator links a trusted Slack team/user pair to a community record
-   in the organization's database. An unlinked sender may ask questions and prepare drafts but
-   cannot submit a proposal, vote, or act. One installation serves exactly one Slack workspace,
-   because the runtime's trusted sender context carries no team ID.
+1. **Slack identity.** The bot reads the trusted sender's current Slack profile email through
+   `users.info`, under the `users:read` and `users:read.email` bot scopes, and requires an exact
+   normalized match to exactly one `<env>_contact_identities` row; the contact and its current role
+   are derived from that match on each request, with no persisted Slack link (D13). A sender whose
+   profile email is missing, hidden, unmatched or ambiguous, or whose retained link row is revoked
+   or conflicts with the matched contact, is unidentified: they may ask questions and prepare drafts
+   but cannot submit a proposal, vote, or act. This is a deliberate narrowing of the earlier manual
+   team/user link prerequisite for the Slack MVP; same-platform multi-account identity now derives
+   from the email match, while cross-platform identity stays deferred. One installation serves
+   exactly one Slack workspace, because the runtime's trusted sender context carries no team ID.
 2. **Contributor proposal.** A linked, active Contributor submits a simple funding proposal in
    Slack, and the Agent stores the version its author confirmed.
 3. **Board approval vote and result.** Eligible directors receive the candidate pool in Slack and
@@ -253,8 +259,9 @@ The Agent provides a short welcome describing the mission, upcoming events, part
 **R02 · Identity linking and eligibility verification (P0)**
 
 - Establish a verifiable link between chat accounts and organizational membership identities. Matching display names do not establish identity.
+- For the Slack MVP, that link is resolved, not stored per account: the sender's current Slack profile email must match exactly one community identity row, the current role is derived per request, and any retained link row is only a revocation or conflict veto (D13).
 - Verify current eligibility for proposals, voting, lead changes, and other important actions.
-- Unlinked users can ask questions and prepare drafts, but must link their identity before formal submission.
+- A sender who cannot be resolved to exactly one community identity record can ask questions and prepare drafts, but cannot formally submit; a missing, hidden, unmatched or ambiguous profile email fails closed.
 - Platform role labels may help presentation but cannot alone establish Contributor or Board eligibility.
 - A person using multiple accounts or, later, multiple platforms must not gain duplicate governance identities or contribution counts.
 - When eligibility expires, is suspended, or is revoked, explain the consequences and address unfinished events without deleting historical contributions.
@@ -724,7 +731,7 @@ The product processes text and images deliberately submitted in chat. It does no
 
 | ID | Verifiable result |
 | --- | --- |
-| AC01 | Ordinary members can ask questions and save ideas, but cannot bypass Contributor eligibility to formally submit or lead events. |
+| AC01 | Ordinary members can ask questions and save ideas, but cannot bypass Contributor eligibility to formally submit or lead events; a sender whose Slack profile email does not resolve to exactly one community identity record stays unidentified and fails closed. |
 | AC02 | An eligible Contributor can complete a proposal through chat, and the confirmed summary includes necessary event information. |
 | AC03 | Eligible zero-budget proposals can be approved automatically; other cases have explicit clarification or exception paths. |
 | AC04 | All organizational funding requests enter the established selection process rather than being independently approved by the Agent. |
@@ -792,7 +799,7 @@ These are product configuration and governance decisions. They do not block writ
 | Post-result revision of an accepted proposal | Resolved: an ordinary title or summary revision is accepted and applied by the Agent with no separate Board approval; budget, location, personnel and major event flow — and schedule in the current implementation — need one current Board member's recorded approval. Still open: whether an active Contributor may also author feedback, since the database row permits one while the registered tools require a current director | Decided for the MVP 2026-09-24; the remaining author-scope question before a real post-result revision |
 | Board roster and voter list | Directors come from the organization's database; identify who maintains the list and when it freezes | Before a real vote |
 | Authorized zero-budget event scope | Begin with routine small educational and discussion events; list exceptions | Before automatic approval |
-| Contributor eligibility and identity linking | Retain the existing eligibility system; link a Slack team/user pair to a community record and define who may verify it | Before formal proposals |
+| Contributor eligibility and identity linking | Retain the existing eligibility system. For the Slack MVP, resolve the sender's current Slack profile email to exactly one community identity row and derive the current role per request (D13); the retained link row is a revocation or conflict veto, not a grant. Still open: who maintains the email-to-contact rows and who may verify an identity | Before formal proposals |
 | Funding source, accounting currency, and snapshot owner | Read only the latest human-entered available-funds snapshot; name who may record it and its currency | Before the Agent displays funds |
 | Payment, reimbursement, and settlement requirements | Define advance-spending conditions, evidence, and processing deadlines | Before funded events |
 | Public visibility of leads and collaborators | Individual authorization; separate internal accountability from public attribution | Before public events |

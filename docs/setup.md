@@ -188,8 +188,11 @@ local work does not touch a global `~/.openclaw` profile.
 - `config/operations.example.json` is a design input, not native OpenClaw configuration, and
   nothing loads it.
 - The MVP slice exists as code but is not wired to anything: no Slack workspace, no live database, and
-  no migration applied to a live environment. Its six tools stay unregistered until an operator
+  no migration applied to a live environment. Its nine tools stay unregistered until an operator
   enables them explicitly.
+- The opt-in Slack identity email match is implemented and locally tested but disabled by default;
+  the governance app's `users:read` and `users:read.email` bot scopes and its bot token are not
+  installed or configured, so senders still resolve through the retained link table.
 - Budget, outcome, publishing and oversight behaviour does not exist in the MVP. Weighted voting,
   quorum, recusal and competing-budget allocation are deferred.
 - Governance parameters, storage, hosting and website contracts remain unresolved; see
@@ -212,7 +215,9 @@ plugin config names server environment variables rather than carrying credential
     "boardChannelIds": ["APPROVED_BOARD_CHANNEL_ID"],
     "supabaseUrlEnvVar": "REIN_SUPABASE_URL",
     "supabaseServiceKeyEnvVar": "REIN_SUPABASE_SERVICE_KEY",
-    "proposalConfirmationKeyEnvVar": "REIN_PROPOSAL_CONFIRMATION_KEY"
+    "proposalConfirmationKeyEnvVar": "REIN_PROPOSAL_CONFIRMATION_KEY",
+    "identityEmailMatch": "disabled",
+    "slackBotTokenEnvVar": "REIN_SLACK_BOT_TOKEN"
   }
 }
 ```
@@ -223,7 +228,7 @@ two migrations are not applied to any live environment. The full reviewed sequen
 human migration and seeding steps, is in the
 [deployment runbook](implementation-and-deployment-zh.md).
 
-All three `*EnvVar` fields name server environment variables; the values are read from the server
+All four `*EnvVar` fields name server environment variables; the values are read from the server
 process and never stored in plugin config, results or logs. Set them on the deployment side:
 
 - `REIN_SUPABASE_URL` is the bare project URL. It must be `https`, except for a loopback address
@@ -237,6 +242,34 @@ process and never stored in plugin config, results or logs. Set them on the depl
   `openssl rand -base64 48`, keep it out of the repository, and rotate it only if it may have leaked:
   rotating invalidates any confirmation prepared before the rotation, which the proposer can simply
   re-prepare.
+- `REIN_SLACK_BOT_TOKEN` (named by `slackBotTokenEnvVar`) holds the governance app's bot token with
+  `users:read` and `users:read.email`, and is read only when `identityEmailMatch` is `"enabled"`.
+
+### Slack identity email match (opt-in, disabled by default)
+
+D13 resolves a Slack sender by the sender's current profile email, matched exactly to one
+`<env>_contact_identities` row. The resolver ships in `slack-email-lookup.ts` with local tests, but
+it is opt-in and **off by default**: with `identityEmailMatch` absent or `"disabled"`, the reader
+keeps resolving through the retained link table and `slackBotTokenEnvVar` is not read at all.
+
+Enabling it is four human steps; none of them is an Agent action:
+
+1. On the **governance** Slack app (not the local human test user app), add the bot scopes
+   `users:read` and `users:read.email`, then reinstall the app in the single target workspace. Those
+   scopes are not installed today.
+2. Put that app's bot token in the server environment variable named by `slackBotTokenEnvVar`, for
+   example `REIN_SLACK_BOT_TOKEN`. Keep the value in the deployment's own secret store, outside git;
+   never paste it into plugin config, a prompt, a result or a log.
+3. Set `identityEmailMatch` to `"enabled"` in the same `mvp` block, with `slackBotTokenEnvVar` naming
+   that variable. An `"enabled"` mode without a valid variable name fails the configuration instead
+   of silently falling back to the link table.
+4. Seed one normalized email per contact in `<env>_contact_identities`. With no seeded rows the
+   enabled resolver refuses every sender, and a missing or hidden profile email, an unmatched or
+   ambiguous match, and a revoked or conflicting retained link row all fail closed.
+
+The token is read from the server process only and never appears in plugin config, a status, a
+result or a log. The lookup calls `users.info` for the trusted sender alone, and a profile from
+another team is refused.
 
 ### Proposal author confirmation
 

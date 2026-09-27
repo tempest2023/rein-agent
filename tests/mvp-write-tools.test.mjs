@@ -26,6 +26,8 @@ const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 const URL_ENV = 'REIN_SUPABASE_URL';
 const KEY_ENV = 'REIN_SUPABASE_SERVICE_ROLE_KEY';
 const CONFIRM_ENV = 'REIN_PROPOSAL_CONFIRMATION_KEY';
+const BOT_TOKEN_ENV = 'REIN_SLACK_BOT_TOKEN';
+const BOT_TOKEN = 'xoxb-unit-test-0000000000000001';
 const SECRET = 'sb_secret_unit_test_0000000000000000';
 // A distinct server-only signing key for the proposal confirmation token. The rehearsal injects it
 // directly, so no real credential is read from the ambient environment.
@@ -414,6 +416,129 @@ test('the Supabase key is read from the server environment and never appears in 
   assert.ok(!JSON.stringify(tools).includes(SECRET));
   assert.ok(!JSON.stringify(tools).includes(CONFIRM_KEY), 'the confirmation key never appears in a tool');
   assert.ok(!JSON.stringify(tools).includes('project-ref.supabase.co'));
+});
+
+test('email identity matching is off by default and an injected reader needs no bot token', () => {
+  for (const config of [
+    baseConfig,
+    { ...baseConfig, identityEmailMatch: 'disabled' },
+    { ...baseConfig, identityEmailMatch: 'enabled' },
+  ]) {
+    const fakes = createFakes();
+    const registration = createMvpWriteToolRegistration({
+      config,
+      reader: fakes.reader,
+      writer: fakes.writer,
+      confirmationSigningKey: CONFIRM_KEY,
+    });
+    const tools = registration.create({
+      messageChannel: 'slack',
+      nativeChannelId: BOARD_CHANNEL,
+      requesterSenderId: SENDER,
+      assertInvocationCurrent() {},
+    });
+    assert.deepEqual(tools.map(tool => tool.name), [...MVP_WRITE_TOOL_NAMES]);
+  }
+});
+
+test('an unknown identityEmailMatch value fails loudly instead of being ignored', () => {
+  const fakes = createFakes();
+  for (const value of ['yes', 'true', 1]) {
+    assert.throws(
+      () =>
+        createMvpWriteToolRegistration({
+          config: { ...baseConfig, identityEmailMatch: value },
+          reader: fakes.reader,
+          writer: fakes.writer,
+          confirmationSigningKey: CONFIRM_KEY,
+        }),
+      /identityEmailMatch must be "enabled" or "disabled"/,
+    );
+  }
+});
+
+test('enabled email matching names the bot token variable and never echoes its value', () => {
+  const fakes = createFakes();
+  const enabled = { ...baseConfig, identityEmailMatch: 'enabled' };
+  const resolve = (config, env) =>
+    createMvpWriteToolRegistration({ config, writer: fakes.writer, confirmationSigningKey: CONFIRM_KEY, env });
+
+  assert.throws(
+    () => resolve(enabled, {}),
+    /mvp\.slackBotTokenEnvVar must name a server environment variable/,
+  );
+  assert.throws(
+    () => resolve({ ...enabled, slackBotTokenEnvVar: 'NOT A NAME' }, {}),
+    /mvp\.slackBotTokenEnvVar must name a server environment variable/,
+  );
+  const named = { ...enabled, slackBotTokenEnvVar: BOT_TOKEN_ENV };
+  assert.throws(
+    () => resolve(named, { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET, [CONFIRM_ENV]: CONFIRM_KEY }),
+    error => error.code === 'mvp_env_value_missing' && error.message.includes(BOT_TOKEN_ENV),
+  );
+
+  const registration = resolve(named, {
+    [URL_ENV]: 'https://project-ref.supabase.co',
+    [KEY_ENV]: SECRET,
+    [BOT_TOKEN_ENV]: BOT_TOKEN,
+    [CONFIRM_ENV]: CONFIRM_KEY,
+  });
+  const tools = registration.create({
+    messageChannel: 'slack',
+    nativeChannelId: BOARD_CHANNEL,
+    requesterSenderId: SENDER,
+    assertInvocationCurrent() {},
+  });
+  assert.deepEqual(tools.map(tool => tool.name), [...MVP_WRITE_TOOL_NAMES]);
+  assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN), 'the bot token never appears in a tool');
+  assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN_ENV), 'the variable name never appears in a tool');
+});
+
+test('enabled email matching builds one lookup in this slice and presents the token only as a header', async () => {
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    requests.push({ url: String(url), headers: init.headers ?? {} });
+    if (String(url).startsWith('https://slack.com/')) {
+      return new Response(JSON.stringify({ ok: false, error: 'user_not_found' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const fakes = createFakes();
+    const registration = createMvpWriteToolRegistration({
+      config: { ...baseConfig, identityEmailMatch: 'enabled', slackBotTokenEnvVar: BOT_TOKEN_ENV },
+      writer: fakes.writer,
+      confirmationSigningKey: CONFIRM_KEY,
+      env: {
+        [URL_ENV]: 'https://project-ref.supabase.co',
+        [KEY_ENV]: SECRET,
+        [BOT_TOKEN_ENV]: BOT_TOKEN,
+      },
+    });
+    const tools = registration.create({
+      messageChannel: 'slack',
+      nativeChannelId: BOARD_CHANNEL,
+      requesterSenderId: SENDER,
+      assertInvocationCurrent() {},
+    });
+    const result = await tools
+      .find(tool => tool.name === 'rein_mvp_vote')
+      .execute('call-1', { pollId: POLL });
+
+    // The sender resolves as unlinked, so the ballot is refused before any writer call.
+    assert.equal(result.details.error, 'identity_link_required');
+    assert.deepEqual(fakes.calls.castBallot, []);
+    const slackRequest = requests.find(request => request.url.startsWith('https://slack.com/api/users.info?'));
+    assert.ok(slackRequest, 'the enabled email matching must probe the Slack profile');
+    assert.equal(slackRequest.headers.authorization, `Bearer ${BOT_TOKEN}`);
+    assert.ok(requests.every(request => !request.url.includes(BOT_TOKEN)), 'the token never travels in a URL');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 // ---------------------------------------------------------------------------------------------

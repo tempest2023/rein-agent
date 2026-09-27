@@ -41,22 +41,49 @@ Confirmed by the user on 2026-09-25 as a scope decision:
 The channel split is a recorded boundary, not a new capability. It narrows Slack to the core
 circle, restates Discord as general-participant onboarding only, and leaves the identity-link rules
 in D03 unchanged: a platform account acts only after an explicit link to a community record, and
-that link is scoped to the platform and space it was made in.
+that link is scoped to the platform and space it was made in. D13 later narrows this for the Slack
+MVP alone: identity there comes from the Slack profile email, and a retained link row is only a
+revocation or conflict veto.
+
+Confirmed by the user on 2026-09-27 as the Slack MVP sender-identity mechanism:
+
+| ID | Confirmed decision |
+| --- | --- |
+| D13 | A Slack sender's identity is resolved from that sender's current Slack profile email, not from a per-account link row. The receiving bot asks Slack for the sender's profile with `users.info`, under the bot scopes `users:read` and `users:read.email`; the returned email is normalized and must match **exactly one** existing `<env>_contact_identities` row. The contact and its current Contributor or director role are derived from that match at each request, and the resolution creates, updates and persists no Slack link. The retained `<env>_rein_slack_links` table is no longer a grant: a `revoked` link row vetoes the sender, and a `verified` link row whose contact conflicts with the matched email also vetoes the sender. A missing or hidden profile email, an email that matches no row or more than one row, or a matched row with no usable contact fails closed. This narrows two earlier statements for the Slack MVP only: the manual team/user link prerequisite in D03 no longer applies to Slack, and same-platform multi-account deduplication happens through the email match instead of through separate links. Cross-platform identity, every other platform, and a generic cross-channel business framework stay deferred and unimplemented (D12). |
+
+D13 was confirmed by the user on 2026-09-27. It supersedes only the manual-link prerequisite and the
+Slack-side cross-platform identity deferral, and it changes no other rule: the email match identifies
+a person, while Contributor and Board eligibility still come from the current `contributors` and
+`people` rows (D06), and a resolved sender still needs an approved channel and every other guard.
+The decision authorizes no installation on its own. The bot scopes are not installed, no Slack
+workspace is connected, and no bot token is configured, so nothing here is a live acceptance. The
+resolver for the email path now exists in local code (`slack-email-lookup.ts` and the reader's
+email-first path) and is covered by local tests, but it is opt-in and off by default:
+`mvp.identityEmailMatch` defaults to `disabled`, and while it is disabled the reader keeps resolving
+through the retained link table. The human test user app stays `chat:write` only and gains no bot
+scope. For every surface other than the Slack MVP, identity links stay separate per platform and per
+space under D12.
 
 ## P0 MVP scope
 
 The MVP is one vertical slice on real data, not the full lifecycle described in the PRD:
 
-**Supersession note (2026-09-27).** One statement in the copied PRD draft is narrower than the
-confirmed MVP and must not be read as a current requirement. The PRD phase table describes the P0
+**Supersession note (2026-09-27).** Two statements in the copied PRD draft are narrower than the
+confirmed MVP and must not be read as current requirements. The PRD phase table describes the P0
 deliverable as "the decision is recorded **and posted** without the founder driving it"
-(`docs/PRD-agent-community-operations.md`, §5). The confirmed scope below is the authority: no
-registered tool posts a message, so a result is recorded and returned to the calling turn only, and
-the Board reads it there or asks again. PRD §2.3 step 3 already states that posting is not
-implemented; the phase table simply predates that narrowing.
+(`docs/PRD-agent-community-operations.md`, §5), and the direction summary at
+`docs/PRD-agent-community-operations-zh.md` carries the same wording. The confirmed scope below is
+the authority: no registered tool posts a message, so a result is recorded and returned to the
+calling turn only, and the Board reads it there or asks again. PRD §2.3 step 3 already states that
+posting is not implemented; the phase table simply predates that narrowing. A second statement, the
+manual team/user link prerequisite, is superseded for the Slack MVP by D13's email match.
 
-1. **Slack identity.** An administrator links one trusted Slack team/user pair to an existing
-   community record. Unlinked senders may ask questions but cannot submit, vote, or act. One
+1. **Slack identity.** The bot resolves the trusted sender's current Slack profile email through
+   `users.info` (bot scopes `users:read` and `users:read.email`) and requires an exact normalized
+   match to exactly one `<env>_contact_identities` row, deriving the contact and its current role at
+   each request with no persisted link (D13). A sender whose profile email is missing, hidden,
+   unmatched or ambiguous, or whose retained link row is revoked or conflicts with the matched
+   contact, stays unidentified and may ask questions but cannot submit, vote, or act. One
    installation serves exactly one Slack workspace: the runtime's trusted tool context carries the
    sender and the channel but no team ID, so the team is fixed operator configuration.
 2. **Contributor proposal.** A linked, active Contributor submits a simple funding proposal in
@@ -123,7 +150,7 @@ the voting window length; channel and space mapping; and who may see an individu
 - Website publishing and social media distribution.
 - Weekly operations summaries, exception handling, oversight and pause controls.
 - A second chat platform (the Discord general-participant scope in D12), cross-platform identity
-  beyond the Slack MVP's own resolution, and on-chain or DAO governance migration.
+  beyond the Slack email match in D13, and on-chain or DAO governance migration.
 - Video, contracts, token issuance and on-chain voting.
 
 ## Recorded technical decisions
@@ -166,6 +193,7 @@ All items below are unresolved. PRD suggestions remain suggestions.
 | Tie rule when the highest approval count is shared | First real vote that ties |
 | Who may see an individual ballot versus the published result | First real vote |
 | Whether the two MVP migrations in the sibling repo `tempest2023/ReinProtocolFoundation` (`supabase/migrations/20260924094436_rein_slack_identity_and_fund_snapshots.sql` and `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql`) are reviewed, merged and applied to the live `dev_*` and `prod_*` tables. They are committed at `4bd5ce8` on branch `tempest/agent-mvp-schema-and-welcome-email`, but not yet merged or applied to any live environment. | First real Slack link and funds read |
+| Installing the `users:read` and `users:read.email` bot scopes on the governance app, configuring its bot token, and enabling the implemented, opt-in D13 email resolver (`mvp.identityEmailMatch`) | Enabling the opt-in Slack identity path |
 | Zero-budget activity scope and exception authority | Automatic approval |
 | Cadence, timezone and notification lead time | Selection rounds |
 | Currency, available-funds update owner and reconciliation cadence | Reading or committing funds |
