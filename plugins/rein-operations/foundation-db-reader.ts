@@ -17,8 +17,11 @@
 //
 // Access model: those tables enable RLS, grant nothing to `anon` or `authenticated` and are
 // readable by `service_role` only, so this reader authenticates with the server-only secret key
-// over PostgREST. The key is never logged, echoed in an error or returned to a caller: every
-// failure collapses to a fixed reason code, and a response body is never propagated.
+// over PostgREST. The key generation decides the transport: a legacy `service_role` JWT travels in
+// both the `apikey` and the bearer header, while a modern secret key is presented in `apikey`
+// only, because Supabase never accepts one as a bearer token. The key is never logged, echoed in
+// an error, placed in a URL or returned to a caller: every failure collapses to a fixed reason
+// code, and a response body is never propagated.
 //
 // Limitations, because they decide what an answer means:
 // - OpenClaw's version-2 tool context carries the chat account but no trustworthy Slack team ID,
@@ -120,6 +123,32 @@ const LINK_STATUSES = Object.freeze(['verified', 'revoked']);
 const CONTRIBUTOR_STATUSES = Object.freeze(['active', 'inactive']);
 const PERSON_TYPES = Object.freeze(['director', 'core_contributor']);
 
+/**
+ * Supabase serves two generations of server key and they travel differently. A legacy
+ * `service_role` key is a three-segment JWT, which PostgREST expects in both the `apikey` and the
+ * `Authorization: Bearer` header. A modern secret key is not a JWT: Supabase never accepts it as a
+ * bearer token, so presenting one there turns every read, write and RPC into a 401. Only the shape
+ * of the key decides the headers, and the key itself never appears in a URL, a body or a result.
+ */
+const LEGACY_JWT_KEY_PATTERN = /^eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/;
+
+/**
+ * The `apikey` header always, plus a bearer token only for a legacy JWT key. Shared with the
+ * writer so reads, writes and RPCs authenticate identically.
+ */
+export const supabaseServiceRoleHeaders = (serviceRoleKey: string): Record<string, string> => {
+  const headers: Record<string, string> = { apikey: serviceRoleKey };
+  if (LEGACY_JWT_KEY_PATTERN.test(serviceRoleKey)) headers.authorization = `Bearer ${serviceRoleKey}`;
+  return headers;
+};
+
+/**
+ * 401 and 403 are the server key rejected before any table policy or trigger runs. Both are a
+ * connection-authentication failure, never a governance decision, and both stay `unavailable`.
+ */
+export const isSupabaseAuthFailureStatus = (httpStatus: number): boolean =>
+  httpStatus === 401 || httpStatus === 403;
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -217,8 +246,7 @@ export function createFoundationDbReader(config: FoundationDbReaderConfig): Foun
       response = await fetchImpl(`${baseUrl}/rest/v1/${table}?${query}`, {
         method: 'GET',
         headers: {
-          apikey: serviceRoleKey,
-          authorization: `Bearer ${serviceRoleKey}`,
+          ...supabaseServiceRoleHeaders(serviceRoleKey),
           accept: 'application/json',
         },
       });
@@ -226,7 +254,13 @@ export function createFoundationDbReader(config: FoundationDbReaderConfig): Foun
       return { ok: false, reason: 'transport_error', httpStatus: null };
     }
     const httpStatus = typeof response?.status === 'number' ? response.status : null;
-    if (!response || response.ok !== true) return { ok: false, reason: 'http_error', httpStatus };
+    if (!response || response.ok !== true) {
+      // A rejected key is named as its own reason so a caller never reads an authentication failure
+      // as a plain provider error.
+      const reason =
+        httpStatus !== null && isSupabaseAuthFailureStatus(httpStatus) ? 'auth_error' : 'http_error';
+      return { ok: false, reason, httpStatus };
+    }
     let body: unknown;
     try {
       body = await response.json();

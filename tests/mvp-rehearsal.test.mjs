@@ -385,6 +385,16 @@ function createWorld({ funds = null, records = [], rules = {} } = {}) {
       return { ok: true, status: 'found', reason: 'vote_type', voteType: rule, httpStatus: 200 };
     },
 
+    async listVoteTypes() {
+      return {
+        ok: true,
+        status: 'found',
+        reason: 'vote_types',
+        voteTypes: [...voteTypes.keys()].sort(),
+        httpStatus: 200,
+      };
+    },
+
     async listCandidateProposals(input) {
       candidatePoolReads.push({
         voteType: input.voteType,
@@ -630,12 +640,13 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   assert.equal(world.proposals.size, 1, 'an unlinked sender adds no proposal');
 
   // Turn 4 (proposal channel, an unknown proposal type). The stored type table is the authority, so
-  // an unconfigured name is refused by the store instead of being invented here.
+  // an unconfigured name is refused by name before any write instead of being invented here.
   const unknownType = await world
     .turn({ sender: CONTRIBUTOR.slackUserId, channel: PROPOSAL_CHANNEL, at: at('2026-09-24T09:12:00Z') })
     .write('rein_mvp_proposal_submit', { voteType: 'not_configured', title: 'Unconfigured request' });
   assert.equal(unknownType.details.ok, false);
-  assert.equal(unknownType.details.error, 'proposal_rejected');
+  assert.equal(unknownType.details.error, 'vote_type_not_configured');
+  assert.deepEqual(unknownType.details.configuredVoteTypes, [VOTE_TYPE]);
   assert.equal(world.proposals.size, 1, 'an unconfigured type stores no proposal');
 
   // Turn 5 (Board channel, director A). No candidate list, cap or label is accepted from the caller:

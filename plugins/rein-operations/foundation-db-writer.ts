@@ -24,8 +24,10 @@
 //
 // Access model: those tables enable RLS, grant nothing to `anon` or `authenticated` and are writable
 // by `service_role` only, so this writer authenticates with the server-only secret key over
-// PostgREST. The key is never logged, echoed, placed in a URL or returned to a caller, and a provider
-// response body is never propagated.
+// PostgREST. The key generation decides the transport, exactly as the reader does it: a legacy
+// `service_role` JWT is a bearer token, while a modern secret key is presented in the `apikey`
+// header only because Supabase rejects it as a bearer token. The key is never logged, echoed,
+// placed in a URL or returned to a caller, and a provider response body is never propagated.
 //
 // This module also reaches the two service-only deterministic RPCs the same migration defines:
 // `<env>_rein_mvp_finalize_poll(p_poll_id uuid, p_actor_contact_id uuid)`, which counts the ballots,
@@ -42,6 +44,7 @@
 // proposal result reports `authorizesSpending: false`.
 
 import type { FoundationEnvironment } from './foundation-db-reader.ts';
+import { isSupabaseAuthFailureStatus, supabaseServiceRoleHeaders } from './foundation-db-reader.ts';
 
 export interface FoundationDbWriterConfig {
   /** Supabase project URL, for example `https://<project-ref>.supabase.co`. */
@@ -212,6 +215,15 @@ export interface VoteTypeReadResult {
   status: WriterStatus;
   reason: string;
   voteType: VoteTypeRecord | null;
+  httpStatus: number | null;
+}
+
+export interface VoteTypeListResult {
+  ok: boolean;
+  status: WriterStatus;
+  reason: string;
+  /** The configured type names, in stored order and never empty when `ok` is true. */
+  voteTypes: readonly string[] | null;
   httpStatus: number | null;
 }
 
@@ -394,6 +406,11 @@ export interface FoundationDbWriter {
   listBallots(pollId: string): Promise<BallotListResult>;
   /** Read one configured vote type, which carries the candidate and approval limits. */
   getVoteType(voteType: string): Promise<VoteTypeReadResult>;
+  /**
+   * List the configured vote type names, in stored order. That table is operator configuration, so
+   * it is the only source from which a caller may name a type; the writer never invents one.
+   */
+  listVoteTypes(input?: { limit?: number | null }): Promise<VoteTypeListResult>;
   /** Read the proposals that may enter a new poll of one vote type. */
   listCandidateProposals(input: ListCandidateProposalsInput): Promise<CandidateProposalListResult>;
   /**
@@ -977,7 +994,11 @@ const finalizationFromPayload = (payload: unknown): PollFinalizationRecord | nul
   };
 };
 
-/** A 409 is the one status that may mean an exact duplicate, so it is kept apart from a refusal. */
+/**
+ * A 409 is the one status that may mean an exact duplicate, so it is kept apart from a refusal.
+ * A rejected server key is classified before this, because it is a connection failure rather than
+ * an answer about the request.
+ */
 const classify = (status: number): Failure['kind'] => {
   if (status === 409) return 'duplicate';
   if (status >= 500) return 'unavailable';
@@ -1031,8 +1052,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
   ): Promise<Outcome> => {
     const query = new URLSearchParams(params).toString();
     const headers: Record<string, string> = {
-      apikey: serviceRoleKey,
-      authorization: `Bearer ${serviceRoleKey}`,
+      ...supabaseServiceRoleHeaders(serviceRoleKey),
       accept: 'application/json',
     };
     const init: { method: string; headers: Record<string, string>; body?: string } = {
@@ -1055,6 +1075,11 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
       if (httpStatus === null) {
         return { ok: false, kind: 'unavailable', reason: 'http_error', httpStatus: null };
       }
+      // A 401 or 403 is the server key rejected before any table policy or trigger ran. Reporting
+      // it as a refusal would let a caller read an authentication failure as a governance decision.
+      if (isSupabaseAuthFailureStatus(httpStatus)) {
+        return { ok: false, kind: 'unavailable', reason: 'auth_error', httpStatus };
+      }
       return { ok: false, kind: classify(httpStatus), reason: 'http_error', httpStatus };
     }
     let payload: unknown;
@@ -1073,12 +1098,12 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
    * Call one service-only RPC. A scalar-returning function answers with the bare JSON value and a
    * void function answers with no body, so neither is required to be a list. Any refusal below 500
    * is a governance refusal and is collapsed to a fixed reason; a 5xx or a transport failure stays
-   * unavailable so a caller never reads an outage as a decision.
+   * unavailable so a caller never reads an outage as a decision. A rejected server key is named as
+   * an authentication failure rather than as a refusal.
    */
   const rpc = async (name: string, body: Record<string, unknown>): Promise<Outcome> => {
     const headers: Record<string, string> = {
-      apikey: serviceRoleKey,
-      authorization: `Bearer ${serviceRoleKey}`,
+      ...supabaseServiceRoleHeaders(serviceRoleKey),
       accept: 'application/json',
       'content-type': 'application/json',
     };
@@ -1096,6 +1121,10 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     if (!response || response.ok !== true) {
       if (httpStatus === null) {
         return { ok: false, kind: 'unavailable', reason: 'http_error', httpStatus: null };
+      }
+      // Same rule as the table request: a rejected key never becomes `rpc_refused`.
+      if (isSupabaseAuthFailureStatus(httpStatus)) {
+        return { ok: false, kind: 'unavailable', reason: 'auth_error', httpStatus };
       }
       if (httpStatus >= 500) {
         return { ok: false, kind: 'unavailable', reason: 'http_error', httpStatus };
@@ -1155,6 +1184,12 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     reason: string,
     httpStatus: number | null,
   ): VoteTypeReadResult => ({ ok: false, status, reason, voteType: null, httpStatus });
+
+  const voteTypeListFailure = (
+    status: WriterStatus,
+    reason: string,
+    httpStatus: number | null,
+  ): VoteTypeListResult => ({ ok: false, status, reason, voteTypes: null, httpStatus });
 
   const candidateFailure = (
     status: WriterStatus,
@@ -1509,6 +1544,36 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     const stored = voteTypeFromRow(read.rows[0]);
     if (stored === null) return voteTypeFailure('rejected', 'response_malformed', read.httpStatus);
     return { ok: true, status: 'found', reason: 'vote_type', voteType: stored, httpStatus: read.httpStatus };
+  };
+
+  /**
+   * Read the configured type names. This is the only list from which a caller may choose a type, so
+   * the read is deliberately strict: a malformed page is reported as `response_malformed` rather
+   * than silently trimmed, and an empty table is reported as its own reason instead of an empty list
+   * that would look like a successful read with nothing configured.
+   */
+  const listVoteTypes = async (input?: { limit?: number | null }): Promise<VoteTypeListResult> => {
+    const requested = input?.limit === undefined || input?.limit === null ? MAX_CANDIDATE_PAGE : input.limit;
+    const limit = asPositiveInteger(requested);
+    if (limit === null || limit > MAX_CANDIDATE_PAGE) {
+      return voteTypeListFailure('invalid_request', 'vote_type_limit_invalid', null);
+    }
+    const read = await request('GET', `${tablePrefix}rein_mvp_vote_types`, {
+      select: 'vote_type',
+      order: 'vote_type.asc',
+      limit: String(limit),
+    });
+    if (!read.ok) return voteTypeListFailure('unavailable', read.reason, read.httpStatus);
+    if (read.rows.length > limit) {
+      return voteTypeListFailure('rejected', 'vote_types_truncated', read.httpStatus);
+    }
+    const voteTypes: string[] = [];
+    for (const row of read.rows) {
+      const name = isPlainObject(row) ? asVoteType(row.vote_type) : null;
+      if (name === null) return voteTypeListFailure('rejected', 'response_malformed', read.httpStatus);
+      voteTypes.push(name);
+    }
+    return { ok: true, status: 'found', reason: 'vote_types', voteTypes, httpStatus: read.httpStatus };
   };
 
   const listCandidateProposals = async (
@@ -1868,6 +1933,7 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     getProposal,
     listBallots,
     getVoteType,
+    listVoteTypes,
     listCandidateProposals,
     finalizePoll,
     recordProposalRevision,

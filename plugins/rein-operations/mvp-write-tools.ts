@@ -69,11 +69,14 @@ export const MVP_WRITE_TOOL_NAMES = Object.freeze([
 
 export class MvpWriteToolError extends Error {
   readonly code: string;
+  /** Extra facts a refusal may carry, such as the names an operator did configure. */
+  readonly details: Record<string, unknown>;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, details: Record<string, unknown> = {}) {
     super(message);
     this.name = 'MvpWriteToolError';
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -97,6 +100,7 @@ export type MvpWriteToolWriter = Pick<
   | 'listBallots'
   | 'castBallot'
   | 'getVoteType'
+  | 'listVoteTypes'
   | 'listCandidateProposals'
   | 'finalizePoll'
 >;
@@ -139,6 +143,8 @@ const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 const MAX_TITLE_LENGTH = 200;
 const MAX_SUMMARY_LENGTH = 4000;
 const MAX_APPROVALS = 200;
+/** Upper bound on the type names one read returns; the table is operator configuration. */
+const MAX_CONFIGURED_VOTE_TYPES = 200;
 
 // Host-supplied identity and role keys a model must never be able to set. A role or an actor that
 // arrives as an argument would let a prompt grant Board authority, which R02 refuses outright.
@@ -285,11 +291,12 @@ function resolveMvpWriteConfig(options?: MvpWriteToolsOptions): ResolvedMvpWrite
     typeof writer.listBallots !== 'function' ||
     typeof writer.castBallot !== 'function' ||
     typeof writer.getVoteType !== 'function' ||
+    typeof writer.listVoteTypes !== 'function' ||
     typeof writer.listCandidateProposals !== 'function' ||
     typeof writer.finalizePoll !== 'function'
   ) {
     configError(
-      'the injected writer must implement submitProposal, createPoll, getPoll, listBallots, castBallot, getVoteType, listCandidateProposals and finalizePoll',
+      'the injected writer must implement submitProposal, createPoll, getPoll, listBallots, castBallot, getVoteType, listVoteTypes, listCandidateProposals and finalizePoll',
     );
   }
 
@@ -331,7 +338,11 @@ function errorResult(tool: string, error: unknown) {
     error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
       ? (error as { code: string }).code
       : 'tool_failed';
-  const details = { tool, ok: false as const, error: code, message: describe(error) };
+  const extra =
+    error && typeof error === 'object' && (error as { details?: unknown }).details
+      ? ((error as { details: Record<string, unknown> }).details ?? {})
+      : {};
+  const details = { tool, ok: false as const, error: code, message: describe(error), ...extra };
   return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
 }
 
@@ -515,13 +526,47 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
     return { requestedMinor: requestedMinorValue, currency };
   };
 
-  /** One lower snake case proposal type name, or a fixed refusal before any database call. */
-  const resolveVoteType = (value: unknown): string => {
+  /**
+   * The configured type names, read from the operator's own table. A read that fails is reported as
+   * unavailable rather than as "nothing is configured", so a caller never reads an outage as an
+   * empty configuration. An empty table is its own answer: there is no type to choose at all.
+   */
+  const readConfiguredVoteTypes = async (): Promise<string[]> => {
+    const result = await writer.listVoteTypes({ limit: MAX_CONFIGURED_VOTE_TYPES });
+    if (!result.ok || !result.voteTypes) {
+      throw new MvpWriteToolError(
+        'vote_type_configuration_unavailable',
+        'The configured proposal types could not be read, so no type could be checked.',
+      );
+    }
+    return [...result.voteTypes];
+  };
+
+  /**
+   * Resolve one proposal type against the operator's configured list. The type is never guessed and
+   * never defaulted: a name that is not configured is refused by name, and the refusal carries the
+   * names that do exist so the caller can ask for the right one instead of inventing a synonym such
+   * as a shorter umbrella name for a configured type.
+   */
+  const requireConfiguredVoteType = (value: unknown, configured: readonly string[]): string => {
     const voteType = asVoteType(value);
     if (voteType === null) {
       throw new MvpWriteToolError(
         'vote_type_invalid',
-        'voteType must be one configured lower snake case proposal type such as event_budget.',
+        configured.length === 0
+          ? 'voteType must be one configured lower snake case proposal type; no type is configured yet.'
+          : `voteType must be one configured lower snake case proposal type such as ${configured[0]}.`,
+      );
+    }
+    if (!configured.includes(voteType)) {
+      throw new MvpWriteToolError(
+        'vote_type_not_configured',
+        'That proposal type is not configured; the type and its limits are operator configuration.',
+        {
+          voteType,
+          configuredVoteTypes: [...configured],
+          nextStep: 'ask_an_operator_to_configure_the_vote_type',
+        },
       );
     }
     return voteType;
@@ -667,16 +712,19 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
         try {
           assertNoImpersonationArgs(args);
           assertNoPolicyArgs(args);
-          const voteType = resolveVoteType(args?.voteType);
           const title = resolveTitle(args?.title);
           const summary = resolveSummary(args?.summary);
           const request = resolveRequest(args?.requestedMinor, args?.currency);
           const member = await proposalRequester();
+          // The type is read back from the operator's own configuration before the write, so a name
+          // the table does not carry is refused by name here instead of surfacing only as a foreign
+          // key violation later. The tool still guesses nothing: the list comes from the table.
+          const voteType = requireConfiguredVoteType(args?.voteType, await readConfiguredVoteTypes());
           const id = recordId('proposal', toolCallId);
           // Final authority check immediately before the write: a stale turn cannot commit.
           assertCurrentInvocation(ctx);
-          // The vote type is stored as given: the database holds the type table and the foreign key,
-          // so an unconfigured type is refused there rather than guessed here.
+          // The vote type is stored as given and the database keeps the foreign key as the final
+          // authority, so an unconfigured type is still refused there rather than guessed here.
           const written = await writer.submitProposal({
             id,
             proposerContactId: member.contactId,
@@ -737,7 +785,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
         try {
           assertNoImpersonationArgs(args);
           assertNoPolicyArgs(args);
-          const voteType = resolveVoteType(args?.voteType);
+          const voteType = requireConfiguredVoteType(args?.voteType, await readConfiguredVoteTypes());
           const title = resolveTitle(args?.title);
           const closesAt = asIsoInstant(args?.closesAt);
           if (closesAt === null) {

@@ -6,6 +6,10 @@ import { createFoundationDbReader } from '../plugins/rein-operations/foundation-
 // request goes to an injected fetch that records the exact URL, query parameters and headers.
 
 const SECRET = 'sb_secret_test_0000000000000000000000';
+// A legacy `service_role` key is a three-segment JWT, which is the one shape PostgREST accepts as a
+// bearer token. Synthetic and not a credential: the modern key above is used in every other test.
+const LEGACY_SECRET =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwicmVmIjoidGVzdCJ9.not-a-real-credential';
 const BASE_URL = 'https://project-ref.supabase.co';
 const TEAM = 'T0123456ABC';
 const USER = 'U0123456ABC';
@@ -95,7 +99,9 @@ test('a verified link resolves to the canonical contact, an active Contributor a
     assert.equal(call.init.method, 'GET');
     assert.equal(call.init.body, undefined);
     assert.equal(call.init.headers.apikey, SECRET);
-    assert.equal(call.init.headers.authorization, `Bearer ${SECRET}`);
+    // A modern secret key is not a JWT, so it is presented in `apikey` only: Supabase rejects it as
+    // a bearer token and would answer every read with 401.
+    assert.equal(call.init.headers.authorization, undefined);
     assert.ok(call.url.startsWith(`${BASE_URL}/rest/v1/dev_`), call.url);
     assert.ok(!call.url.includes(SECRET));
   }
@@ -106,6 +112,42 @@ test('a verified link resolves to the canonical contact, an active Contributor a
     'slack_team_id,slack_user_id,contact_id,status,verified_at,verified_by,revoked_at',
   );
   assert.equal(calls[3].params.get('or'), `(contact_id.eq.${CONTACT},contributor_id.eq.${CONTRIBUTOR})`);
+});
+
+test('a legacy service_role JWT keeps the bearer header a modern secret key does not send', async () => {
+  const { reader, calls } = readerFor(linkedHandlers(), { serviceRoleKey: LEGACY_SECRET });
+
+  const result = await reader.resolveSlackMember(USER);
+
+  assert.equal(result.status, 'resolved');
+  assert.equal(calls.length, 4);
+  for (const call of calls) {
+    assert.equal(call.init.headers.apikey, LEGACY_SECRET);
+    assert.equal(call.init.headers.authorization, `Bearer ${LEGACY_SECRET}`);
+    assert.ok(!call.url.includes(LEGACY_SECRET), 'the key never appears in a URL');
+  }
+  assert.ok(!JSON.stringify(result).includes(LEGACY_SECRET), 'no result carries the key');
+});
+
+test('a funds read authenticates with the legacy key exactly as a member read does', async () => {
+  const snapshot = {
+    currency: 'USD',
+    available_minor: 500000,
+    recorded_at: VERIFIED_AT,
+    recorded_by: 'finance@rein.example',
+    source_note: 'monthly statement',
+  };
+  const { reader, calls } = readerFor(
+    { dev_rein_fund_snapshots: [snapshot] },
+    { serviceRoleKey: LEGACY_SECRET },
+  );
+
+  const result = await reader.readAvailableFunds('USD');
+
+  assert.equal(result.status, 'snapshot');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].init.headers.apikey, LEGACY_SECRET);
+  assert.equal(calls[0].init.headers.authorization, `Bearer ${LEGACY_SECRET}`);
 });
 
 test('the production environment reads the prod_ tables', async () => {
@@ -324,7 +366,10 @@ test('malformed member records fail closed instead of downgrading silently', asy
 test('database failures resolve to an unavailable result rather than throwing or resolving', async (t) => {
   const cases = [
     ['a transport failure', () => { throw new Error('socket hang up'); }, 'transport_error', null],
-    ['an unauthorized response', () => new Response('nope', { status: 401 }), 'http_error', 401],
+    // A rejected key is its own reason: it is an authentication failure, never a data outcome.
+    ['a rejected key (401)', () => new Response('nope', { status: 401 }), 'auth_error', 401],
+    ['a forbidden key (403)', () => new Response('nope', { status: 403 }), 'auth_error', 403],
+    ['a bad request (400)', () => new Response('nope', { status: 400 }), 'http_error', 400],
     ['a body that is not JSON', () => new Response('<html>down</html>', { status: 200 }), 'response_malformed', 200],
     ['a JSON body that is not an array', () => new Response(JSON.stringify({ message: 'oops' }), { status: 200 }), 'response_malformed', 200],
   ];

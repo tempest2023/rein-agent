@@ -127,6 +127,7 @@ function createFakes({
   poll = pollRecord(),
   ballots = [],
   rule = voteTypeRule(),
+  configuredVoteTypes = [VOTE_TYPE],
   candidates = [candidateRecord(CANDIDATE_A), candidateRecord(CANDIDATE_B)],
   inserts,
 } = {}) {
@@ -138,6 +139,7 @@ function createFakes({
     getPoll: [],
     listBallots: [],
     getVoteType: [],
+    listVoteTypes: [],
     listCandidateProposals: [],
     finalizePoll: [],
   };
@@ -212,6 +214,11 @@ function createFakes({
         return { ok: false, status: 'rejected', reason: 'vote_type_not_found', voteType: null, httpStatus: 200 };
       }
       return { ok: true, status: 'found', reason: 'vote_type', voteType: rule, httpStatus: 200 };
+    },
+    async listVoteTypes(input = {}) {
+      calls.listVoteTypes.push(input);
+      if (inserts?.listVoteTypes) return inserts.listVoteTypes(input);
+      return { ok: true, status: 'found', reason: 'vote_types', voteTypes: configuredVoteTypes, httpStatus: 200 };
     },
     async listCandidateProposals(input) {
       calls.listCandidateProposals.push(input);
@@ -318,13 +325,14 @@ test('an enabled but incomplete MVP block fails loudly instead of registering si
     'submitProposal',
     'createPoll',
     'getVoteType',
+    'listVoteTypes',
     'listCandidateProposals',
     'finalizePoll',
   ]) {
     const partial = { ...fakes.writer, [missing]: undefined };
     assert.throws(
       () => createMvpWriteToolRegistration({ config: baseConfig, reader: fakes.reader, writer: partial }),
-      /must implement submitProposal, createPoll, getPoll, listBallots, castBallot, getVoteType, listCandidateProposals and finalizePoll/,
+      /must implement submitProposal, createPoll, getPoll, listBallots, castBallot, getVoteType, listVoteTypes, listCandidateProposals and finalizePoll/,
       missing,
     );
   }
@@ -479,10 +487,54 @@ test('the proposal tool requires a lower snake case vote type without writing', 
     const result = await tool('rein_mvp_proposal_submit').execute('call-1', { voteType, title: 'Repair workshop' });
     assert.equal(result.details.ok, false, String(voteType));
     assert.equal(result.details.error, 'vote_type_invalid', String(voteType));
-    assert.deepEqual(calls.member, [], 'the arguments are refused before the identity lookup');
+    // The configured type list is the first read on this path, so a malformed name is refused before
+    // the identity lookup ever runs; no proposal is stored either way.
+    assert.deepEqual(calls.listVoteTypes, [{ limit: 200 }], String(voteType));
     assert.deepEqual(calls.submitProposal, [], 'an unusable vote type is never stored');
     assert.equal(guard.calls, 0);
   }
+});
+
+test('a well-formed but unconfigured proposal type is refused by name against the stored list', async () => {
+  // `event` is exactly the case-2 shape: a legal lower snake case name with no row in the operator's
+  // type table. The tool reports the names that do exist instead of guessing a substitute.
+  const fakes = createFakes({ configuredVoteTypes: ['event_pair', 'event_single'] });
+  const { tool, calls, guard } = build({ fakes, channel: PROPOSAL_CHANNEL });
+
+  const result = await tool('rein_mvp_proposal_submit').execute('call-1', {
+    voteType: 'event',
+    title: 'Free campus discussion',
+  });
+
+  assert.equal(result.details.ok, false);
+  assert.equal(result.details.error, 'vote_type_not_configured');
+  assert.equal(result.details.voteType, 'event');
+  assert.deepEqual(result.details.configuredVoteTypes, ['event_pair', 'event_single']);
+  assert.equal(result.details.nextStep, 'ask_an_operator_to_configure_the_vote_type');
+  assert.deepEqual(calls.submitProposal, [], 'an unconfigured type is never stored');
+  assert.equal(guard.calls, 0, 'the refusal happens before the write guard would run');
+  assert.deepEqual(calls.listVoteTypes, [{ limit: 200 }], 'the list is read once, from the type table');
+});
+
+test('a configured proposal type submits, and an unreadable type list never reads as configured', async () => {
+  const ok = createFakes({ configuredVoteTypes: ['event_single'] });
+  const submitted = await build({ fakes: ok, channel: PROPOSAL_CHANNEL })
+    .tool('rein_mvp_proposal_submit')
+    .execute('call-1', { voteType: 'event_single', title: 'Free campus discussion' });
+  assert.equal(submitted.details.ok, true);
+  assert.equal(ok.calls.submitProposal[0].voteType, 'event_single');
+
+  const down = createFakes({
+    inserts: {
+      listVoteTypes: () => ({ ok: false, status: 'unavailable', reason: 'http_error', voteTypes: null, httpStatus: 503 }),
+    },
+  });
+  const refused = await build({ fakes: down, channel: PROPOSAL_CHANNEL })
+    .tool('rein_mvp_proposal_submit')
+    .execute('call-1', { voteType: 'event_single', title: 'Free campus discussion' });
+  assert.equal(refused.details.error, 'vote_type_configuration_unavailable');
+  assert.notEqual(refused.details.error, 'vote_type_not_configured', 'an outage is not a missing type');
+  assert.deepEqual(down.calls.submitProposal, [], 'an unreadable configuration writes nothing');
 });
 
 test('a requested amount is recorded with its currency or refused as incomplete', async () => {
@@ -708,9 +760,29 @@ test('an unknown or unreadable vote type opens nothing and is never guessed', as
     title: 'Fund something?',
     closesAt: CLOSES_AT,
   });
-  assert.equal(unknownResult.details.error, 'vote_type_not_found');
+  // A well-formed name that the stored type table does not carry is refused before any rule read.
+  assert.equal(unknownResult.details.error, 'vote_type_not_configured');
+  assert.deepEqual(unknownResult.details.configuredVoteTypes, [VOTE_TYPE]);
+  assert.deepEqual(unknown.calls.getVoteType, [], 'no rule is read for a type that is not configured');
   assert.deepEqual(unknown.calls.listCandidateProposals, [], 'no pool is read for a type with no rule');
   assert.deepEqual(unknown.calls.createPoll, []);
+
+  // A type that is listed but whose rule cannot be read is still the older, narrower refusal.
+  const vanished = createFakes({ member: director(), configuredVoteTypes: [VOTE_TYPE] });
+  vanished.writer.getVoteType = async () => ({
+    ok: false,
+    status: 'rejected',
+    reason: 'vote_type_not_found',
+    voteType: null,
+    httpStatus: 200,
+  });
+  const vanishedResult = await build({ fakes: vanished }).tool('rein_mvp_poll_open').execute('call-2', {
+    voteType: VOTE_TYPE,
+    title: 'Fund the repair workshop?',
+    closesAt: CLOSES_AT,
+  });
+  assert.equal(vanishedResult.details.error, 'vote_type_not_found');
+  assert.deepEqual(vanished.calls.createPoll, []);
 
   const down = createFakes({
     member: director(),

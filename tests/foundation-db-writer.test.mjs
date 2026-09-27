@@ -8,6 +8,10 @@ import { createFoundationDbWriter } from '../plugins/rein-operations/foundation-
 // is the phase-2 schema with `vote_type`, `candidate_proposal_ids` and `approved_proposal_ids`.
 
 const SECRET = 'sb_secret_test_0000000000000000000000';
+// A legacy `service_role` key is a three-segment JWT, which is the one shape PostgREST accepts as a
+// bearer token. Synthetic and not a credential: the modern key above is used in every other test.
+const LEGACY_SECRET =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwicmVmIjoidGVzdCJ9.not-a-real-credential';
 const BASE_URL = 'https://project-ref.supabase.co';
 const PROPOSAL = '11111111-1111-4111-8111-111111111111';
 const PROPOSAL_TWO = '12121212-1212-4212-8212-121212121212';
@@ -258,7 +262,9 @@ test('a new proposal is inserted once with its vote type and returned as stored'
   assert.equal(call.init.headers.prefer, 'return=representation');
   assert.equal(call.init.headers['content-type'], 'application/json');
   assert.equal(call.init.headers.apikey, SECRET);
-  assert.equal(call.init.headers.authorization, `Bearer ${SECRET}`);
+  // A modern secret key is not a JWT, so it is presented in `apikey` only: Supabase rejects it as
+  // a bearer token and would answer every write with 401.
+  assert.equal(call.init.headers.authorization, undefined);
   assert.deepEqual(call.body, {
     id: PROPOSAL,
     proposer_contact_id: CONTACT,
@@ -720,6 +726,51 @@ test('getVoteType reads the configured limits and reports a missing type', async
   });
 });
 
+test('listVoteTypes reads the configured names and never invents or hides one', async (t) => {
+  await t.test('configured names in stored order', async () => {
+    const { writer, calls } = writerFor({
+      dev_rein_mvp_vote_types: [
+        voteTypeRow(),
+        voteTypeRow({ vote_type: 'event_single', max_candidates: 1, max_approvals_per_voter: 1 }),
+      ],
+    });
+
+    const result = await writer.listVoteTypes();
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'found');
+    assert.deepEqual(result.voteTypes, [VOTE_TYPE, 'event_single']);
+    assert.equal(calls[0].params.get('select'), 'vote_type');
+    assert.equal(calls[0].params.get('order'), 'vote_type.asc');
+  });
+
+  await t.test('an empty table is an answer, not a failure', async () => {
+    const { writer } = writerFor({ dev_rein_mvp_vote_types: [] });
+    const result = await writer.listVoteTypes();
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.voteTypes, []);
+  });
+
+  await t.test('an unavailable read stays unavailable', async (t2) => {
+    const { writer } = writerFor({
+      dev_rein_mvp_vote_types: () => new Response('{}', { status: 503 }),
+    });
+    const result = await writer.listVoteTypes();
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.voteTypes, null);
+  });
+
+  await t.test('a malformed row is reported rather than trimmed', async () => {
+    const { writer } = writerFor({
+      dev_rein_mvp_vote_types: [{ vote_type: 'Not Snake Case' }],
+    });
+    const result = await writer.listVoteTypes();
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'response_malformed');
+  });
+});
+
 test('listCandidateProposals reads the eligible proposals of one vote type', async () => {
   const second = proposalRow({ id: PROPOSAL_TWO, title: 'Repair the fence' });
   const { writer, calls } = writerFor({ dev_rein_mvp_proposals: [proposalRow(), second] });
@@ -974,6 +1025,86 @@ test('database failures resolve to an unavailable result rather than throwing', 
   });
 });
 
+test('a rejected server key is unavailable on reads, writes and RPCs alike', async (t) => {
+  const unauthorized = () =>
+    new Response(JSON.stringify({ code: '401', message: 'Invalid API key' }), {
+      status: 401,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  await t.test('a table write never becomes a governance refusal', async () => {
+    const { writer } = writerFor({ dev_rein_mvp_proposals: unauthorized() });
+    const result = await writer.submitProposal(proposalInput());
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.reason, 'auth_error');
+    assert.equal(result.httpStatus, 401);
+    assert.equal(result.proposal, null);
+    assert.equal(result.authorizesSpending, false);
+  });
+
+  await t.test('a table read is unavailable', async () => {
+    const { writer } = writerFor({ dev_rein_mvp_polls: unauthorized() });
+    const result = await writer.getPoll(POLL);
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.reason, 'auth_error');
+    assert.equal(result.httpStatus, 401);
+    assert.equal(result.poll, null);
+  });
+
+  await t.test('a service-only RPC is unavailable rather than rpc_refused', async () => {
+    const { writer } = writerFor({ 'rpc/dev_rein_mvp_finalize_poll': unauthorized() });
+    const result = await writer.finalizePoll({ pollId: POLL, actorContactId: CONTACT });
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.reason, 'auth_error');
+    assert.equal(result.httpStatus, 401);
+    assert.equal(result.finalization, null);
+  });
+
+  await t.test('a 403 privilege refusal is the same connection failure', async () => {
+    const { writer } = writerFor({
+      dev_rein_mvp_polls: new Response(JSON.stringify({ message: 'permission denied' }), {
+        status: 403,
+        headers: { 'content-type': 'application/json' },
+      }),
+    });
+    const result = await writer.createPoll(pollInput());
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.reason, 'auth_error');
+    assert.equal(result.httpStatus, 403);
+    assert.equal(result.poll, null);
+  });
+});
+
+test('a legacy service_role JWT keeps the bearer header a modern secret key never sends', async () => {
+  const { writer, calls } = writerFor(
+    {
+      dev_rein_mvp_polls: [pollRow()],
+      'rpc/dev_rein_mvp_finalize_poll': jsonResponse(finalizePayload()),
+    },
+    { serviceRoleKey: LEGACY_SECRET },
+  );
+
+  const read = await writer.getPoll(POLL);
+  const finalized = await writer.finalizePoll({ pollId: POLL, actorContactId: CONTACT });
+
+  assert.equal(read.ok, true);
+  assert.equal(finalized.ok, true);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(
+    calls.map(call => call.table),
+    ['dev_rein_mvp_polls', 'rpc/dev_rein_mvp_finalize_poll'],
+  );
+  for (const call of calls) {
+    assert.equal(call.init.headers.apikey, LEGACY_SECRET);
+    assert.equal(call.init.headers.authorization, `Bearer ${LEGACY_SECRET}`);
+    assert.ok(!call.url.includes(LEGACY_SECRET), 'the key never appears in a URL');
+  }
+  assert.ok(!JSON.stringify([read, finalized]).includes(LEGACY_SECRET), 'no result carries the key');
+});
+
 test('a re-read that fails keeps an ambiguous 409 unavailable rather than guessing', async () => {
   const { writer } = writerFor({
     dev_rein_mvp_polls: call => (call.method === 'POST'
@@ -1044,6 +1175,7 @@ test('the writer exposes only its environment and its named operations', () => {
     'getVoteType',
     'listBallots',
     'listCandidateProposals',
+    'listVoteTypes',
     'recordProposalRevision',
     'submitProposal',
     'tablePrefix',
@@ -1085,7 +1217,8 @@ test('finalizePoll calls the deterministic RPC with only the poll and its direct
   assert.equal(call.method, 'POST');
   assert.equal(call.table, 'rpc/dev_rein_mvp_finalize_poll');
   assert.equal(call.init.headers.apikey, SECRET);
-  assert.equal(call.init.headers.authorization, `Bearer ${SECRET}`);
+  // The RPC path authenticates exactly as the table path does.
+  assert.equal(call.init.headers.authorization, undefined);
   assert.equal(call.init.headers['content-type'], 'application/json');
   assert.deepEqual(call.body, { p_poll_id: POLL, p_actor_contact_id: CONTACT });
   assert.ok(!call.url.includes(SECRET), 'the key never appears in a URL');
