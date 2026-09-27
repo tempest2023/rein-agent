@@ -43,15 +43,29 @@ assert.deepEqual(manifest.contracts.tools, [
 const mvpSchema = manifest.configSchema.properties.mvp;
 assert.equal(mvpSchema.additionalProperties, false, 'mvp config block must reject unknown keys');
 assert.deepEqual(Object.keys(mvpSchema.properties).sort(), [
-  'boardChannelIds', 'enabled', 'environment', 'platform', 'proposalChannelIds', 'slackTeamId',
-  'supabaseServiceKeyEnvVar', 'supabaseUrlEnvVar',
+  'boardChannelIds', 'enabled', 'environment', 'platform', 'proposalChannelIds',
+  'proposalConfirmationKeyEnvVar', 'slackTeamId', 'supabaseServiceKeyEnvVar', 'supabaseUrlEnvVar',
 ]);
-for (const field of ['supabaseUrlEnvVar', 'supabaseServiceKeyEnvVar']) {
+for (const field of ['supabaseUrlEnvVar', 'supabaseServiceKeyEnvVar', 'proposalConfirmationKeyEnvVar']) {
   assert.match(mvpSchema.properties[field].description, /environment variable/i, `mvp.${field} must name a server environment variable`);
 }
 assert.ok(existsSync(resolve(root, 'plugins/rein-operations/mvp-read-tools.ts')), 'Missing plugins/rein-operations/mvp-read-tools.ts');
 assert.ok(pluginPackage.files.includes('mvp-read-tools.ts'), 'package files must ship mvp-read-tools.ts');
 assert.ok(pluginPackage.files.includes('foundation-db-reader.ts'), 'package files must ship foundation-db-reader.ts');
+// The proposal confirmation token is minted and verified by this module, and the tool that needs it
+// must ship alongside the writer it guards.
+assert.ok(existsSync(resolve(root, 'plugins/rein-operations/mvp-proposal-confirmation.ts')), 'Missing plugins/rein-operations/mvp-proposal-confirmation.ts');
+assert.ok(pluginPackage.files.includes('mvp-proposal-confirmation.ts'), 'package files must ship mvp-proposal-confirmation.ts');
+assert.ok(
+  read('plugins/rein-operations/mvp-write-tools.ts').includes('./mvp-proposal-confirmation.ts'),
+  'mvp-write-tools.ts must verify the author confirmation through mvp-proposal-confirmation.ts',
+);
+for (const p of ['plugins/rein-operations/mvp-proposal-confirmation.ts', 'plugins/rein-operations/mvp-write-tools.ts']) {
+  assert.ok(
+    !/(eyJ[A-Za-z0-9_-]{20,}|sb_secret_[A-Za-z0-9_]{8,})/.test(read(p)),
+    `${p} must not contain a credential literal`,
+  );
+}
 assert.ok(read('plugins/rein-operations/index.ts').includes('./mvp-read-tools.ts'), 'index.ts must register the MVP read tools');
 for (const p of ['mvp-write-tools.ts', 'foundation-db-writer.ts', 'mvp-vote-tally.ts']) {
   assert.ok(

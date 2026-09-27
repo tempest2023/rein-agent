@@ -77,6 +77,11 @@
             "type": "string",
             "minLength": 1,
             "description": "Name of the server environment variable that holds the server-only Supabase key. The key is never stored in config, status, results or error messages."
+          },
+          "proposalConfirmationKeyEnvVar": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of the server environment variable that holds the server-only key used to sign one proposal confirmation token. The prepare step of rein_mvp_proposal_submit returns a short-lived token bound to the proposer and the exact proposal text, and the confirm step refuses to write until that token is echoed back with an explicit author confirmation. The key is never stored in config, status, results or error messages."
           }
         },
         "additionalProperties": false

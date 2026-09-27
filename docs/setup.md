@@ -211,7 +211,8 @@ plugin config names server environment variables rather than carrying credential
     "proposalChannelIds": ["APPROVED_PROPOSAL_CHANNEL_ID"],
     "boardChannelIds": ["APPROVED_BOARD_CHANNEL_ID"],
     "supabaseUrlEnvVar": "REIN_SUPABASE_URL",
-    "supabaseServiceKeyEnvVar": "REIN_SUPABASE_SERVICE_KEY"
+    "supabaseServiceKeyEnvVar": "REIN_SUPABASE_SERVICE_KEY",
+    "proposalConfirmationKeyEnvVar": "REIN_PROPOSAL_CONFIRMATION_KEY"
   }
 }
 ```
@@ -221,6 +222,44 @@ be the single workspace this installation serves. Enable this only against an is
 two migrations are not applied to any live environment. The full reviewed sequence, including the
 human migration and seeding steps, is in the
 [deployment runbook](implementation-and-deployment-zh.md).
+
+All three `*EnvVar` fields name server environment variables; the values are read from the server
+process and never stored in plugin config, results or logs. Set them on the deployment side:
+
+- `REIN_SUPABASE_URL` is the bare project URL. It must be `https`, except for a loopback address
+  (`http://localhost` or `http://127.0.0.1`) during local development, so the key is never sent over
+  a plaintext network hop.
+- `REIN_SUPABASE_SERVICE_KEY` is the server-only Supabase key. Both key generations work: a legacy
+  `service_role` JWT is presented in `apikey` and `Authorization: Bearer`, while a modern
+  `sb_secret_` key is presented in `apikey` only, because Supabase rejects it as a bearer token.
+- `REIN_PROPOSAL_CONFIRMATION_KEY` is a random server-only secret of at least 32 bytes, used to sign
+  the short-lived proposal confirmation token. Generate it once per deployment, for example with
+  `openssl rand -base64 48`, keep it out of the repository, and rotate it only if it may have leaked:
+  rotating invalidates any confirmation prepared before the rotation, which the proposer can simply
+  re-prepare.
+
+### Proposal author confirmation
+
+A stored proposal must be the version its author confirmed (PRD §2.3 step 2). Because the MVP
+proposal table has no draft status or confirmation column, the registered
+`rein_mvp_proposal_submit` tool enforces this in two steps instead of storing a draft row:
+
+1. The first call, without `confirmationToken`, writes nothing and returns `status: "prepared"` with
+   the canonical proposal text (`prepared`), a short-lived `confirmationToken`, and its `expiresAt`.
+2. The Agent reads that text back to the proposer. Only after the proposer explicitly agrees does it
+   call the tool again with `confirmationToken` returned unchanged and
+   `confirmPronouncedByAuthor: true`.
+
+The token is an HMAC-SHA256 signature over the proposer and the exact proposal fields, so changing
+the title, the type, the amount or the currency after the preview is refused with
+`proposal_confirmation_mismatch`, an expired token with `proposal_confirmation_expired`, a missing
+statement or token with `proposal_confirmation_required`, and a token the server did not mint with
+`proposal_confirmation_invalid`. The proposal identifier is derived from the confirmed text, so
+re-confirming the same version returns the same record instead of inserting a second proposal.
+
+The conversation is the requirement: the proposer has to confirm the prepared text. The token and
+the boolean are only the technical gate that stops a tool call from standing in for that
+confirmation.
 
 ## Before any real operation
 

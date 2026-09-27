@@ -47,6 +47,14 @@ that link is scoped to the platform and space it was made in.
 
 The MVP is one vertical slice on real data, not the full lifecycle described in the PRD:
 
+**Supersession note (2026-09-27).** One statement in the copied PRD draft is narrower than the
+confirmed MVP and must not be read as a current requirement. The PRD phase table describes the P0
+deliverable as "the decision is recorded **and posted** without the founder driving it"
+(`docs/PRD-agent-community-operations.md`, §5). The confirmed scope below is the authority: no
+registered tool posts a message, so a result is recorded and returned to the calling turn only, and
+the Board reads it there or asks again. PRD §2.3 step 3 already states that posting is not
+implemented; the phase table simply predates that narrowing.
+
 1. **Slack identity.** An administrator links one trusted Slack team/user pair to an existing
    community record. Unlinked senders may ask questions but cannot submit, vote, or act. One
    installation serves exactly one Slack workspace: the runtime's trusted tool context carries the
@@ -114,8 +122,8 @@ the voting window length; channel and space mapping; and who may see an individu
 - Activity spaces, preparation checklists, proactive reminders, outcome collection and articles.
 - Website publishing and social media distribution.
 - Weekly operations summaries, exception handling, oversight and pause controls.
-- A second chat platform (the Discord general-participant scope in D12), cross-platform identity, and
-  on-chain or DAO governance migration.
+- A second chat platform (the Discord general-participant scope in D12), cross-platform identity
+  beyond the Slack MVP's own resolution, and on-chain or DAO governance migration.
 - Video, contracts, token issuance and on-chain voting.
 
 ## Recorded technical decisions
@@ -157,7 +165,7 @@ All items below are unresolved. PRD suggestions remain suggestions.
 | The MVP voting window length | First real vote |
 | Tie rule when the highest approval count is shared | First real vote that ties |
 | Who may see an individual ballot versus the published result | First real vote |
-| Whether the local migration at the sibling repo `BeneficenceProtocol/supabase/migrations/20260924094436_rein_slack_identity_and_fund_snapshots.sql` is reviewed, committed and applied to the live `dev_*` and `prod_*` tables | First real Slack link and funds read |
+| Whether the two MVP migrations in the sibling repo `tempest2023/ReinProtocolFoundation` (`supabase/migrations/20260924094436_rein_slack_identity_and_fund_snapshots.sql` and `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql`) are reviewed, merged and applied to the live `dev_*` and `prod_*` tables. They are committed at `4bd5ce8` on branch `tempest/agent-mvp-schema-and-welcome-email`, but not yet merged or applied to any live environment. | First real Slack link and funds read |
 | Zero-budget activity scope and exception authority | Automatic approval |
 | Cadence, timezone and notification lead time | Selection rounds |
 | Currency, available-funds update owner and reconciliation cadence | Reading or committing funds |

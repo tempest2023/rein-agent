@@ -124,6 +124,7 @@ test('mvp mode registers the database-backed read tools instead of the simulator
   const dir = mkdtempSync(join(tmpdir(), 'rein-plugin-mvp-'));
   process.env.REIN_TEST_MVP_SUPABASE_URL = 'https://project-ref.supabase.co';
   process.env.REIN_TEST_MVP_SUPABASE_SERVICE_KEY = 'sb_secret_plugin_test_0000000000000000';
+  process.env.REIN_TEST_MVP_CONFIRMATION_KEY = 'plugin-test-proposal-confirmation-key-0001';
   try {
     const registrations = [];
     plugin.register({
@@ -138,6 +139,7 @@ test('mvp mode registers the database-backed read tools instead of the simulator
           boardChannelIds: ['C_BOARD'],
           supabaseUrlEnvVar: 'REIN_TEST_MVP_SUPABASE_URL',
           supabaseServiceKeyEnvVar: 'REIN_TEST_MVP_SUPABASE_SERVICE_KEY',
+          proposalConfirmationKeyEnvVar: 'REIN_TEST_MVP_CONFIRMATION_KEY',
         },
         // Configured but superseded: MVP mode exposes the real read slice, not local rehearsals.
         proposalTools: { enabled: true, platform: 'slack', allowedNativeChannelIds: ['C_PROPOSAL'], statePath: join(dir, 'state.json') },

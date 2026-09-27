@@ -7,9 +7,21 @@ the proposal bridge: the reads `rein_mvp_my_status` and `rein_mvp_funds`, the wr
 `rein_mvp_proposal_submit`, `rein_mvp_poll_open`, `rein_mvp_vote` and `rein_mvp_poll_result`, and the
 post-result feedback tools `rein_mvp_proposal_comment_suggest`, `rein_mvp_revision_approve` and
 `rein_mvp_revision_apply`. The block names server environment variables for the Supabase URL and
-key; no credential, project URL, Slack team ID or private contact identifier reaches a result. Every
-tool reaches the database through the server-only key over PostgREST, no tool posts a Slack message,
-and no tool authorizes, reserves or pays money.
+key, plus one for the proposal confirmation signature; no credential, project URL, Slack team ID or
+private contact identifier reaches a result. Every tool reaches the database through the server-only
+key over PostgREST, no tool posts a Slack message, and no tool authorizes, reserves or pays money.
+
+`rein_mvp_proposal_submit` stores a proposal only after its author has confirmed the exact version.
+The first call prepares: it writes nothing and returns the canonical proposal text plus a
+short-lived, server-signed `confirmationToken`. The Agent reads that text back to the proposer, and
+only a second call carrying the unchanged token together with `confirmPronouncedByAuthor: true`
+writes the row. The token binds the proposer and every proposal field, so an altered payload
+(`proposal_confirmation_mismatch`), an expired token (`proposal_confirmation_expired`), a missing
+statement or token (`proposal_confirmation_required`) and a token the server did not mint
+(`proposal_confirmation_invalid`) all refuse before the database is touched. The proposal identifier
+is derived from the confirmed text, so re-confirming the same version addresses the same record
+instead of inserting a second proposal. The signing secret is the server-only environment variable
+named by `proposalConfirmationKeyEnvVar`; it never appears in a token, a result or a log.
 
 Post-result feedback follows one confirmed rule with two sides. An **ordinary** revision, one that
 moves only the title or the summary, is accepted and made effective by the Agent itself: the Agent

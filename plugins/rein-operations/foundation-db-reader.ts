@@ -116,6 +116,11 @@ interface QuerySuccess {
 type QueryOutcome = QueryFailure | QuerySuccess;
 
 const SLACK_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+/**
+ * Loopback hostnames, where a plaintext HTTP project URL is a local hop and never crosses a network.
+ * Any other host must use HTTPS so the server key is never sent over an unencrypted connection.
+ */
+export const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 const ISO_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
@@ -213,8 +218,13 @@ export function createFoundationDbReader(config: FoundationDbReaderConfig): Foun
   } catch {
     throw configError('supabaseUrl must be an absolute URL');
   }
-  if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
-    throw configError('supabaseUrl must use http or https');
+  if (parsedUrl.protocol !== 'https:') {
+    // The server key travels in a request header, so a plaintext project URL would expose it in
+    // transit. Loopback is a local-development address whose hop never leaves the machine, and it
+    // stays the one explicit exception.
+    if (parsedUrl.protocol !== 'http:' || !LOOPBACK_HOSTNAMES.has(parsedUrl.hostname)) {
+      throw configError('supabaseUrl must use https, or http on a loopback address for local development');
+    }
   }
   if (parsedUrl.username || parsedUrl.password || parsedUrl.search || parsedUrl.hash) {
     throw configError('supabaseUrl must be a bare project URL without credentials, query or fragment');

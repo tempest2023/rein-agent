@@ -25,7 +25,11 @@ const VOTE_TYPE = 'event_budget';
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const URL_ENV = 'REIN_SUPABASE_URL';
 const KEY_ENV = 'REIN_SUPABASE_SERVICE_ROLE_KEY';
+const CONFIRM_ENV = 'REIN_PROPOSAL_CONFIRMATION_KEY';
 const SECRET = 'sb_secret_unit_test_0000000000000000';
+// A distinct server-only signing key for the proposal confirmation token. The rehearsal injects it
+// directly, so no real credential is read from the ambient environment.
+const CONFIRM_KEY = 'unit-test-proposal-confirmation-signing-key-0001';
 const OPENS_AT = '2026-09-24T10:00:00.000Z';
 const CLOSES_AT = '2026-09-24T11:00:00.000Z';
 const NOW = '2026-09-24T10:30:00.000Z';
@@ -39,6 +43,7 @@ const baseConfig = Object.freeze({
   boardChannelIds: [BOARD_CHANNEL],
   supabaseUrlEnvVar: URL_ENV,
   supabaseServiceKeyEnvVar: KEY_ENV,
+  proposalConfirmationKeyEnvVar: CONFIRM_ENV,
 });
 
 const contributor = (overrides = {}) => ({
@@ -268,6 +273,7 @@ function build({
     config,
     reader: fakes.reader,
     writer: fakes.writer,
+    confirmationSigningKey: CONFIRM_KEY,
     env,
     now: now ?? (() => CLOCK.at),
   });
@@ -280,6 +286,29 @@ function build({
     calls: fakes.calls,
     tool: name => tools.find(item => item.name === name),
   };
+}
+
+/**
+ * Prepare a proposal through the real tool and return the token it minted. The submit tool writes
+ * nothing until this token comes back, so every test that means to store a proposal goes through
+ * both phases exactly as a conversation would.
+ */
+async function prepareProposal(tool, toolCallId, args, now) {
+  const prepared = await tool.execute(toolCallId, args);
+  assert.equal(prepared.details.status, 'prepared', JSON.stringify(prepared.details));
+  assert.equal(prepared.details.recorded, false);
+  if (now) assert.equal(prepared.details.expiresAt, new Date(now.getTime() + 15 * 60 * 1000).toISOString());
+  return prepared.details.confirmationToken;
+}
+
+/** Prepare, then confirm with the token returned unchanged, as an author-confirmed submit does. */
+async function submitProposal(tool, toolCallId, args, now) {
+  const token = await prepareProposal(tool, toolCallId, args, now);
+  return tool.execute(toolCallId, {
+    ...args,
+    confirmationToken: token,
+    confirmPronouncedByAuthor: true,
+  });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -314,7 +343,13 @@ test('an enabled but incomplete MVP block fails loudly instead of registering si
   ];
   for (const [config, expected] of cases) {
     assert.throws(
-      () => createMvpWriteToolRegistration({ config, reader: fakes.reader, writer: fakes.writer }),
+      () =>
+        createMvpWriteToolRegistration({
+          config,
+          reader: fakes.reader,
+          writer: fakes.writer,
+          confirmationSigningKey: CONFIRM_KEY,
+        }),
       expected,
     );
   }
@@ -331,7 +366,13 @@ test('an enabled but incomplete MVP block fails loudly instead of registering si
   ]) {
     const partial = { ...fakes.writer, [missing]: undefined };
     assert.throws(
-      () => createMvpWriteToolRegistration({ config: baseConfig, reader: fakes.reader, writer: partial }),
+      () =>
+        createMvpWriteToolRegistration({
+          config: baseConfig,
+          reader: fakes.reader,
+          writer: partial,
+          confirmationSigningKey: CONFIRM_KEY,
+        }),
       /must implement submitProposal, createPoll, getPoll, listBallots, castBallot, getVoteType, listVoteTypes, listCandidateProposals and finalizePoll/,
       missing,
     );
@@ -347,10 +388,21 @@ test('the Supabase key is read from the server environment and never appears in 
     () => createMvpWriteToolRegistration({ config: baseConfig, env: { [URL_ENV]: 'https://project-ref.supabase.co' } }),
     error => error.code === 'mvp_env_value_missing' && error.message.includes(KEY_ENV),
   );
+  // The confirmation signing key is a third server-only secret, read the same way and named only by
+  // its environment variable. A deployment missing it fails loudly instead of signing with an
+  // accidental default.
+  assert.throws(
+    () =>
+      createMvpWriteToolRegistration({
+        config: baseConfig,
+        env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET },
+      }),
+    error => error.code === 'mvp_env_value_missing' && error.message.includes(CONFIRM_ENV),
+  );
 
   const registration = createMvpWriteToolRegistration({
     config: baseConfig,
-    env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET },
+    env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET, [CONFIRM_ENV]: CONFIRM_KEY },
   });
   const tools = registration.create({
     messageChannel: 'slack',
@@ -360,6 +412,7 @@ test('the Supabase key is read from the server environment and never appears in 
   });
   assert.deepEqual(tools.map(tool => tool.name), [...MVP_WRITE_TOOL_NAMES]);
   assert.ok(!JSON.stringify(tools).includes(SECRET));
+  assert.ok(!JSON.stringify(tools).includes(CONFIRM_KEY), 'the confirmation key never appears in a tool');
   assert.ok(!JSON.stringify(tools).includes('project-ref.supabase.co'));
 });
 
@@ -367,26 +420,53 @@ test('the Supabase key is read from the server environment and never appears in 
 // rein_mvp_proposal_submit
 // ---------------------------------------------------------------------------------------------
 
-test('an active Contributor submits one proposal through a per-turn generated identifier', async () => {
+test('an active Contributor submits one proposal only after the prepared version is confirmed', async () => {
   const fakes = createFakes();
   const { tool, calls, guard } = build({ fakes, channel: PROPOSAL_CHANNEL });
 
-  const result = await tool('rein_mvp_proposal_submit').execute('call-1', {
+  const args = {
     voteType: VOTE_TYPE,
     title: 'Repair workshop',
     summary: 'Fix the roof tiles',
     requestedMinor: 125000,
     currency: 'usd',
+  };
+
+  // Phase 1: nothing is written, and the caller gets the canonical text plus one token.
+  const prepared = await tool('rein_mvp_proposal_submit').execute('call-1', args);
+  assert.equal(prepared.details.ok, true);
+  assert.equal(prepared.details.status, 'prepared');
+  assert.equal(prepared.details.reason, 'awaiting_author_confirmation');
+  assert.equal(prepared.details.recorded, false);
+  assert.equal(prepared.details.authorizesSpending, false);
+  assert.deepEqual(prepared.details.prepared, {
+    title: 'Repair workshop',
+    summary: 'Fix the roof tiles',
+    voteType: VOTE_TYPE,
+    requestedMinor: 125000,
+    currency: 'USD',
+  });
+  assert.match(prepared.details.confirmationToken, /^rein_mvp_confirm\.rpc1\./);
+  assert.deepEqual(calls.submitProposal, [], 'the prepare phase writes nothing');
+  assert.equal(guard.calls, 0, 'no write guard runs when nothing is written');
+
+  // Phase 2: the author-confirmed call writes one row.
+  const result = await tool('rein_mvp_proposal_submit').execute('call-1', {
+    ...args,
+    confirmationToken: prepared.details.confirmationToken,
+    confirmPronouncedByAuthor: true,
   });
 
   assert.equal(result.details.ok, true);
   assert.equal(result.details.status, 'inserted');
   assert.equal(result.details.recorded, true);
+  assert.equal(result.details.authorConfirmed, true);
   assert.equal(result.details.authorizesSpending, false);
-  assert.deepEqual(calls.member, [SENDER]);
+  // Both phases resolve the trusted sender, and the write uses the record the confirm phase resolved.
+  assert.deepEqual(calls.member, [SENDER, SENDER]);
   assert.equal(calls.submitProposal.length, 1);
   const sent = calls.submitProposal[0];
-  assert.match(sent.id, UUID_V4, 'the record identifier is a fresh v4 UUID, never an argument');
+  assert.match(sent.id, UUID_V4, 'the record identifier is a v4-shaped UUID, never an argument');
   assert.equal(sent.proposerContactId, CONTACT, 'the proposer is the resolved sender record');
   assert.equal(sent.voteType, VOTE_TYPE);
   assert.equal(sent.title, 'Repair workshop');
@@ -396,38 +476,67 @@ test('an active Contributor submits one proposal through a per-turn generated id
   assert.equal(result.details.proposalId, sent.id);
   assert.equal(guard.calls, 1, 'the invocation guard runs once before the write');
   assert.ok(!result.content[0].text.includes(CONTACT), 'the private contact id is not returned');
+  assert.ok(!result.content[0].text.includes(CONFIRM_KEY), 'the signing key is never returned');
 });
 
-test('one turn reuses its identifier on a retry, and a later turn mints a new one', async () => {
+test('a retry inside one turn and a repeat of the same confirmed text both meet one record', async () => {
   const fakes = createFakes();
   const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL });
+  const submit = tool('rein_mvp_proposal_submit');
+  const args = { voteType: VOTE_TYPE, title: 'Repair workshop' };
 
-  // A host retry of the same invocation reaches `execute` twice inside one `create(ctx)`.
-  await tool('rein_mvp_proposal_submit').execute('call-9', { voteType: VOTE_TYPE, title: 'Repair workshop' });
-  await tool('rein_mvp_proposal_submit').execute('call-9', { voteType: VOTE_TYPE, title: 'Repair workshop' });
+  const token = await prepareProposal(submit, 'call-9', args);
+  // A host retry of the same confirmed invocation reaches `execute` twice inside one `create(ctx)`.
+  await submit.execute('call-9', {
+    ...args,
+    confirmationToken: token,
+    confirmPronouncedByAuthor: true,
+  });
+  await submit.execute('call-9', {
+    ...args,
+    confirmationToken: token,
+    confirmPronouncedByAuthor: true,
+  });
 
   assert.equal(calls.submitProposal.length, 2);
   assert.equal(calls.submitProposal[0].id, calls.submitProposal[1].id, 'a same-turn retry is stable');
 
-  // A later turn starts from an empty map, so a host that resets the call id cannot collide with an
-  // earlier record.
+  // A later turn resets the per-turn map, but the identifier comes from the confirmed content, so
+  // confirming the same text again still addresses the one row instead of inserting a second one.
   const second = createFakes();
-  await build({ fakes: second, channel: PROPOSAL_CHANNEL })
-    .tool('rein_mvp_proposal_submit')
-    .execute('call-9', { voteType: VOTE_TYPE, title: 'Repair workshop' });
-  assert.notEqual(calls.submitProposal[0].id, second.calls.submitProposal[0].id, 'a new turn is a new record');
+  const secondTool = build({ fakes: second, channel: PROPOSAL_CHANNEL }).tool('rein_mvp_proposal_submit');
+  await submitProposal(secondTool, 'call-9', args);
+  assert.equal(
+    calls.submitProposal[0].id,
+    second.calls.submitProposal[0].id,
+    'the same confirmed text is the same record across turns',
+  );
 });
 
-test('identifiers are independent of the acting contact and the arguments', async () => {
+test('the record identifier follows the confirmed content and the proposer', async () => {
   const sameActor = createFakes();
   const otherActor = createFakes({ member: contributor({ contactId: OTHER_CONTACT }) });
-  await build({ fakes: sameActor, channel: PROPOSAL_CHANNEL })
-    .tool('rein_mvp_proposal_submit')
-    .execute('call-9', { voteType: VOTE_TYPE, title: 'Repair workshop' });
-  await build({ fakes: otherActor, channel: PROPOSAL_CHANNEL })
-    .tool('rein_mvp_proposal_submit')
-    .execute('call-9', { voteType: VOTE_TYPE, title: 'Another title' });
+  const args = { voteType: VOTE_TYPE, title: 'Repair workshop' };
+  await submitProposal(
+    build({ fakes: sameActor, channel: PROPOSAL_CHANNEL }).tool('rein_mvp_proposal_submit'),
+    'call-9',
+    args,
+  );
+  await submitProposal(
+    build({ fakes: otherActor, channel: PROPOSAL_CHANNEL }).tool('rein_mvp_proposal_submit'),
+    'call-9',
+    { voteType: VOTE_TYPE, title: 'Another title' },
+  );
   assert.notEqual(sameActor.calls.submitProposal[0].id, otherActor.calls.submitProposal[0].id);
+
+  // Two distinct confirmed texts from one proposer are two records, not a collision.
+  const changed = createFakes();
+  await submitProposal(
+    build({ fakes: changed, channel: PROPOSAL_CHANNEL }).tool('rein_mvp_proposal_submit'),
+    'call-9',
+    { voteType: VOTE_TYPE, title: 'A different repair workshop' },
+  );
+  assert.notEqual(sameActor.calls.submitProposal[0].id, changed.calls.submitProposal[0].id);
 });
 
 test('the proposal tool refuses an unlinked, inactive or non-Contributor sender without writing', async () => {
@@ -518,9 +627,11 @@ test('a well-formed but unconfigured proposal type is refused by name against th
 
 test('a configured proposal type submits, and an unreadable type list never reads as configured', async () => {
   const ok = createFakes({ configuredVoteTypes: ['event_single'] });
-  const submitted = await build({ fakes: ok, channel: PROPOSAL_CHANNEL })
-    .tool('rein_mvp_proposal_submit')
-    .execute('call-1', { voteType: 'event_single', title: 'Free campus discussion' });
+  const submitted = await submitProposal(
+    build({ fakes: ok, channel: PROPOSAL_CHANNEL }).tool('rein_mvp_proposal_submit'),
+    'call-1',
+    { voteType: 'event_single', title: 'Free campus discussion' },
+  );
   assert.equal(submitted.details.ok, true);
   assert.equal(ok.calls.submitProposal[0].voteType, 'event_single');
 
@@ -549,11 +660,13 @@ test('a requested amount is recorded with its currency or refused as incomplete'
   for (const [extra, expected] of cases) {
     const fakes = createFakes();
     const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL });
-    const result = await tool('rein_mvp_proposal_submit').execute('call-1', {
+    const args = {
       voteType: VOTE_TYPE,
       title: 'Repair workshop',
       ...extra,
-    });
+    };
+    // A malformed amount is refused in the prepare phase, before a token is ever minted.
+    const result = await tool('rein_mvp_proposal_submit').execute('call-1', args);
     assert.equal(result.details.ok, false, JSON.stringify(extra));
     assert.equal(result.details.error, expected, JSON.stringify(extra));
     assert.deepEqual(calls.submitProposal, []);
@@ -562,7 +675,7 @@ test('a requested amount is recorded with its currency or refused as incomplete'
   // A proposal without an amount is still a valid request, and no answer claims it was approved.
   const fakes = createFakes();
   const { tool } = build({ fakes, channel: PROPOSAL_CHANNEL });
-  const result = await tool('rein_mvp_proposal_submit').execute('call-1', {
+  const result = await submitProposal(tool('rein_mvp_proposal_submit'), 'call-1', {
     voteType: VOTE_TYPE,
     title: 'Repair workshop',
   });
@@ -586,11 +699,11 @@ test('the database decides the proposal write: a refusal and an outage are repor
     },
   });
   const rejection = await build({ fakes: refused, channel: PROPOSAL_CHANNEL })
-    .tool('rein_mvp_proposal_submit')
-    .execute('call-1', { voteType: VOTE_TYPE, title: 'Repair workshop' });
-  assert.equal(rejection.details.ok, false);
-  assert.equal(rejection.details.error, 'proposal_rejected');
-  assert.equal(rejection.details.recorded, false);
+    .tool('rein_mvp_proposal_submit');
+  const rejected = await submitProposal(rejection, 'call-1', { voteType: VOTE_TYPE, title: 'Repair workshop' });
+  assert.equal(rejected.details.ok, false);
+  assert.equal(rejected.details.error, 'proposal_rejected');
+  assert.equal(rejected.details.recorded, false);
 
   const down = createFakes({
     inserts: {
@@ -605,13 +718,13 @@ test('the database decides the proposal write: a refusal and an outage are repor
     },
   });
   const outage = await build({ fakes: down, channel: PROPOSAL_CHANNEL })
-    .tool('rein_mvp_proposal_submit')
-    .execute('call-1', { voteType: VOTE_TYPE, title: 'Repair workshop' });
-  assert.equal(outage.details.error, 'http_error');
-  assert.notEqual(outage.details.error, 'proposal_rejected', 'an outage is not a refusal');
+    .tool('rein_mvp_proposal_submit');
+  const downResult = await submitProposal(outage, 'call-1', { voteType: VOTE_TYPE, title: 'Repair workshop' });
+  assert.equal(downResult.details.error, 'http_error');
+  assert.notEqual(downResult.details.error, 'proposal_rejected', 'an outage is not a refusal');
 });
 
-test('a reused identifier with changed content is a conflict, never a second proposal', async () => {
+test('a changed confirmation is refused before the write, and a stored row is never overwritten', async () => {
   let attempts = 0;
   const fakes = createFakes({
     inserts: {
@@ -624,21 +737,131 @@ test('a reused identifier with changed content is a conflict, never a second pro
     },
   });
   const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL });
+  const submit = tool('rein_mvp_proposal_submit');
 
-  const first = await tool('rein_mvp_proposal_submit').execute('call-1', {
-    voteType: VOTE_TYPE,
-    title: 'Repair workshop',
-  });
-  const second = await tool('rein_mvp_proposal_submit').execute('call-1', {
+  const first = await submitProposal(submit, 'call-1', { voteType: VOTE_TYPE, title: 'Repair workshop' });
+  assert.equal(first.details.ok, true);
+
+  // The token commits to the prepared payload, so the submit phase cannot be used to store different
+  // text: an altered field is refused before the writer is called at all.
+  const token = await prepareProposal(submit, 'call-2', { voteType: VOTE_TYPE, title: 'Repair workshop' });
+  const altered = await submit.execute('call-2', {
     voteType: VOTE_TYPE,
     title: 'Something else entirely',
+    confirmationToken: token,
+    confirmPronouncedByAuthor: true,
   });
+  assert.equal(altered.details.ok, false);
+  assert.equal(altered.details.error, 'proposal_confirmation_mismatch');
+  assert.equal(calls.submitProposal.length, 1, 'the altered payload never reaches the writer');
 
-  assert.equal(first.details.ok, true);
-  assert.equal(second.details.ok, false);
-  assert.equal(second.details.error, 'proposal_conflict');
-  assert.equal(second.details.status, 'conflict');
-  assert.equal(calls.submitProposal[0].id, calls.submitProposal[1].id, 'the retry meets the record it wrote');
+  // Replaying the exact confirmed text is an idempotent duplicate, reported as the stored record and
+  // never a second row or a mutating update.
+  const replay = await submit.execute('call-1', {
+    voteType: VOTE_TYPE,
+    title: 'Repair workshop',
+    confirmationToken: await prepareProposal(submit, 'call-3', { voteType: VOTE_TYPE, title: 'Repair workshop' }),
+    confirmPronouncedByAuthor: true,
+  });
+  assert.equal(replay.details.proposalId, first.details.proposalId, 'the same confirmed text is the same row');
+});
+
+test('the confirmation gate has four distinct refusals, and only a valid token writes', async () => {
+  const args = { voteType: VOTE_TYPE, title: 'Repair workshop' };
+
+  // Missing confirmation statement: a token without the author's explicit confirmation is refused,
+  // so a model cannot store a proposal by passing the token alone.
+  {
+    const fakes = createFakes();
+    const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL });
+    const submit = tool('rein_mvp_proposal_submit');
+    const token = await prepareProposal(submit, 'call-1', args);
+    const result = await submit.execute('call-1', { ...args, confirmationToken: token });
+    assert.equal(result.details.error, 'proposal_confirmation_required');
+    assert.deepEqual(calls.submitProposal, [], 'a token without the author statement writes nothing');
+  }
+
+  // Missing token: asking to confirm without a prepared token is refused, never treated as a submit.
+  {
+    const fakes = createFakes();
+    const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL });
+    const result = await tool('rein_mvp_proposal_submit').execute('call-1', {
+      ...args,
+      confirmPronouncedByAuthor: true,
+    });
+    assert.equal(result.details.error, 'proposal_confirmation_required');
+    assert.deepEqual(calls.submitProposal, [], 'no token means no write');
+  }
+
+  // A token the server did not mint, and one that has been tampered with, are both invalid.
+  for (const token of ['not-a-token', 'rein_mvp_confirm.rpc1.1.abc.def']) {
+    const fakes = createFakes();
+    const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL });
+    const result = await tool('rein_mvp_proposal_submit').execute('call-1', {
+      ...args,
+      confirmationToken: token,
+      confirmPronouncedByAuthor: true,
+    });
+    assert.equal(result.details.error, 'proposal_confirmation_invalid', token);
+    assert.deepEqual(calls.submitProposal, [], 'a forged token writes nothing');
+  }
+});
+
+test('an expired confirmation is refused and the proposal is not written', async () => {
+  const fakes = createFakes();
+  const clock = { at: new Date(NOW) };
+  const { tool, calls } = build({ fakes, channel: PROPOSAL_CHANNEL, now: () => clock.at });
+  const submit = tool('rein_mvp_proposal_submit');
+  const args = { voteType: VOTE_TYPE, title: 'Repair workshop' };
+
+  const token = await prepareProposal(submit, 'call-1', args, clock.at);
+  // Move past the token lifetime; the same token is then refused rather than accepted late.
+  clock.at = new Date(new Date(NOW).getTime() + 15 * 60 * 1000 + 1000);
+  const result = await submit.execute('call-1', {
+    ...args,
+    confirmationToken: token,
+    confirmPronouncedByAuthor: true,
+  });
+  assert.equal(result.details.error, 'proposal_confirmation_expired');
+  assert.deepEqual(calls.submitProposal, [], 'an expired confirmation writes nothing');
+
+  // Re-preparing after the original window still works: the proposer can confirm a fresh preview.
+  const fresh = await prepareProposal(submit, 'call-2', args, clock.at);
+  const after = await submit.execute('call-2', {
+    ...args,
+    confirmationToken: fresh,
+    confirmPronouncedByAuthor: true,
+  });
+  assert.equal(after.details.ok, true);
+  assert.equal(calls.submitProposal.length, 1);
+});
+
+test('the confirmation token carries only the proposal fields and no secret', async () => {
+  const fakes = createFakes();
+  const { tool } = build({ fakes, channel: PROPOSAL_CHANNEL });
+  const prepared = await tool('rein_mvp_proposal_submit').execute('call-1', {
+    voteType: VOTE_TYPE,
+    title: 'Repair workshop',
+    summary: 'Fix the roof tiles',
+    requestedMinor: 125000,
+    currency: 'USD',
+  });
+  // Decode the signed document segment the token carries and prove it holds only the proposal text.
+  const document = prepared.details.confirmationToken.split('.')[3];
+  const decoded = JSON.parse(Buffer.from(document, 'base64url').toString('utf8'));
+  assert.deepEqual(Object.keys(decoded).sort(), [
+    'currency',
+    'proposerContactId',
+    'requestedMinor',
+    'summary',
+    'title',
+    'v',
+    'voteType',
+  ]);
+  assert.ok(!prepared.details.confirmationToken.includes(CONFIRM_KEY), 'the signing key is not in the token');
+  assert.ok(!JSON.stringify(prepared.details).includes(CONFIRM_KEY));
+  // The proposer's own contact id is bound into the token, but it is never returned in the answer.
+  assert.ok(!JSON.stringify(prepared.details).includes(CONTACT));
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -1593,13 +1816,19 @@ test('every write tool refuses a non-Slack context or a missing trusted sender',
 
 test('a missing or stale host invocation guard produces no proposal and no round', async () => {
   const proposalFakes = createFakes();
-  const proposal = await build({
+  const submit = build({
     fakes: proposalFakes,
     channel: PROPOSAL_CHANNEL,
     ctx: { assertInvocationCurrent: undefined },
   })
-    .tool('rein_mvp_proposal_submit')
-    .execute('call-1', { voteType: VOTE_TYPE, title: 'Repair workshop' });
+    .tool('rein_mvp_proposal_submit');
+  const token = await prepareProposal(submit, 'call-1', { voteType: VOTE_TYPE, title: 'Repair workshop' });
+  const proposal = await submit.execute('call-1', {
+    voteType: VOTE_TYPE,
+    title: 'Repair workshop',
+    confirmationToken: token,
+    confirmPronouncedByAuthor: true,
+  });
   assert.equal(proposal.details.error, 'current_invocation_guard_unavailable');
   assert.deepEqual(proposalFakes.calls.submitProposal, [], 'no proposal is written without the guard');
 
@@ -1626,7 +1855,15 @@ test('a missing host tool call id is refused instead of inventing a record ident
     for (const toolCallId of [undefined, '', '   ']) {
       const fakes = createFakes({ member: director() });
       const { tool } = build({ fakes, channel });
-      const result = await tool(name).execute(toolCallId, args);
+      // The proposal needs a confirmation token to reach the write, so it is prepared with a real
+      // call id first; the submit itself then carries the unusable id under test.
+      const prepared = name === 'rein_mvp_proposal_submit'
+        ? await tool(name).execute('call-prepare', args)
+        : null;
+      const submitArgs = prepared
+        ? { ...args, confirmationToken: prepared.details.confirmationToken, confirmPronouncedByAuthor: true }
+        : args;
+      const result = await tool(name).execute(toolCallId, submitArgs);
       assert.equal(result.details.error, 'tool_call_id_required', `${name} ${String(toolCallId)}`);
       assert.deepEqual(fakes.calls.submitProposal, []);
       assert.deepEqual(fakes.calls.createPoll, []);

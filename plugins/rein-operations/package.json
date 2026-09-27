@@ -24,6 +24,7 @@
     "foundation-db-writer.ts",
     "mvp-vote-tally.ts",
     "mvp-write-tools.ts",
+    "mvp-proposal-confirmation.ts",
     "mvp-proposal-feedback.ts",
     "mvp-feedback-tools.ts",
     "openclaw.plugin.json",

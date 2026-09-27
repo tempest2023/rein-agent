@@ -38,6 +38,7 @@ const PROPOSAL_CHANNEL = 'C_PROPOSAL';
 const BOARD_CHANNEL = 'C_BOARD';
 const URL_ENV = 'REIN_SUPABASE_URL';
 const KEY_ENV = 'REIN_SUPABASE_SERVICE_ROLE_KEY';
+const CONFIRM_ENV = 'REIN_PROPOSAL_CONFIRMATION_KEY';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 // The one configured proposal type. Its candidate cap and approval budget are operator
@@ -57,7 +58,10 @@ const baseConfig = Object.freeze({
   boardChannelIds: [BOARD_CHANNEL],
   supabaseUrlEnvVar: URL_ENV,
   supabaseServiceKeyEnvVar: KEY_ENV,
+  proposalConfirmationKeyEnvVar: CONFIRM_ENV,
 });
+
+const CONFIRMATION_KEY = 'rehearsal-proposal-confirmation-signing-key-0001';
 
 // The community record. `contactId` is the private canonical contact the tools resolve and never
 // return; `slackUserId` is the trusted host sender. Only `isActiveContributor` and `isDirector` are
@@ -250,7 +254,15 @@ function createWorld({ funds = null, records = [], rules = {} } = {}) {
         const registration =
           name === 'read'
             ? createMvpReadToolRegistration({ config: baseConfig, reader })
-            : createMvpWriteToolRegistration({ config: baseConfig, reader, writer: store, now: clock });
+            : createMvpWriteToolRegistration({
+                config: baseConfig,
+                reader,
+                writer: store,
+                // The proposal confirmation token is signed with a server-only key; the rehearsal
+                // injects one directly so no ambient credential is read.
+                confirmationSigningKey: CONFIRMATION_KEY,
+                now: clock,
+              });
         return registration.create(ctx);
       };
       const tool = (name, toolName) => {
@@ -258,10 +270,26 @@ function createWorld({ funds = null, records = [], rules = {} } = {}) {
         assert.ok(found, `tool ${toolName} is registered for this turn`);
         return found;
       };
+      // A proposal is stored only after the author confirms the prepared text, so the rehearsal goes
+      // through both phases. A refusal on the prepare phase short-circuits, which keeps every
+      // refusal assertion honest about what was never written.
+      const writeProposal = async (args, toolCallId) => {
+        const submit = tool('write', 'rein_mvp_proposal_submit');
+        const prepared = await submit.execute(toolCallId, args);
+        if (prepared.details.status !== 'prepared') return prepared;
+        return submit.execute(toolCallId, {
+          ...args,
+          confirmationToken: prepared.details.confirmationToken,
+          confirmPronouncedByAuthor: true,
+        });
+      };
       return {
         ctx,
         read: (toolName, args) => tool('read', toolName).execute('call-read', args),
-        write: (toolName, args, toolCallId = 'call-1') => tool('write', toolName).execute(toolCallId, args),
+        write: (toolName, args, toolCallId = 'call-1') =>
+          toolName === 'rein_mvp_proposal_submit'
+            ? writeProposal(args, toolCallId)
+            : tool('write', toolName).execute(toolCallId, args),
       };
     },
   };

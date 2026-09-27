@@ -44,7 +44,11 @@
 // proposal result reports `authorizesSpending: false`.
 
 import type { FoundationEnvironment } from './foundation-db-reader.ts';
-import { isSupabaseAuthFailureStatus, supabaseServiceRoleHeaders } from './foundation-db-reader.ts';
+import {
+  LOOPBACK_HOSTNAMES,
+  isSupabaseAuthFailureStatus,
+  supabaseServiceRoleHeaders,
+} from './foundation-db-reader.ts';
 
 export interface FoundationDbWriterConfig {
   /** Supabase project URL, for example `https://<project-ref>.supabase.co`. */
@@ -143,8 +147,6 @@ export interface CastBallotInput {
   approvedProposalIds?: readonly string[];
   /** Deprecated pre-phase-2 field: `abstain` maps to no approvals, a proposal id to one approval. */
   choice?: string;
-  /** Server-side clock override for tests and rehearsal. Omitted means the database clock. */
-  castAt?: string;
 }
 
 export interface ListCandidateProposalsInput {
@@ -1023,8 +1025,13 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
   } catch {
     throw configError('supabaseUrl must be an absolute URL');
   }
-  if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
-    throw configError('supabaseUrl must use http or https');
+  if (parsedUrl.protocol !== 'https:') {
+    // The server key travels in a request header, so a plaintext project URL would expose it in
+    // transit. Loopback is a local-development address whose hop never leaves the machine, and it
+    // stays the one explicit exception, exactly as the reader allows it.
+    if (parsedUrl.protocol !== 'http:' || !LOOPBACK_HOSTNAMES.has(parsedUrl.hostname)) {
+      throw configError('supabaseUrl must use https, or http on a loopback address for local development');
+    }
   }
   if (parsedUrl.username || parsedUrl.password || parsedUrl.search || parsedUrl.hash) {
     throw configError('supabaseUrl must be a bare project URL without credentials, query or fragment');
@@ -1401,19 +1408,15 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     }
     const approvals = resolveApprovals(input);
     if (!approvals.ok) return ballotWriteFailure('invalid_request', approvals.reason, null);
-    // The database clock is the default; an override exists only for a deterministic test.
-    const castAt = input?.castAt === undefined ? null : asIsoInstant(input.castAt);
-    if (input?.castAt !== undefined && castAt === null) {
-      return ballotWriteFailure('invalid_request', 'ballot_cast_at_invalid', null);
-    }
-
     const table = `${tablePrefix}rein_mvp_ballots`;
+    // The database clock is the only source of `cast_at`. The column has a `now()` default and the
+    // window guard compares it against the poll's own window, so no caller may backfill a time to
+    // place a ballot inside a window that has already closed.
     const body: Record<string, unknown> = {
       poll_id: pollId,
       voter_contact_id: voterContactId,
       approved_proposal_ids: approvals.value,
     };
-    if (castAt !== null) body.cast_at = castAt;
     const written = await request('POST', table, { select: BALLOT_COLUMNS }, body);
     if (written.ok) {
       const stored = written.rows.length === 1 ? ballotFromRow(written.rows[0]) : null;

@@ -20,7 +20,7 @@ synthetic simulators and the legacy proposal bridge.
 | `rein_mvp_proposal_submit` | write | `foundation-db-writer.ts`, `mvp-write-tools.ts` |
 | `rein_mvp_poll_open` | write | `foundation-db-writer.ts`, `mvp-write-tools.ts` |
 | `rein_mvp_vote` | write | `foundation-db-writer.ts`, `mvp-write-tools.ts` |
-| `rein_mvp_poll_result` | write (reads ballots, stores nothing) | `mvp-vote-tally.ts`, `mvp-write-tools.ts` |
+| `rein_mvp_poll_result` | write | `mvp-vote-tally.ts`, `mvp-write-tools.ts` |
 | `rein_mvp_proposal_comment_suggest` | write | `mvp-feedback-tools.ts`, `foundation-db-writer.ts` |
 | `rein_mvp_revision_approve` | write | `mvp-feedback-tools.ts`, `foundation-db-writer.ts` |
 | `rein_mvp_revision_apply` | write | `mvp-feedback-tools.ts`, `foundation-db-writer.ts` |
@@ -60,16 +60,18 @@ cross-process exactly-once behaviour.
 
 No live database is connected and no real Slack workspace is wired. One installation serves one Slack
 workspace; the pinned runtime supplies a trusted per-message sender in admitted channel and group
-messages as well as in DMs, but no team ID. Two migrations exist as **untracked working-tree files**
-in the sibling Foundation repository (`git grep rein_mvp HEAD` finds nothing, so neither is committed
-and neither is applied to a live environment):
+messages as well as in DMs, but no team ID. Two migrations are now **tracked in the sibling
+Foundation repository** (`tempest2023/ReinProtocolFoundation`) at commit `4bd5ce8` ("Add the Rein
+Agent MVP Slack identity, fund snapshot, and governance schema") on branch
+`tempest/agent-mvp-schema-and-welcome-email`, and neither is applied to a live environment:
 `supabase/migrations/20260924094436_rein_slack_identity_and_fund_snapshots.sql` (identity links,
 append-only funds snapshots) and
 `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql` (proposals, polls, ballots).
 The phase-two migration now carries the vote types, the approve-only ballot shape, the frozen
-candidate list, the finalize RPC and the material-revision approval rule this document describes, but
-it is still uncommitted working-tree content, so no schema claim here should be treated as verified
-against a live environment. Nothing here is a production pass.
+candidate list, the finalize RPC and the material-revision approval rule this document describes, and
+it is committed with pgTAP coverage in the sibling repository. It is still not applied to any live
+environment, so no schema claim here should be treated as verified against live data. Nothing here
+is a production pass.
 
 | AC | Current evidence | Status | Evidence still required for launch |
 | --- | --- | --- | --- |

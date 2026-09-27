@@ -507,6 +507,22 @@ test('a ballot records its approved proposal ids once per poll and voter', async
   assert.ok(!('cast_at' in calls[0].body), 'the database clock is the default');
 });
 
+test('a caller cannot backfill cast_at: the database clock decides the ballot window', async () => {
+  const { writer, calls } = writerFor({ dev_rein_mvp_ballots: [ballotRow()] });
+  // A caller that tries to place a ballot inside a window that has already closed cannot send a
+  // time: the request body carries only the poll, the voter and the approvals, so `cast_at` is the
+  // stored `now()` default that the database guard compares against the poll's own window.
+  const result = await writer.castBallot({
+    pollId: POLL,
+    voterContactId: VOTER,
+    approvedProposalIds: [PROPOSAL],
+    castAt: '2020-01-01T00:00:00Z',
+  });
+  assert.equal(result.ok, true);
+  assert.ok(!('cast_at' in calls[0].body), 'no caller-supplied cast_at reaches the database');
+  assert.deepEqual(Object.keys(calls[0].body).sort(), ['approved_proposal_ids', 'poll_id', 'voter_contact_id']);
+});
+
 test('an empty approval list is the abstention, and the deprecated choice maps onto it', async (t) => {
   await t.test('an empty list is stored as an empty list', async () => {
     const { writer, calls } = writerFor({
@@ -932,7 +948,8 @@ test('input validation rejects malformed values without touching the database', 
     ['a repeated approval', () => writer.castBallot(ballotInput({ approvedProposalIds: [PROPOSAL, PROPOSAL] })), 'ballot_approved_proposal_ids_invalid'],
     ['an approval that is not a uuid', () => writer.castBallot(ballotInput({ approvedProposalIds: ['approve'] })), 'ballot_approved_proposal_ids_invalid'],
     ['neither approvals nor a choice', () => writer.castBallot({ pollId: POLL, voterContactId: VOTER }), 'ballot_approved_proposal_ids_invalid'],
-    ['an unparseable castAt', () => writer.castBallot(ballotInput({ castAt: 'now' })), 'ballot_cast_at_invalid'],
+    // The database clock is the only source of `cast_at`, so a caller-supplied time is ignored
+    // rather than validated; there is no rejection reason because there is no accepted channel.
     ['a non-UUID poll id on a read', () => writer.getPoll('poll-1'), 'poll_id_invalid'],
     ['a non-UUID poll id on a ballot list', () => writer.listBallots('poll-1'), 'poll_id_invalid'],
     ['a malformed vote type on a read', () => writer.getVoteType('Repair Budget'), 'vote_type_invalid'],
@@ -963,7 +980,9 @@ test('invalid writer configuration is rejected at construction without echoing t
     [{ ...base, serviceRoleKey: '' }, 'serviceRoleKey is required'],
     [{ ...base, supabaseUrl: '' }, 'supabaseUrl is required'],
     [{ ...base, supabaseUrl: 'not a url' }, 'absolute URL'],
-    [{ ...base, supabaseUrl: 'ftp://project-ref.supabase.co' }, 'http or https'],
+    [{ ...base, supabaseUrl: 'ftp://project-ref.supabase.co' }, 'must use https'],
+    // A plaintext project URL would put the server key on the wire, so only loopback may use http.
+    [{ ...base, supabaseUrl: 'http://project-ref.supabase.co' }, 'must use https'],
     [{ ...base, supabaseUrl: 'https://user:pass@project-ref.supabase.co' }, 'bare project URL'],
     [{ ...base, supabaseUrl: `${BASE_URL}/rest/v1/?x=1` }, 'bare project URL'],
     [{ ...base, environment: 'staging' }, "environment must be 'dev' or 'prod'"],

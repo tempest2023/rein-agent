@@ -24,13 +24,23 @@ in the organization's own database, not in this repository. Development and prod
 project with isolated `dev_*` and `prod_*` table sets; the environment selector has no implicit
 default.
 
-Two migrations exist locally in the sibling Foundation repository and are **not applied to any live
-environment**:
+Two migrations live in the sibling Foundation repository `tempest2023/ReinProtocolFoundation`. They
+are tracked in commit `4bd5ce8` ("Add the Rein Agent MVP Slack identity, fund snapshot, and
+governance schema", 2026-09-26) on branch `tempest/agent-mvp-schema-and-welcome-email`, with pgTAP
+coverage in `supabase/tests/rein_mvp_governance.sql`, `supabase/tests/rls.sql` and
+`supabase/tests/environment_parity.sql`. They are **not applied to any live environment**:
 
 | Migration | Adds |
 | --- | --- |
 | `20260924094436_rein_slack_identity_and_fund_snapshots.sql` | `rein_slack_links` and append-only `rein_fund_snapshots`, in both table sets |
 | `20260924095705_rein_mvp_proposals_polls_ballots.sql` | `rein_mvp_proposals`, `rein_mvp_polls` and `rein_mvp_ballots`, in both table sets |
+
+**Reproduction requirement.** Reviewing, testing or deploying this PR against a real database needs
+that sibling repository at `4bd5ce8` or later on the branch above, applied in order after the
+earlier community migrations, to create the tables, triggers and the `<env>_rein_mvp_finalize_poll`
+and `<env>_rein_mvp_approve_revision` RPCs this PR calls. The sibling PR that carries that commit
+must be merged before this one is deployed; until then the schema is a reviewed local artifact and
+nothing here is verified against a live project.
 
 Required contract properties:
 
@@ -63,11 +73,16 @@ Required contract properties:
   now". If role history becomes available, a guard should also accept someone who was a director
   when the record was written.
 
-**Provisional.** The approve-only wording above is the confirmed product rule, but the local
-migrations and the registered tools have not yet been shown to enforce it. As inspected, the tools
-still accept a generic option list and a per-ballot choice, and count a unique highest option. Re-read
-the plugin and schema after the pending update lands, and treat any enforcement claim here as
-unverified until that review.
+**Enforcement status.** The approve-only rule above is now the registered code path.
+`rein_mvp_poll_open` refuses a caller-supplied candidate list, cap or option label
+(`policy_argument_rejected`, and `legacy_options_unsupported` at the write layer) and assembles the
+pool from stored proposals of the named vote type; `rein_mvp_vote` accepts `approvedProposalIds`
+only, an empty list is the abstention, and the database freezes the candidate list and both limits
+at insert time. The local migrations are the source of that enforcement. They are reviewed and
+committed in the sibling Foundation repository (`tempest2023/ReinProtocolFoundation`), but they are
+still **not applied to any live `dev_*` or `prod_*` environment**, so no claim here is verified
+against live data. The concrete per-type cap and approval-budget values remain unapproved operator
+configuration.
 
 ## Money boundary
 

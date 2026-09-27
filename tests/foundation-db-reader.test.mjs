@@ -524,7 +524,10 @@ test('invalid reader configuration is rejected at construction without echoing t
     [{ ...base, serviceRoleKey: '' }, 'serviceRoleKey is required'],
     [{ ...base, supabaseUrl: '' }, 'supabaseUrl is required'],
     [{ ...base, supabaseUrl: 'not a url' }, 'absolute URL'],
-    [{ ...base, supabaseUrl: 'ftp://project-ref.supabase.co' }, 'http or https'],
+    [{ ...base, supabaseUrl: 'ftp://project-ref.supabase.co' }, 'must use https'],
+    // A plaintext project URL would put the server key on the wire, so only loopback may use http.
+    [{ ...base, supabaseUrl: 'http://project-ref.supabase.co' }, 'must use https'],
+    [{ ...base, supabaseUrl: 'http://192.168.0.10:8000' }, 'must use https'],
     [{ ...base, supabaseUrl: 'https://user:pass@project-ref.supabase.co' }, 'bare project URL'],
     [{ ...base, supabaseUrl: `${BASE_URL}/rest/v1/?x=1` }, 'bare project URL'],
     [{ ...base, environment: 'staging' }, "environment must be 'dev' or 'prod'"],
@@ -553,4 +556,27 @@ test('the reader exposes only the configured environment and its two read operat
   assert.equal(reader.tablePrefix, 'dev_');
   assert.deepEqual(Object.keys(reader).sort(), ['environment', 'readAvailableFunds', 'resolveSlackMember', 'tablePrefix']);
   assert.ok(Object.isFrozen(reader));
+});
+
+test('a loopback http project URL is allowed, and the key still travels in headers only', async () => {
+  // Local development may point at a plaintext address that never leaves the machine. The key stays
+  // in the `apikey` header, exactly as it does over https.
+  for (const url of ['http://localhost:54321', 'http://127.0.0.1:54321']) {
+    const calls = [];
+    const reader = createFoundationDbReader({
+      supabaseUrl: url,
+      serviceRoleKey: SECRET,
+      environment: 'dev',
+      slackTeamId: TEAM,
+      fetch: async (requestUrl, init) => {
+        calls.push({ url: requestUrl, init });
+        return new Response('[]', { status: 200 });
+      },
+    });
+    const result = await reader.resolveSlackMember(USER);
+    assert.equal(result.status, 'identity_not_linked', url);
+    assert.ok(calls[0].url.startsWith(`${url}/rest/v1/dev_`), calls[0].url);
+    assert.equal(calls[0].init.headers.apikey, SECRET);
+    assert.ok(!calls[0].url.includes(SECRET), 'the key never appears in a URL');
+  }
 });

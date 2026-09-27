@@ -49,6 +49,12 @@ import { randomUUID } from 'node:crypto';
 import { Type } from 'typebox';
 import { createFoundationDbReader } from './foundation-db-reader.ts';
 import { createFoundationDbWriter } from './foundation-db-writer.ts';
+import {
+  confirmationPreview,
+  issueProposalConfirmation,
+  proposalIdForConfirmation,
+  verifyProposalConfirmation,
+} from './mvp-proposal-confirmation.ts';
 import { assertCurrentInvocation } from './request-context.ts';
 import type {
   FoundationDbWriter,
@@ -109,9 +115,9 @@ export interface MvpWriteToolsOptions {
   /**
    * The `mvp` block of plugin config, read as untrusted input. Expected keys: `enabled`, `platform`
    * (`slack`), `slackTeamId`, `environment` (`dev` or `prod`), `proposalChannelIds`,
-   * `boardChannelIds`, `supabaseUrlEnvVar` and `supabaseServiceKeyEnvVar`. The last two name server
-   * environment variables; no credential is ever read from config. Absent or `enabled: false`
-   * registers no tools.
+   * `boardChannelIds`, `supabaseUrlEnvVar`, `supabaseServiceKeyEnvVar` and
+   * `proposalConfirmationKeyEnvVar`. The environment-variable keys name server variables; no
+   * credential is ever read from config. Absent or `enabled: false` registers no tools.
    */
   config?: Record<string, unknown>;
   /** Server environment holding the referenced values. Defaults to `process.env`. */
@@ -120,6 +126,11 @@ export interface MvpWriteToolsOptions {
   reader?: MvpWriteToolReader;
   /** Injectable writer for tests and local rehearsal; skips the env-var lookups. */
   writer?: MvpWriteToolWriter;
+  /**
+   * Injectable confirmation signing key for tests and local rehearsal. When omitted, the key is
+   * read from the server environment variable named by `mvp.proposalConfirmationKeyEnvVar`.
+   */
+  confirmationSigningKey?: string;
   /** Injectable clock for deterministic rehearsal; defaults to the wall clock. */
   now?: () => Date;
 }
@@ -130,6 +141,8 @@ interface ResolvedMvpWriteConfig {
   boardChannelIds: string[];
   reader: MvpWriteToolReader;
   writer: MvpWriteToolWriter;
+  /** Server-only key that signs one proposal confirmation token. Never leaves the process. */
+  confirmationSigningKey: string;
   now: () => Date;
 }
 
@@ -266,9 +279,17 @@ function resolveMvpWriteConfig(options?: MvpWriteToolsOptions): ResolvedMvpWrite
   // credentials.
   const urlReference = readEnvReference(config.supabaseUrlEnvVar, 'supabaseUrlEnvVar');
   const keyReference = readEnvReference(config.supabaseServiceKeyEnvVar, 'supabaseServiceKeyEnvVar');
+  const confirmationKeyReference = readEnvReference(
+    config.proposalConfirmationKeyEnvVar,
+    'proposalConfirmationKeyEnvVar',
+  );
 
   let reader: MvpWriteToolReader | undefined = options?.reader;
   let writer: MvpWriteToolWriter | undefined = options?.writer;
+  let confirmationSigningKey: string | undefined =
+    typeof options?.confirmationSigningKey === 'string' && options.confirmationSigningKey.trim()
+      ? options.confirmationSigningKey.trim()
+      : undefined;
   if (!reader || !writer) {
     const env = options?.env ?? process.env;
     const supabaseUrl = readEnvValue(env, urlReference, 'supabaseUrlEnvVar');
@@ -279,6 +300,18 @@ function resolveMvpWriteConfig(options?: MvpWriteToolsOptions): ResolvedMvpWrite
     if (!writer) {
       writer = createFoundationDbWriter({ supabaseUrl, serviceRoleKey, environment });
     }
+    if (!confirmationSigningKey) {
+      confirmationSigningKey = readEnvValue(env, confirmationKeyReference, 'proposalConfirmationKeyEnvVar');
+    }
+  }
+  // A rehearsal that injects both a reader and a writer still needs a signing key, because the
+  // confirmation step is part of the tool contract and not an optional extra.
+  if (!confirmationSigningKey) {
+    confirmationSigningKey = readEnvValue(
+      options?.env ?? process.env,
+      confirmationKeyReference,
+      'proposalConfirmationKeyEnvVar',
+    );
   }
   if (!reader || typeof reader.resolveSlackMember !== 'function') {
     configError('the injected reader must implement resolveSlackMember');
@@ -301,7 +334,15 @@ function resolveMvpWriteConfig(options?: MvpWriteToolsOptions): ResolvedMvpWrite
   }
 
   const now = typeof options?.now === 'function' ? options.now : () => new Date();
-  return { platform: 'slack', proposalChannelIds, boardChannelIds, reader, writer, now };
+  return {
+    platform: 'slack',
+    proposalChannelIds,
+    boardChannelIds,
+    reader,
+    writer,
+    confirmationSigningKey,
+    now,
+  };
 }
 
 function assertNoImpersonationArgs(args: unknown) {
@@ -371,7 +412,7 @@ function provisionalResult(
 }
 
 function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
-  const { proposalChannelIds, boardChannelIds, reader, writer, now } = config;
+  const { proposalChannelIds, boardChannelIds, reader, writer, confirmationSigningKey, now } = config;
 
   const nativeChannelId = typeof ctx?.nativeChannelId === 'string' ? ctx.nativeChannelId.trim() : '';
   const senderId = typeof ctx?.requesterSenderId === 'string' ? ctx.requesterSenderId.trim() : '';
@@ -680,7 +721,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
     {
       name: 'rein_mvp_proposal_submit',
       description:
-        'Submit a funding request as your own linked community record. The caller must be the trusted sender inside an approved proposal channel and their current record must make them an active Contributor; the proposer is never taken from an argument. The request is stored against one configured proposal type, and a requested amount is recorded as a request that no one has approved. A retry of the same tool call in this turn is the same record.',
+        'Submit a funding request as your own linked community record, in two steps. Call it once without a confirmation token to prepare: the server writes nothing and returns the canonical proposal text plus a short-lived confirmation token. Then show that text to the proposer and call it again with the token returned unchanged and confirmPronouncedByAuthor set to true only after the proposer explicitly agrees. The caller must be the trusted sender inside an approved proposal channel and their current record must make them an active Contributor; the proposer is never taken from an argument. The request is stored against one configured proposal type, and a requested amount is recorded as a request that no one has approved. A token is bound to the exact payload and the proposer, so changing any field invalidates it, and resubmitting the same confirmed payload is the same record rather than a second proposal.',
       parameters: Type.Object(
         {
           voteType: Type.String({
@@ -705,6 +746,20 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
               description: 'ISO 4217 currency code of the requested amount',
             }),
           ),
+          confirmationToken: Type.Optional(
+            Type.String({
+              minLength: 1,
+              maxLength: 4000,
+              description:
+                'Token returned by the prepare call; echo it unchanged once the proposer confirms the prepared text',
+            }),
+          ),
+          confirmPronouncedByAuthor: Type.Optional(
+            Type.Boolean({
+              description:
+                'Set true only after the proposer explicitly confirms the prepared version; required together with the token',
+            }),
+          ),
         },
         { additionalProperties: false },
       ),
@@ -720,19 +775,82 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           // the table does not carry is refused by name here instead of surfacing only as a foreign
           // key violation later. The tool still guesses nothing: the list comes from the table.
           const voteType = requireConfiguredVoteType(args?.voteType, await readConfiguredVoteTypes());
-          const id = recordId('proposal', toolCallId);
-          // Final authority check immediately before the write: a stale turn cannot commit.
-          assertCurrentInvocation(ctx);
-          // The vote type is stored as given and the database keeps the foreign key as the final
-          // authority, so an unconfigured type is still refused there rather than guessed here.
-          const written = await writer.submitProposal({
-            id,
+          const payload = {
             proposerContactId: member.contactId,
             title,
             summary,
             voteType,
             requestedMinor: request.requestedMinor,
             currency: request.currency,
+          };
+
+          // Phase 1, prepare: no token yet, so nothing is written. The caller gets the canonical
+          // text to read back to the proposer and one short-lived token that binds this exact text.
+          if (args?.confirmationToken === undefined) {
+            if (args?.confirmPronouncedByAuthor === true) {
+              throw new MvpWriteToolError(
+                'proposal_confirmation_required',
+                'A confirmation needs the token returned by the prepare call; prepare first, then confirm.',
+              );
+            }
+            const issued = issueProposalConfirmation(payload, confirmationSigningKey, now());
+            const details = {
+              tool: 'rein_mvp_proposal_submit',
+              ok: true,
+              status: 'prepared' as const,
+              reason: 'awaiting_author_confirmation',
+              prepared: confirmationPreview(payload),
+              confirmationToken: issued.token,
+              expiresAt: issued.expiresAt,
+              recorded: false,
+              // A prepared request is not a stored proposal and no tool here approves spending.
+              authorizesSpending: false as const,
+            };
+            return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
+          }
+
+          // Phase 2, confirm: the token must verify against the proposer and this exact payload,
+          // and the caller must state that the author confirmed it. A token without that statement,
+          // a token that has expired, and a token whose payload moved all stop before any write.
+          if (args?.confirmPronouncedByAuthor !== true) {
+            throw new MvpWriteToolError(
+              'proposal_confirmation_required',
+              'confirmPronouncedByAuthor must be true: the proposer has to confirm the prepared version explicitly.',
+            );
+          }
+          const verified = verifyProposalConfirmation(
+            args.confirmationToken,
+            payload,
+            confirmationSigningKey,
+            now(),
+          );
+          if (!verified.ok) {
+            throw new MvpWriteToolError(
+              verified.reason,
+              verified.reason === 'proposal_confirmation_expired'
+                ? 'The confirmation token has expired; prepare the proposal again and re-read it to the proposer.'
+                : verified.reason === 'proposal_confirmation_mismatch'
+                  ? 'The submitted fields differ from the prepared version; prepare again and confirm the exact text.'
+                  : 'The confirmation token is missing or was not issued by this server.',
+            );
+          }
+          // The identifier is derived from the confirmed binding, so re-confirming the same text
+          // addresses the same row instead of inserting a second proposal. The per-turn record id
+          // is kept for the host retry path that repeats one tool call inside a single turn.
+          const id = recordId('proposal', toolCallId);
+          const confirmedId = proposalIdForConfirmation(verified.payload, confirmationSigningKey);
+          // Final authority check immediately before the write: a stale turn cannot commit.
+          assertCurrentInvocation(ctx);
+          // The vote type is stored as given and the database keeps the foreign key as the final
+          // authority, so an unconfigured type is still refused there rather than guessed here.
+          const written = await writer.submitProposal({
+            id: confirmedId,
+            proposerContactId: verified.payload.proposerContactId,
+            title: verified.payload.title,
+            summary: verified.payload.summary,
+            voteType: verified.payload.voteType,
+            requestedMinor: verified.payload.requestedMinor,
+            currency: verified.payload.currency,
           });
           const details = {
             tool: 'rein_mvp_proposal_submit',
@@ -740,10 +858,11 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
             status: written.status,
             reason: written.reason,
             ...(written.ok ? {} : { error: written.reason }),
-            proposalId: id,
-            voteType,
-            requestedMinor: request.requestedMinor,
-            currency: request.currency,
+            proposalId: confirmedId,
+            voteType: verified.payload.voteType,
+            requestedMinor: verified.payload.requestedMinor,
+            currency: verified.payload.currency,
+            authorConfirmed: true as const,
             recorded: written.ok,
             // A stored request is not a funding decision and no tool here approves spending.
             authorizesSpending: false as const,
