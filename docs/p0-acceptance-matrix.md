@@ -85,7 +85,7 @@ workspace exercises that resolver and the retained link table stays the read pat
 enabled. Two
 migrations are **tracked in the sibling Foundation repository**
 (`tempest2023/ReinProtocolFoundation`) on branch `tempest/agent-mvp-schema-and-welcome-email` (PR
-#13, open). Its current committed head is `f15c7eabbc65a4ec998125632d62db05e9aec6f4` ("Adopt
+#13, open). Its current committed head is `08542ad09932a4cefb62f230a9bdcf9fd4d32dfe` ("Adopt
 long-term Rein governance names with legacy passthroughs", 2026-09-27); the earlier clock commit
 `32977bfb6cd6ae73b81aa4b396f9ae1cb67d2ac8` ("Make the database clock authoritative for ballot
 `cast_at`") is its parent, and the two MVP schema files were first authored at `4bd5ce8` ("Add the
@@ -100,9 +100,9 @@ migration creates the `dev_*` and `prod_*` objects in the same transaction, and 
 project-level, so the applied schema covers both prefixes; the app's `DATABASE_ENVIRONMENT=dev`
 default selects which prefix a request reads and is not proof that only the `dev_*` schema exists.
 A third sibling migration, `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`, was committed at
-`32977bfb` and remains at the current head `f15c7ea`, but is **not applied** to the linked project,
+`32977bfb` and remains at the current head `08542ad`, but is **not applied** to the linked project,
 so its clock authority is not in effect anywhere. A fourth sibling migration,
-`20260927110000_rein_governance_names.sql`, is committed in PR #13 at head `f15c7ea` and also
+`20260927110000_rein_governance_names.sql`, is committed in PR #13 at head `08542ad` and also
 **not applied**: it renames the physical tables and the two RPCs to their long-term names and keeps
 the `<env>_rein_mvp_*` names reachable as compatibility views and RPC wrappers. Apply it after
 `20260927103000` and before enabling agent code that calls the new names. The sibling code's local
@@ -154,7 +154,7 @@ The plugin and configuration now use the stable names in the table above: the tw
 `foundationDb` config block. The database reaches matching names through the forward migration
 `20260927110000_rein_governance_names.sql`, tracked as a release gate in
 [provider contracts](integration-contracts.md#naming-and-the-rename-migration). It is committed in PR
-#13 (at head `f15c7ea`) but **not applied** to the linked project; it renames the physical tables and
+#13 (at head `08542ad`) but **not applied** to the linked project; it renames the physical tables and
 the two RPCs and keeps the earlier `<env>_rein_mvp_*` table and RPC names reachable as compatibility
 views and wrappers during
 the transition. Apply it after `20260927103000` and before enabling agent code that calls the new

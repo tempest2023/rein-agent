@@ -118,7 +118,7 @@ Contributor as its author — a database-level allowance the registered tools do
 Everything above is exercised by local synthetic tests only. The two base governance migrations are
 **committed and applied** to the linked `BeneficenceProtocol` project (the committed clock migration
 `20260927103000` and the rename migration `20260927110000_rein_governance_names.sql`, both committed
-in PR #13 at head `f15c7ea`, are still unapplied there), but no live database is connected to the
+in PR #13 at head `08542ad`, are still unapplied there), but no live database is connected to the
 Agent and no Slack workspace has run any of
 it, so nothing here is an end-to-end result.
 
