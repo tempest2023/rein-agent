@@ -1,4 +1,4 @@
-# Slack MVP test app: local OAuth setup
+# Slack test app: local OAuth setup (separate from the governance app)
 
 This guide covers one local, separate Slack app that mints **user** OAuth tokens for the five Rein MVP
 test identities, so the harness can post as a real human. It is development scaffolding, not the

@@ -160,8 +160,9 @@ the voting window length; channel and space mapping; and who may see an individu
 
 - **Naming and the rename migration.** A pre-launch review asked for the `mvp` naming to be removed
   from tools, tables, config and skills. The plugin and configuration now use the stable names: the
-  nine tools `rein_member_status`, `rein_funds`, `rein_governance_proposal_submit`, `rein_poll_open`,
-  `rein_poll_vote`, `rein_poll_result`, `rein_proposal_comment_suggest`, `rein_revision_approve` and
+  twelve tools `rein_member_status`, `rein_funds`, `rein_poll_candidates`, `rein_vote_type_resolve`,
+  `rein_governance_proposal_submit`, `rein_poll_open`, `rein_poll_vote`, `rein_poll_result`,
+  `rein_proposal_collect`, `rein_proposal_comment_suggest`, `rein_revision_approve` and
   `rein_revision_apply`, and the `foundationDb` config block. The two base migrations are already
   applied to the linked `BeneficenceProtocol` project, so the `<env>_rein_mvp_*` tables and RPCs
   cannot be renamed in place: the rename needs a forward migration that keeps the old names working

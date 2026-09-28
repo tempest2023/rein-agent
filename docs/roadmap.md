@@ -2,6 +2,12 @@
 
 The local deterministic cores for proposals, governance and a rehearsal ledger are implemented and tested. The activity, change, oversight and outbox cores are unreachable from the plugin entry and their implementation moved to a follow-up PR. The milestones below remain open as **production acceptance**: trusted identity, chat and website adapters, approved policy, provider receipts and end-to-end pilot evidence are still required. See [implementation and deployment](implementation-and-deployment-zh.md).
 
+Final acceptance state: cases 2-10 of the ten synthetic Slack rehearsals are accepted on
+synthetic development evidence, and case 1 was skipped by the owner and is not passed. The current
+PR head carries the renamed interfaces with unit and loader-level validation only and has no live
+Slack retest; `prod_*` tables are untouched and the production migration and release gates remain.
+See the [MVP Slack acceptance record](mvp-acceptance-2026-09-28.md).
+
 For a requirement-by-requirement status, see the [P0 acceptance matrix](p0-acceptance-matrix.md).
 
 The strict P0 MVP is the shorter slice in [PRD §2.3](PRD-agent-community-operations.md): Slack

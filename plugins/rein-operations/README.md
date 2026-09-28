@@ -2,11 +2,13 @@
 
 The native plugin is separate from `vendor/openclaw` and imports only the public `openclaw/plugin-sdk/plugin-entry` seam. `rein_status` reports the development state. `rein_simulate_proposal` checks synthetic fields without granting approval; `rein_simulate_vote` runs a synthetic round with explicitly supplied rules and ballots. An explicitly configured, single-platform proposal bridge can additionally register `rein_proposal_create`, `rein_proposal_revise`, `rein_proposal_confirm` and `rein_proposal_submit`. It takes the account from OpenClaw's trusted v2 tool context and writes to a local proposal ledger. No registrar, payment, Board-vote or external publication tool is enabled. Real platform and registry adapters remain pending.
 
-An explicit `foundationDb` config block registers nine database-backed tools instead of the simulators
-and the proposal bridge: the reads `rein_member_status` and `rein_funds`, the writes
-`rein_governance_proposal_submit`, `rein_poll_open`, `rein_poll_vote` and `rein_poll_result`, and the
-post-result feedback tools `rein_proposal_comment_suggest`, `rein_revision_approve` and
-`rein_revision_apply`. The block names server environment variables for the Supabase URL and key,
+An explicit `foundationDb` config block registers twelve database-backed tools instead of the
+simulators and the proposal bridge: the reads `rein_member_status`, `rein_funds`,
+`rein_poll_candidates` and `rein_vote_type_resolve`, the writes `rein_governance_proposal_submit`,
+`rein_poll_open`, `rein_poll_vote` and `rein_poll_result`, the read-only field-collection tool
+`rein_proposal_collect`, and the post-result feedback tools `rein_proposal_comment_suggest`,
+`rein_revision_approve` and `rein_revision_apply`. The block names server environment variables for
+the Supabase URL and key,
 plus one for the proposal confirmation signature; no credential, project URL, Slack team ID or
 private contact identifier reaches a result. Every tool reaches the database through the server-only
 key over PostgREST, no tool posts a Slack message, and no tool authorizes, reserves or pays money.

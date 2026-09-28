@@ -146,10 +146,11 @@ npm run toolchain:pnpm -- openclaw plugins doctor
 manifest. With no `foundationDb` block configured, expect three tools - `rein_status`,
 `rein_simulate_proposal` and `rein_simulate_vote` - and no live business action. Configuring the
 optional `proposalTools` block adds the four legacy proposal tools; configuring `foundationDb`
-instead registers the nine database-backed tools and hides both the simulators and the legacy
-proposal tools. The nine are `rein_member_status`, `rein_funds`, `rein_governance_proposal_submit`,
-`rein_poll_open`, `rein_poll_vote`, `rein_poll_result`, `rein_proposal_comment_suggest`,
-`rein_revision_approve` and `rein_revision_apply`. `verify:plugin` checks all of this through the
+instead registers the twelve database-backed tools and hides both the simulators and the legacy
+proposal tools. The twelve are `rein_member_status`, `rein_funds`, `rein_poll_candidates`,
+`rein_vote_type_resolve`, `rein_governance_proposal_submit`, `rein_poll_open`, `rein_poll_vote`,
+`rein_poll_result`, `rein_proposal_collect`, `rein_proposal_comment_suggest`, `rein_revision_approve`
+and `rein_revision_apply`. `verify:plugin` checks all of this through the
 real loader; `verify:proposal-tools` does the same for the four v2 proposal tools.
 
 ## 6. Run the gateway locally
@@ -189,7 +190,7 @@ local work does not touch a global `~/.openclaw` profile.
   nothing loads it.
 - The MVP slice exists as code but is not wired to anything: no Slack workspace and no live database
   connection. Its two migrations are applied to the linked `BeneficenceProtocol` project's `dev_*`
-  set, but no tool has used that schema. Its nine tools stay unregistered until an operator enables
+  set, but no tool has used that schema. Its twelve tools stay unregistered until an operator enables
   them explicitly.
 - The opt-in Slack identity email match is implemented and locally tested but disabled by default;
   the governance app's `users:read` and `users:read.email` bot scopes and its bot token are not

@@ -188,7 +188,7 @@ test('the manifest and the setup guide register an https tunnel callback, never 
   assert.deepEqual(manifest.oauth_config.scopes, { user: ['chat:write'] });
   assert.deepEqual(manifest.features, {}, 'a desktop redirect may not request bot scopes');
 
-  const guide = readFileSync(new URL('../docs/slack-mvp-oauth-setup.md', import.meta.url), 'utf8');
+  const guide = readFileSync(new URL('../docs/slack-test-app-oauth-setup.md', import.meta.url), 'utf8');
   assert.ok(guide.includes('SLACK_TEST_REDIRECT_URI'), 'the guide must name the redirect environment variable');
   for (const line of guide.split('\n')) {
     if (!line.includes('http://localhost')) continue;

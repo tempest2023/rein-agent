@@ -50,9 +50,10 @@ proposal and governance modules can be exercised locally; authoritative registry
 budgets, website publishing and production adapters remain pending. A manifest declaration is not
 an authorization check.
 
-An explicit `foundationDb` configuration block instead registers nine database-backed tools — the
-reads `rein_member_status` and `rein_funds`, the writes `rein_governance_proposal_submit`,
-`rein_poll_open`, `rein_poll_vote` and `rein_poll_result`, and the post-result feedback tools
+An explicit `foundationDb` configuration block instead registers twelve database-backed tools — the
+reads `rein_member_status`, `rein_funds`, `rein_poll_candidates` and `rein_vote_type_resolve`, the
+writes `rein_governance_proposal_submit`, `rein_poll_open`, `rein_poll_vote` and `rein_poll_result`,
+the read-only field-collection tool `rein_proposal_collect`, and the post-result feedback tools
 `rein_proposal_comment_suggest`, `rein_revision_approve` and `rein_revision_apply` — and suppresses
 the synthetic simulators and the legacy proposal bridge. The reads go through
 `foundation-db-reader.ts`, are read-only, and fail closed when `foundationDb.enabled` is absent or

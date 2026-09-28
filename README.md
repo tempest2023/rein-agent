@@ -11,24 +11,30 @@ organizes materials, facilitates Board funding decisions, coordinates preparatio
 outcomes, and supports publishing—so organizational leaders can focus on decisions that truly
 require their attention.
 
-**Status: local business-core development; no live integrations.** The official OpenClaw source is
-included as a git submodule pinned to a reviewed commit. The Rein-owned plugin exposes a read-only
+**Status: local business-core development; development rehearsals only.** The official OpenClaw
+source is included as a git submodule pinned to a reviewed commit. The Rein-owned plugin exposes a read-only
 status tool and synthetic proposal/vote simulation tools. Four proposal tools are available only after
 an operator explicitly configures one platform, approved native channels and local storage.
 Deterministic business modules plus a local ledger support development rehearsals.
 
 The confirmed P0 slice is one Slack vertical: link a Slack account to a community record, submit a
 simple Contributor proposal, run a simple Board vote with a posted result, and read a funds snapshot.
-Nine database-backed tools exist against the organization's own database — the reads
-`rein_member_status` and `rein_funds`, the writes `rein_governance_proposal_submit`, `rein_poll_open`,
-`rein_poll_vote` and `rein_poll_result`, and the post-result feedback tools
+The synthetic rehearsal cases ran through a real Slack provider (a test workspace, with synthetic
+test identities) and against a real Supabase provider (reading and writing the linked `dev_*` schema
+with synthetic rows). What has not happened is production use: no real member registry, no `prod_*`
+business-table write, and no production deployment.
+Twelve database-backed tools exist against the organization's own database — the reads
+`rein_member_status`, `rein_funds`, `rein_poll_candidates` and `rein_vote_type_resolve`, the
+read-only field collector `rein_proposal_collect`, the writes `rein_governance_proposal_submit`,
+`rein_poll_open`, `rein_poll_vote` and `rein_poll_result`, and the post-result feedback tools
 `rein_proposal_comment_suggest`, `rein_revision_approve` and `rein_revision_apply`. They register
 **only** when an explicit `foundationDb` config block enables them, and enabling it hides the
 simulators and the legacy proposal tools.
 
-The interface names are `rein_member_status`, `rein_funds`, `rein_governance_proposal_submit`,
-`rein_poll_open`, `rein_poll_vote`, `rein_poll_result`, `rein_proposal_comment_suggest`,
-`rein_revision_approve` and `rein_revision_apply`; the config block is `foundationDb`; the tables are
+The interface names are `rein_member_status`, `rein_funds`, `rein_poll_candidates`,
+`rein_vote_type_resolve`, `rein_governance_proposal_submit`, `rein_poll_open`, `rein_poll_vote`,
+`rein_poll_result`, `rein_proposal_collect`, `rein_proposal_comment_suggest`, `rein_revision_approve`
+and `rein_revision_apply`; the config block is `foundationDb`; the tables are
 `<env>_rein_vote_types`, `<env>_rein_proposals`, `<env>_rein_polls`, `<env>_rein_ballots` and
 `<env>_rein_proposal_revisions`; and the RPCs are `<env>_rein_finalize_poll` and
 `<env>_rein_approve_revision`. These replace the earlier `rein_mvp_*` tool names, `mvp` config block
@@ -42,21 +48,25 @@ names.
 
 Two earlier database migrations for that slice are committed in the sibling Foundation repository and
 applied to the linked `BeneficenceProtocol` project (verified read-only 2026-09-27). Each defines both
-the `dev_*` and `prod_*` objects in one transaction, so the applied schema covers both prefixes; what
-is not verified is any row or Agent use in either set. Nothing here claims live use or deployment: no
-tool has read or written the schema, and the rename migration is not applied.
+the `dev_*` and `prod_*` objects in one transaction, so the applied schema covers both prefixes. The
+rehearsal evidence shows the tools reading and writing the `dev_*` prefix with synthetic rows; the
+`prod_*` prefix stayed at zero rows. Nothing here claims production use or deployment, and the rename
+migration is not applied.
 
-No Slack workspace, Discord, Foundation website or real member data is connected, and the Agent has no
-live database connection. A passed vote is a decision record: payments, reservations and publishing are not enabled,
+No real member registry, Discord, Foundation website or production data set is connected. Rehearsals
+run against a test Slack workspace and the linked `dev_*` schema only; the live evidence predates the
+rename, and the current PR head has **no live Slack retest after the rename**. A passed vote is a decision record: payments, reservations and publishing are not enabled,
 and weighted voting, quorum, recusal, competing-budget allocation, activities, reminders, articles and
-oversight remain deferred. See the [implementation and deployment record](docs/implementation-and-deployment-zh.md).
+oversight remain deferred. See the [implementation and deployment record](docs/implementation-and-deployment-zh.md)
+and the [MVP Slack acceptance record](docs/mvp-acceptance-2026-09-28.md): cases 2-10 are accepted on
+synthetic development evidence, and case 1 was skipped by the owner and is not passed.
 
 ## Repository layout
 
 | Path | Purpose |
 | --- | --- |
 | `vendor/openclaw` | Official OpenClaw source as a git submodule, pinned to one reviewed commit. Upstream-owned; use it, do not edit it. |
-| `plugins/rein-operations` | Rein-owned business modules; three default status/simulation tools, four proposal tools, and nine database-backed Slack tools (two reads, four writes, three result-feedback) that register only with explicit platform/channel/storage configuration. |
+| `plugins/rein-operations` | Rein-owned business modules; three default status/simulation tools, four proposal tools, and twelve database-backed Slack tools (four reads, one read-only field collector, four writes, three result-feedback) that register only with explicit platform/channel/storage configuration. |
 | `workspace/` | OpenClaw-compatible agent workspace template: identity, policy and avatar. |
 | `config/operations.example.json` | Proposed business configuration. Not native OpenClaw config, and nothing loads it. |
 | `scripts/` | Local bootstrap, CLI wrapper and upstream update helpers. |
@@ -154,6 +164,7 @@ social-media image and text publishing, and DAO integration belong to later phas
 - [Architecture and integration boundaries](docs/architecture.md)
 - [Setup and local runtime](docs/setup.md)
 - [Development, verification, deployment and ten Agent rehearsals](docs/implementation-and-deployment-zh.md)
+- [MVP Slack acceptance record (2026-09-28)](docs/mvp-acceptance-2026-09-28.md)
 - [P0 requirement evidence matrix](docs/p0-acceptance-matrix.md)
 - [Provider integration contracts](docs/integration-contracts.md)
 - [Updating OpenClaw](docs/upstream.md)

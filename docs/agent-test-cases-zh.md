@@ -2,7 +2,11 @@
 
 这些案例对应**已确认的 MVP 纵向切片**：Slack 身份解析（邮箱匹配） → Contributor 提案 → Board 只投赞成票的批准投票与结果 → 只读资金快照。范围与延后项见[决策登记册](decisions.md)，逐项证据见 [AC01–AC20 验收矩阵](p0-acceptance-matrix.md)。
 
-**当前一律为合成演练，不是上线验收。** 所有帐号、频道、提案、金额与投票都是虚构数据；尚未接入真实 Slack 工作区，Agent 也尚未连接数据库——**本轮不含任何实机安装或联调（no live setup）**。两个 MVP 迁移已在姊妹仓库 `tempest2023/ReinProtocolFoundation` 的分支 `tempest/agent-mvp-schema-and-welcome-email`（PR #13，当前提交 `f15c7ea`）提交并应用到已链接的 `BeneficenceProtocol` 项目，两套 `dev_*` 与 `prod_*` 对象都在同一事务里建成（2026-09-27 以 `supabase migration list --linked` 只读核对）；姊妹仓库另有第三个迁移 `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`（选票 `cast_at` 改由数据库时钟决定），**已提交但尚未应用**。**已应用不等于已使用**：没有任何工具真的读写过任一表集，两套数据也都未核对，也没有端到端证据。每条案例里的「用户可见」回复目前只是**期望行为**，其中尚未实现的对话引导已在各案例与[验收缺口](#验收缺口)标出；只有连上沙盒工作区与隔离数据库、并留下提供方证据之后，才可以逐条改判。
+**本轮最终结论（2026-09-28）：** 案例 2–10 按合成开发证据通过，案例 1 由负责人决定跳过、**未通过**。
+全部证据来自改名前的构建；当前 PR head 只有单元与加载器级验证，改名后尚未在真实 Slack 重跑，`prod_*`
+业务表未被写入，生产迁移与发布门槛仍在。逐案裁定见 [MVP Slack 验收记录（2026-09-28）](mvp-acceptance-2026-09-28.md)。
+
+**当前一律为合成演练，不是上线验收。** 所有帐号、频道、提案、金额与投票都是虚构数据，但演练确实在真实的提供方上跑过：合成测试身份在**真实测试 Slack 工作区**里收发消息，工具也**读写过**已链接项目的 `dev_*` 表集（行均为合成 fixture）。不构成生产验收的部分是：未接入真实成员名册，未写入任何 `prod_*` 业务表，未做生产迁移与部署，也未调用资金／支付提供方。两个 MVP 迁移已在姊妹仓库 `tempest2023/ReinProtocolFoundation` 的分支 `tempest/agent-mvp-schema-and-welcome-email`（PR #13，当前提交 `f15c7ea`）提交并应用到已链接的 `BeneficenceProtocol` 项目，两套 `dev_*` 与 `prod_*` 对象都在同一事务里建成（2026-09-27 以 `supabase migration list --linked` 只读核对）；姊妹仓库另有第三个迁移 `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`（选票 `cast_at` 改由数据库时钟决定），**已提交但尚未应用**。**已应用不等于已投产**：`prod_*` 表集只有 schema、业务行始终为 0，改名迁移也尚未应用；逐案证据见 [MVP Slack 验收记录（2026-09-28）](mvp-acceptance-2026-09-28.md)。每条案例里的「用户可见」回复仍属**期望行为**（工具只把结果返回调用轮，见下），其中尚未实现的对话引导已在各案例与[验收缺口](#验收缺口)标出。
 
 **工具只把结果返回到调用它的那一轮，不自动回帖。** 每个案例的「工具 / 数据库」断言才是当前**已实现能力**，可以在合成演练里逐项复核；「用户可见」一栏描述 Agent 应如何用自然语言回应，属于验收目标而不是既成事实。
 
@@ -28,7 +32,7 @@
 - **工具 / 数据库**：
   - 身份解析按 D13 **失败关闭**：资料邮箱缺失、隐藏、对不上任何行、命中多行，或命中的记录没有可用联系人时，都不解析出联系人与角色；`rein_member_status` 不给出可用的联系人／角色。
   - 若本轮调用 `rein_governance_proposal_submit`，返回 `ok = false` 并失败关闭；`<env>_rein_proposals` 不新增行。
-  - **原因码随实现而定。** 邮箱解析路径（D13）已在本地代码与测试中就绪，但默认关闭（`foundationDb.identityEmailMatch` 默认 `disabled`），Bot scope 与 Bot token 也未安装／未配置，未启用时现有读取器仍走关联表；演练时必须读取当前注册工具的实际返回值，不要引用 `identity_not_linked`、`identity_link_required` 之类的固定字面量，也不要断言所有未解析路径都返回同一个词。参数里自称的 `contactId`、`memberId` 或角色一律不作为身份依据。
+  - **原因码随实现而定。** 邮箱解析路径（D13）已在本地代码与测试中就绪，但默认关闭（`foundationDb.identityEmailMatch` 默认 `disabled`），治理 Bot 应用的 `users:read`／`users:read.email` scope 与 Bot token 也未安装／未配置，未启用时现有读取器仍按关联表解析（rehearsal 中的 5 个合成身份都走关联表）；演练时必须读取当前注册工具的实际返回值，不要引用 `identity_not_linked`、`identity_link_required` 之类的固定字面量，也不要断言所有未解析路径都返回同一个词。参数里自称的 `contactId`、`memberId` 或角色一律不作为身份依据。
 - **缺口**：D13 的邮箱解析（`users.info` 加 `users:read`／`users:read.email` 两个 Bot scope）**已在本地代码与测试中就绪，但默认关闭**（`foundationDb.identityEmailMatch` 默认 `disabled`），scope 与 Bot token 均未安装／未配置，未启用时现有实现仍按关联表解析；因此本条既是「身份未解析即失败关闭」的期望行为，也是当前验收缺口，见[验收缺口](#验收缺口)。「怎么才能提案」的分步对话引导同样只有 `workspace/AGENTS.md` 的持久原则引导，尚无确定性流程，也未经真实对话验证。
 
 ## 2. 已关联但非有效 Contributor 想提案（AC01、AC04）
@@ -82,7 +86,7 @@
   - 候选池由工具从库组装；调用方不能传候选或名额：`candidateIds`、`options`、`maxApprovalsPerVoter` 等参数被 `policy_argument_rejected` 拒绝，`options` 走到写入层还会得到 `legacy_options_unsupported`。
   - `<env>_rein_polls` 新增一行，候选名单与窗口就此冻结，`candidate_limit` 与 `max_approvals_per_voter` 由数据库从投票类型冻结。
   - 非董事返回 `board_membership_required`，在提案频道调用返回 `channel_out_of_scope`，都在写库前拒绝。
-- **缺口**：没有「列出当前可投票提案」的只读工具；workspace 的持久原则要求不要承诺未连接的能力，所以「这周有什么可以投票的」只能由人或其他手段回答。把「活动类提案」映射到配置类型名同样没有确定性解析器，靠 workspace 的持久原则与运营配置，也未经真实对话验证；两者都属目标验收缺口，见[验收缺口](#验收缺口)。
+- **缺口**：候选清单本身已有只读工具 `rein_poll_candidates`，但它是**按投票类型**取数的：给定一个已配置类型，它按该类型自己的名额返回可投候选（合成演练中同一发送者在 `poll_result` 拒绝后 1.2 秒内成功取到候选，见逐案证据）。**剩下的缺口是跨类型口语询问**——「这周有什么**都可以**投」这类没点明类型的问题，目前没有跨类型只读工具，只能由 Agent 按类型逐条引导或由人回答；把「活动类提案」映射到配置类型名同样没有确定性解析器，靠 workspace 的持久原则与运营配置，也未经真实对话验证。两者都属目标验收缺口，见[验收缺口](#验收缺口)。
 
 ## 6. 董事用自然语言投票，含弃权（AC07）
 
@@ -176,7 +180,7 @@
 以下是**期望行为但当前实现不足**的部分，按现状如实标记为验收缺口，不得当作已通过。案例 1、3、4、5、6、7、9 里的对话引导都属于这一类：**Agent 的引导话术是验收目标，不是已实现能力。** `workspace/AGENTS.md` 只给出**持久的组织运营原则**（身份、缺字段追问、Board 投票、结果、资金、应对歧义与人工下一步）；它**不列举任何工具名、字段或配置**，因此不含确定性的口语映射，也不是经过验证的确定性流程。下面把口语映射到具体工具与字段（`voteType`／`pollId`／`approvedProposalIds` 等）的对应关系是**本测试与部署文档范围内的实现细节**，随版本变化，必须对照当前注册的工具核实后才能作为验收依据。
 
 - **对话引导只有原则层，没有确定性流程（案例 1、3、4、5、6、7、9）**：分步引导、追问缺字段、把口语映射到配置的类型名、解释可投票范围、把口语转成工具参数、叙述结果、把口语资金询问转成 `currency`，目前在 `workspace/AGENTS.md` 中有持久原则引导，但没有确定性代码流程，也没有真实对话验证；可复核的证据仍然只有工具返回与数据库记录。
-- **没有「列出可投票提案」的只读工具**：案例 5 里「这周有什么可以投票的」目前无法由工具回答，开票是董事按投票类型发起。
+- **没有**跨类型**的「列出可投票提案」只读工具**：按类型的只读清单已由 `rein_poll_candidates` 提供（给定已配置类型即返回该类型的可投候选），缺的是不点类型的跨类型询问——案例 5 里「这周有什么**都可以**投」目前无法由单一工具回答，只能由 Agent 按类型逐条引导；开票本身是董事按投票类型发起。
 - **没有自然语言到类型／ID 的解析器**：案例 4、5、6 里从口语活动到运营配置类型名、从提案标题或指代到 `voteType`／`pollId`／`approvedProposalIds` 的解析尚未实现，只有原则层引导与工具描述。
 - **自然语言到 `approvedProposalIds` 的映射（含弃权）没有专用解析**：案例 6 只靠 `workspace/AGENTS.md` 的持久原则与工具描述，没有解析工具，也未经真实对话验证。
 - **多轮补齐字段没有草稿工具**：案例 3 的追问完全由 Agent 引导完成。
@@ -185,7 +189,7 @@
 - **反馈作者范围未确认**：数据库行允许有效 Contributor 作为 `author_contact_id`，当前注册工具只接受现任董事。
 - **平票口径未确认**：当前按「无赢家」落库，不得对外宣布为组织正式规则。
 - **Slack 邮箱身份解析已在本地实现，但默认关闭（案例 1）**：D13 规定的 `users.info` 资料邮箱匹配与 `<env>_contact_identities` 唯一行匹配已落在 `slack-email-lookup.ts` 与读取器的邮箱优先路径中，并有本地测试；`users:read`／`users:read.email` 两个 Bot scope 与 Bot token 尚未安装／未配置，`foundationDb.identityEmailMatch` 默认 `disabled`，未启用时读取器仍按 `rein_slack_links` 关联表解析。因此案例 1 的「邮箱对不上或缺失即失败关闭」在本地测试中已有覆盖，但尚未经真实工作区验收。
-- **没有任何真实端到端验收**：以上全部为合成演练；真实 Slack 工作区与提供方证据都还没有接入，Agent 也尚未连接已应用迁移的数据库。
+- **没有生产端到端验收**：以上全部为合成演练。真实 Slack 提供方与真实 Supabase 提供方确实参与了演练（测试工作区 + 已链接的 `dev_*` 表集、行为合成数据），但真实成员名册、`prod_*` 业务写入、生产部署与资金／支付提供方都没有接入；当前 PR head 改名后也尚未在真实 Slack 重跑。
 - **命名与改名迁移（新增）**：审查要求移除工具、表、配置与 skill 中的 `mvp` 命名。插件与配置现已改用长期名称（`rein_member_status`、`rein_funds`、`rein_governance_proposal_submit`、`rein_poll_open`、`rein_poll_vote`、`rein_poll_result`、`rein_proposal_comment_suggest`、`rein_revision_approve`、`rein_revision_apply` 与 `foundationDb` 配置块）；数据库侧的改名由向前迁移 `20260927110000_rein_governance_names.sql` 完成，它排在已提交的 `20260927103000` 之后，重命名物理表与两个 RPC 并保留旧名兼容视图与包装。该迁移**已在 PR #13（head `f15c7ea`）提交但尚未应用到已链接项目**，必须**先应用它、再启用使用新名称的 Agent 代码**；在此之前线上数据库只认旧名，也不得声称新名称已在任一环境生效。接口见[服务方接口契约](integration-contracts.md#naming-and-the-rename-migration)。
 
 ## 附录 A：运维与技术前提
@@ -194,10 +198,10 @@
 
 - **一个部署只服务一个 Slack 工作区。** 使用 Socket Mode 与官方 OpenClaw `slack` 插件；v2 工具上下文不携带团队 ID，因此 `slackTeamId` 必须正好是被服务的那个工作区。
 - **只放服务端环境变量引用。** Supabase 地址与密钥只从 `supabaseUrlEnvVar`、`supabaseServiceKeyEnvVar` 指向的服务端环境变量读取，绝不写入配置或结果。
-- **迁移由人执行。** 前两个迁移已在姊妹仓库分支 `tempest/agent-mvp-schema-and-welcome-email`（PR #13，当前提交 `f15c7ea`，原提交 `4bd5ce8`）提交，并按文件名顺序应用到已链接的 `BeneficenceProtocol` 项目：`20260924094436_rein_slack_identity_and_fund_snapshots.sql`（身份关联表与只追加的可用资金快照表）与 `20260924095705_rein_mvp_proposals_polls_ballots.sql`（提案、投票、选票三张表，投票类型表、修订记录表与 `effective_revision_id` 列，以及冻结候选名单、按当前董事校验选票、`rein_finalize_poll` 计票与 `rein_approve_revision` 重大修订批准）。两个迁移都在同一事务里定义 `dev_*` 与 `prod_*` 两套对象，`supabase migration list --linked` 又是项目级，因此两套 schema 都已建成；2026-09-27 只读核对时两个版本都显示为已应用。第三个迁移 `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`（选票 `cast_at` 改由数据库时钟决定）**已在 `32977bfb` 提交，但尚未应用到已链接项目**，要生效仍需一次人工执行的 `supabase db push`；目前不得声称该时钟规则已在任一环境生效。**但已应用不是已使用**：Agent 尚未连接，没有任何工具真的读过或写过任一表集，两套数据也都未核对，**不得据此声称 schema 已被端到端验证**。按类型的具体名额与批准额度需由人写入 `rein_vote_types`。
+  - **迁移由人执行。** 前两个迁移已在姊妹仓库分支 `tempest/agent-mvp-schema-and-welcome-email`（PR #13，当前提交 `f15c7ea`，原提交 `4bd5ce8`）提交，并按文件名顺序应用到已链接的 `BeneficenceProtocol` 项目：`20260924094436_rein_slack_identity_and_fund_snapshots.sql`（身份关联表与只追加的可用资金快照表）与 `20260924095705_rein_mvp_proposals_polls_ballots.sql`（提案、投票、选票三张表，投票类型表、修订记录表与 `effective_revision_id` 列，以及冻结候选名单、按当前董事校验选票、`rein_finalize_poll` 计票与 `rein_approve_revision` 重大修订批准）。两个迁移都在同一事务里定义 `dev_*` 与 `prod_*` 两套对象，`supabase migration list --linked` 又是项目级，因此两套 schema 都已建成；2026-09-27 只读核对时两个版本都显示为已应用。第三个迁移 `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`（选票 `cast_at` 改由数据库时钟决定）**已在 `32977bfb` 提交，但尚未应用到已链接项目**，要生效仍需一次人工执行的 `supabase db push`；目前不得声称该时钟规则已在任一环境生效。**已应用但只被演练使用**：工具确实读写过 `dev_*` 表集（合成 fixture），`prod_*` 业务行始终为 0，**不得据此声称已投产或 `prod_*` 已被端到端验证**。按类型的具体名额与批准额度需由人写入 `rein_vote_types`。
 - **播种由人完成。** 邮箱到联系人的对应关系（`<env>_contact_identities`，每行一个规范化邮箱与一个唯一联系人）、Contributor 的 `active` 状态、董事的 `person_type`、第一条可用资金快照，以及每个提案类型在 `rein_vote_types` 中的 `max_candidates` 与 `max_approvals_per_voter` 都由人直接写库或走已复核的管理路径；Agent 不创建这些记录，也不提供注册工具。
-- **身份邮箱解析需要 Bot scope（尚未安装）。** D13 的邮箱匹配要求治理 Bot 应用装 `users:read` 与 `users:read.email` 两个 Bot scope；目前**未安装**，Bot token 也未配置，且 `foundationDb.identityEmailMatch` 默认 `disabled`，未启用时读取器仍按关联表解析，因此该路径不能用于真实演练。本地人工测试用户应用保持只用 `chat:write`，不加 Bot scope。
-- **显式启用 `foundationDb` 配置块。** 启用后注册 9 个 MVP 工具（2 读、4 写、3 个结果反馈），并隐藏合成模拟器与旧提案工具；未设置 `enabled: true` 时一个都不注册。
+- **身份邮箱解析需要 Bot scope（尚未安装）。** D13 的邮箱匹配要求治理 Bot 应用装 `users:read` 与 `users:read.email` 两个 Bot scope；目前**未安装**，治理 Bot 的 token 也未配置，且 `foundationDb.identityEmailMatch` 默认 `disabled`，未启用时读取器仍按关联表解析（rehearsal 中 5 个合成身份全部走关联表解析），因此该路径尚未在真实工作区启用。测试传输用的用户应用保持只用 `chat:write`，不加 scope。
+- **显式启用 `foundationDb` 配置块。** 启用后注册 12 个数据库工具（4 读、4 写、1 个只读字段采集、3 个结果反馈），并隐藏合成模拟器与旧提案工具；未设置 `enabled: true` 时一个都不注册。
 - **每轮记录。** 记录入站事件的发送者 ID、工具调用 ID、Agent 回复、数据库记录与拒绝原因。所有拒绝都走固定原因码，且不返回 Supabase 地址、密钥、团队 ID 或私密联系人标识。
 - **Agent 不自动回帖。** 当前工具只把结果返回到调用它的那一轮；把结果回帖到 Slack 的消息发送尚未实现，因此各案例只核对工具返回，不核对频道回帖。
 

@@ -1,6 +1,7 @@
 # P0 acceptance evidence matrix
 
-This matrix tracks the PRD's AC01–AC20 against **current evidence**. “Core tested” means synthetic inputs exercised deterministic Rein-owned modules. It does not mean the real chat, member registry, website or finance provider has passed. A production result requires the provider evidence in the last column.
+This matrix tracks the PRD's AC01–AC20 against **current evidence**. “Core tested” means synthetic inputs exercised deterministic Rein-owned modules. It does not mean the real chat, member registry, website or finance provider has passed. A production result requires the provider evidence in the last column. The ten synthetic Slack
+rehearsal cases and their final verdicts are in the [MVP Slack acceptance record](mvp-acceptance-2026-09-28.md).
 
 ## MVP slice versus deferred work
 
@@ -9,14 +10,23 @@ The strict P0 MVP is the four steps in [PRD §2.3](PRD-agent-community-operation
 AC01–AC04, plus the parts of AC05–AC07 and AC16–AC17 those steps exercise. AC08–AC14 and AC18–AC20
 belong to the deferred remainder and stay open until their phase starts.
 
-Build state as of 2026-09-24. Two read tools, four write tools and three post-result feedback tools
-exist and register only when an explicit `foundationDb` config block enables them; enabling it hides
-the synthetic simulators and the legacy proposal bridge.
+**Build state: current PR head 2026-09-28** (the earlier 2026-09-24 build state is superseded; the
+date below no longer describes the present tool set). The current PR head carries the long-term
+`rein_*` interface names in the plugin and config, with the database-side rename migration still
+unapplied, and has **no live Slack retest after the rename**. It has **12 database-backed tools —
+four reads
+(`rein_member_status`, `rein_funds`, `rein_poll_candidates`, `rein_vote_type_resolve`), one read-only
+field collector (`rein_proposal_collect`), four writes and three post-result feedback tools — and they
+register only when an explicit `foundationDb` config block enables them; enabling it hides the
+synthetic simulators and the legacy proposal bridge.
 
 | Tool | Kind | Code |
 | --- | --- | --- |
 | `rein_member_status` | read | `foundation-db-reader.ts`, `mvp-read-tools.ts` |
 | `rein_funds` | read | `foundation-db-reader.ts`, `mvp-read-tools.ts` |
+| `rein_poll_candidates` | read | `foundation-db-reader.ts`, `mvp-read-tools.ts` |
+| `rein_vote_type_resolve` | read | `mvp-vote-type-resolve.ts`, `mvp-read-tools.ts` |
+| `rein_proposal_collect` | read | `mvp-collect-tools.ts` |
 | `rein_governance_proposal_submit` | write | `foundation-db-writer.ts`, `mvp-write-tools.ts` |
 | `rein_poll_open` | write | `foundation-db-writer.ts`, `mvp-write-tools.ts` |
 | `rein_poll_vote` | write | `foundation-db-writer.ts`, `mvp-write-tools.ts` |
@@ -61,15 +71,18 @@ trusted inbound message ID and the derivation is memoized per turn. A re-deliver
 retry in a new turn can still insert a second record, so these rows are not evidence of
 cross-process exactly-once behaviour.
 
-The Agent has no live database connection and no real Slack workspace is wired: the rows below are
-local module and synthetic-test evidence, not a production pass. One installation serves one Slack
+The Agent's tools have been exercised against real providers in the synthetic rehearsals: synthetic
+test identities in a real test Slack workspace, reading and writing the linked `dev_*` Supabase
+schema with synthetic rows, while every `prod_*` business table stayed at zero. The rows below remain
+synthetic dev and module-level evidence, not a production pass. One installation serves one Slack
 workspace; the pinned runtime supplies a trusted per-message sender in admitted channel and group
 messages as well as in DMs, but no team ID. Slack sender identity is specified by D13 as an exact
 match between the sender's Slack profile email and one `<env>_contact_identities` row, which needs
 the governance app's `users:read` and `users:read.email` bot scopes; the resolver is implemented in
 local code with tests, but it is opt-in and off by default (`foundationDb.identityEmailMatch` defaults to
-`disabled`), and the scopes and bot token are not installed or configured, so no live workspace or
-database exercises it and the retained link table stays the read path until it is enabled. Two
+`disabled`), and the email resolver's scopes and bot token are not installed or configured, so no live
+workspace exercises that resolver and the retained link table stays the read path until it is
+enabled. Two
 migrations are **tracked in the sibling Foundation repository**
 (`tempest2023/ReinProtocolFoundation`) on branch `tempest/agent-mvp-schema-and-welcome-email` (PR
 #13, open). Its current committed head is `f15c7eabbc65a4ec998125632d62db05e9aec6f4` ("Adopt
@@ -96,9 +109,11 @@ the `<env>_rein_mvp_*` names reachable as compatibility views and RPC wrappers. 
 pgTAP suite stands at 187/187 assertions at that same commit, run twice in an isolated container.
 The phase-two migration carries the vote types, the approve-only ballot shape, the
 frozen candidate list, the finalize RPC and the material-revision approval rule this document
-describes, with pgTAP coverage in the sibling repository. Applied schema is still not exercised by
-the Agent: no registered tool has read or written the linked tables, so no schema claim here should
-be treated as a live end-to-end result.
+describes, with pgTAP coverage in the sibling repository. The rehearsal runs did read and write the
+linked `dev_*` tables, but on the **pre-rename build** (the historical `rein_mvp_*` interfaces) and
+with synthetic rows only; the `prod_*` business tables were never written, and no live Slack retest
+has run against the current post-rename head, so no schema claim here should be treated as a live
+end-to-end result on the current head.
 
 The Supabase/PostgREST boundary itself has a local integration test,
 `tests/foundation-db-gateway.test.mjs`: it runs the reader and writer against a real HTTP loopback
@@ -113,7 +128,7 @@ real PostgREST instance.
 | AC02 | `proposals.test.mjs` checks fields, versions and reconfirmation; `proposal-tool-bridge.test.mjs` exercises guarded create/revise/confirm/submit calls. | Local tool tested | Real chat conversation that gathers fields across messages and returns the confirmed summary. |
 | AC03 | `proposals.test.mjs` checks explicit zero-budget authorization and blockers. | Core tested | Approved policy scope, responsible exception handler and real fast-track rehearsal. |
 | AC04 | `proposals.test.mjs` routes complete funding requests to governance, including small amounts. | Core tested | Live Board round presentation and provider-backed proposal records. |
-| AC05 | `p0-rehearsal.test.mjs` and `governance.test.mjs` freeze versions, roster, weights and rules; `foundation-db-writer.test.mjs` and `mvp-rehearsal.test.mjs` assemble a round's candidate pool from stored proposals of the named vote type, re-offering recently unselected ones, bounded by that type's own cap. The round-persistence test moved to a follow-up PR with `governance-store.ts`. The concrete cap values are still unapproved configuration. | Local modules and MVP tools tested; no live database | Approved per-type cap values, authoritative finance availability and delivered Board briefing. |
+| AC05 | `p0-rehearsal.test.mjs` and `governance.test.mjs` freeze versions, roster, weights and rules; `foundation-db-writer.test.mjs` and `mvp-rehearsal.test.mjs` assemble a round's candidate pool from stored proposals of the named vote type, re-offering recently unselected ones, bounded by that type's own cap. The round-persistence test moved to a follow-up PR with `governance-store.ts`. The concrete cap values are still unapproved configuration. | Local modules and MVP tools tested; plus a synthetic dev run against the linked `dev_*` schema in the rehearsal workspace (type-scoped `rein_poll_candidates` read and candidate-pool opening). No production provider acceptance | Approved per-type cap values, authoritative finance availability and delivered Board briefing. |
 | AC06 | `governance.test.mjs` rejects invalid, ineligible and late ballots; `foundation-db-reader.test.mjs` resolves the member and director role from the database; `mvp-write-tools.test.mjs` refuses a late ballot and a choice outside a stored poll's options. The refused-ballot audit, authoritative-registry eligibility and host-bound vote-tool checks moved to a follow-up PR with `governance-store.ts`, `registry-snapshot.ts` and `governance-tool-bridge.ts`. | Local modules tested; database tools registered only under explicit `foundationDb` config | Trusted sender-to-member identity, explicit vote confirmation in Slack, private ballot access, and a real round audit. |
 | AC07 | `governance.test.mjs` covers replacement, recusal, abstention, quorum, ties and thresholds; `mvp-vote-tally.test.mjs` covers one equal weight per eligible member, an empty approval list casting no approval and a tie or empty poll producing `no_winner`; `mvp-write-tools.test.mjs` and `mvp-rehearsal.test.mjs` exercise the registered tools' approve-only enforcement, the per-poll `maxApprovalsPerVoter` bound, the frozen candidate list and the deadline that decides a round. `mvp-feedback-tools.test.mjs` covers the post-result rule in both directions: an ordinary title or summary revision is applied by the Agent with no separate approval, a material revision is refused with `revision_not_approved` until a current director's approval is recorded, a comment applies nothing, and every feedback call is Board-scoped. The Board-scoped recusal and retry checks in the host-bound vote bridge moved to a follow-up PR with `governance-tool-bridge.ts`. The per-type maximum approvals and candidate cap are confirmed rules (C08, C14, D08, D09) with concrete values still unapproved configuration. | Local modules and database tools tested, including the post-result feedback tools; database tools registered only under explicit `foundationDb` config | Confirmation of the highest-count tie rule, the approved per-type values, an approved voter list, the feedback author scope and a real round audit. Weighted, quorum and recusal rules are deferred from the MVP. |
 | AC08 | `governance.test.mjs` reports shortfall and holds allocation when funds are unknown or insufficient. | Core tested; deferred from the MVP | Atomic reservation against an authoritative finance source under concurrent rounds. The MVP does not allocate one budget across competing proposals. |
@@ -135,7 +150,7 @@ The integration requirements are in [provider contracts](integration-contracts.m
 ## Naming and the rename migration
 
 A pre-launch review asked for the `mvp` naming to be removed from tools, tables, config and skills.
-The plugin and configuration now use the stable names in the table above: the nine tools and the
+The plugin and configuration now use the stable names in the table above: the twelve tools and the
 `foundationDb` config block. The database reaches matching names through the forward migration
 `20260927110000_rein_governance_names.sql`, tracked as a release gate in
 [provider contracts](integration-contracts.md#naming-and-the-rename-migration). It is committed in PR
