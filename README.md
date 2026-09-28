@@ -40,18 +40,19 @@ and `rein_revision_apply`; the config block is `foundationDb`; the tables are
 `<env>_rein_approve_revision`. These replace the earlier `rein_mvp_*` tool names, `mvp` config block
 and `<env>_rein_mvp_*` tables and RPCs, which were only development names. The upgrade is a committed
 forward migration, `20260927110000_rein_governance_names.sql`, ordered after the committed
-`20260927103000` migration in the sibling Foundation repository; it has **not** been applied to the
-linked project. That migration renames the physical tables and RPCs and keeps the old table and RPC
-names reachable as read/write compatibility views and RPC wrappers during the transition. Apply it
-before enabling the renamed agent code; until then the deployed database still answers on the old
-names.
+`20260927103000` migration in the sibling Foundation repository. Both migrations are now **applied**
+to the linked project (project ref `ksgyfyysnojqrwfuyqwe`); read-only inspection on 2026-09-28 finds
+both versions in the linked remote, the ten new physical tables, the ten old-name compatibility views
+and the four RPC wrappers. That migration renames the physical tables and RPCs and keeps the old table
+and RPC names reachable as read/write compatibility views and RPC wrappers during the transition, so
+callers that have not yet moved over still work. Applying a migration is not the same as the Agent
+using it: code live end-to-end verification is still absent.
 
 Two earlier database migrations for that slice are committed in the sibling Foundation repository and
 applied to the linked `BeneficenceProtocol` project (verified read-only 2026-09-27). Each defines both
 the `dev_*` and `prod_*` objects in one transaction, so the applied schema covers both prefixes. The
 rehearsal evidence shows the tools reading and writing the `dev_*` prefix with synthetic rows; the
-`prod_*` prefix stayed at zero rows. Nothing here claims production use or deployment, and the rename
-migration is not applied.
+`prod_*` prefix stayed at zero rows. Nothing here claims production use or deployment.
 
 No real member registry, Discord, Foundation website or production data set is connected. Rehearsals
 run against a test Slack workspace and the linked `dev_*` schema only; the live evidence predates the

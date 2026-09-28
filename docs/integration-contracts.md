@@ -47,19 +47,20 @@ verified read-only on 2026-09-27 with `supabase migration list --linked` against
 | `20260924094436_rein_slack_identity_and_fund_snapshots.sql` | `rein_slack_links` and append-only `rein_fund_snapshots`, in both table sets |
 | `20260924095705_rein_mvp_proposals_polls_ballots.sql` | proposals, polls and ballots (originally `rein_mvp_proposals`, `rein_mvp_polls` and `rein_mvp_ballots`), in both table sets |
 
-The sibling branch now carries a third, **unapplied** migration:
-`20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`. It was committed at `32977bfb` and is still
-present at the current head `08542ad`, but the linked remote project does not have it; the database
-clock being authoritative for a ballot's `cast_at` is therefore **not in effect anywhere** yet.
-Applying it needs its own reviewed `supabase db push`, and no document here may be read as claiming
-it is applied.
+The third sibling migration, `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`, was committed at
+`32977bfb` and is present at the current sibling head. It is now **applied** to the linked remote
+project: read-only inspection on 2026-09-28 lists the version in `supabase migration list --linked`,
+and the two clock functions it installs are present. The database clock being authoritative for a
+ballot's `cast_at` is therefore in effect in the linked project's schema, though no live ballot has
+been cast there to exercise it (see "What the applied migrations do not prove").
 
-A fourth sibling migration is committed in PR #13 but **unapplied**:
-`20260927110000_rein_governance_names.sql`, committed at `08542ad` and ordered after `20260927103000`.
-It renames the five physical tables from `<env>_rein_mvp_*` to their long-term names and renames the
-two RPCs, then keeps the old table and RPC names reachable as read/write compatibility views and RPC
-wrappers for the transition. It is not applied to the linked project, so the deployed database still
-answers on the old names.
+A fourth sibling migration, `20260927110000_rein_governance_names.sql`, is committed in PR #13 and
+ordered after `20260927103000`. It renames the five physical tables from `<env>_rein_mvp_*` to their
+long-term names and renames the two RPCs, then keeps the old table and RPC names reachable as
+read/write compatibility views and RPC wrappers for the transition. It is **applied** to the linked
+project as of 2026-09-28: the linked remote lists the version, and the ten renamed physical tables,
+ten old-name compatibility views and four old-name RPC wrappers are all present, so old-name clients
+and new-name clients both resolve.
 
 **Applied order and compatibility.** They apply in filename order after the earlier community
 migrations (the `202608120001` and `202608130001` families, which already provide
@@ -73,15 +74,17 @@ migration list --linked` is project-level, so the applied schema covers both pre
 app's `DATABASE_ENVIRONMENT=dev` is only a client-side default for which prefix a request reads; it
 is not evidence that only the `dev_*` schema exists.
 
-**Migration order to apply.** The sibling migrations apply in filename order after the
-`202608120001` / `202608130001` families: `20260924094436`, `20260924095705`, `20260927103000`,
-then `20260927110000`. The first two are already applied to the linked project; the third and fourth
-are pending, and only a human-run `supabase db push` (or an equivalent reviewed step) puts them into
-the linked project. Apply `20260927103000` before `20260927110000`, and apply the rename migration
-`20260927110000` before enabling agent code that calls the new tool, table or RPC names; until then
-the deployed schema and RPCs answer on the old `<env>_rein_mvp_*` names. When the clock migration is
-applied, both the `dev_*` and `prod_*` guards are the ones that assign `NEW.cast_at := now()`
-before the window check, because the sibling migration loops over both prefixes.
+**Migration order.** The sibling migrations apply in filename order after the `202608120001` /
+`202608130001` families: `20260924094436`, `20260924095705`, `20260927103000`, then
+`20260927110000`. All four are now applied to the linked project (the first two verified read-only
+2026-09-27, the second two verified read-only 2026-09-28), each by a human-run `supabase db push` or
+an equivalent reviewed step in that order. The clock migration's `dev_*` and `prod_*` guards both
+assign `NEW.cast_at := now()` before the window check, because the sibling migration loops over both
+prefixes. The rename migration is applied, so the linked schema answers on the new
+`<env>_rein_*` names; the old `<env>_rein_mvp_*` names still resolve through the compatibility views
+and wrappers, and their later removal is a separate reviewed migration (see "Compatibility
+retirement"). Applying a migration is a schema step, not evidence that the Agent uses the schema:
+code live end-to-end verification is still absent.
 
 **What the applied migrations do not prove.** Applying a migration is not the same as the Agent
 using it, and schema registration is not proof of any row. No Slack workspace is connected, the
@@ -146,11 +149,11 @@ unapproved operator configuration.
 A pre-launch review asked for the `mvp` naming to be removed across tools, tables, config and skills.
 The names below are the current, stable interfaces. The plugin and its configuration use them today;
 the database reaches them through the forward migration `20260927110000_rein_governance_names.sql`,
-which is committed in PR #13 (at head `08542ad`) but **not applied** to the linked project. The
-migration renames the physical tables and RPCs and keeps the earlier `<env>_rein_mvp_*` table and RPC
-names reachable as read/write compatibility views and RPC wrappers during the transition. Apply the
-migration before enabling agent code that calls the new names; until then the deployed database still
-answers on the old names.
+which is committed in PR #13 and **applied** to the linked project as of 2026-09-28. The migration
+renames the physical tables and RPCs and keeps the earlier `<env>_rein_mvp_*` table and RPC names
+reachable as read/write compatibility views and RPC wrappers during the transition, so both the new
+and the old names resolve in the linked schema today. The rename gate is closed at the schema level;
+what remains is the live code path (see "What the applied migrations do not prove").
 
 | Interface | Current names |
 | --- | --- |
@@ -167,19 +170,21 @@ need no migration. The tables and RPCs are the part that lags, because the two b
 migrations were applied under the old `mvp` names, so renaming them in place would edit applied
 history; the forward migration `20260927110000_rein_governance_names.sql` does the rename instead.
 
-The migration is a release gate, not a wording edit: the tables and RPCs are already applied to the
-linked dev project, so the rename is a schema change with its own review. No document claims it is
-applied or live.
+The migration was a release gate, not a wording edit: the base tables and RPCs were already applied
+to the linked dev project, so the rename needed its own reviewed forward migration. That forward
+migration is now applied, so the new table and RPC names exist in the linked schema; no document here
+claims the Agent has used them live.
 
 PR #13 is still open, and the `20260927110000` migration now includes the rename work it needs to
 stand on its own: in each environment it renames the ten helper and trigger functions alongside the
 five tables and two RPCs, rewrites the bodies to the new physical table, helper and GUC names, and
 renames the dependent triggers, constraints and indexes. The rename therefore no longer leans on the
 old names it is replacing, and the migration keeps exactly ten old-name views and four old-name RPC
-wrappers for compatibility. Because the migration is **not applied** to the linked project, editing
-it before it is applied does not rewrite applied history; the two base `20260924*` migrations stay
-applied and keep their historical filenames unchanged. Only after `20260927110000` is applied does it
-become part of applied history and stop being editable.
+wrappers for compatibility. Because the migration is now **applied** to the linked project, it has
+become part of applied history and is no longer editable; the two base `20260924*` migrations stay
+applied and keep their historical filenames unchanged. Any further change to the naming layer must be
+a new forward migration, which is why the removal of the compatibility views and wrappers is tracked
+separately below.
 
 **Compatibility retirement.** The `<env>_rein_mvp_*` views and RPC wrappers are a transition
 mechanism, not the long-term contract. They stay in place while any runtime client still calls the
@@ -216,10 +221,10 @@ Everything below is a human step with a review; no Agent tool performs it.
 
 1. The two base migrations (`20260924094436` and `20260924095705`) are already applied to the linked
    project in filename order and define both the `dev_*` and `prod_*` objects. The clock migration
-   (`20260927103000`) and the rename migration (`20260927110000`) are still pending there. Apply the
-   pending two in filename order, the clock migration first, then the rename; apply the rename before
-   enabling agent code that calls the new names. Apply them to any new environment in the same order,
-   and never from a script that also runs the Agent.
+   (`20260927103000`) and the rename migration (`20260927110000`) are **applied** to the linked
+   project as of 2026-09-28; the new `<env>_rein_*` names exist there, and the old names still resolve
+   through the compatibility views and wrappers. Apply all four to any new environment in the same
+   filename order, and never from a script that also runs the Agent.
 2. Seed the email-to-contact identity rows (`<env>_contact_identities`), Contributor and director
    records, and an initial funds snapshot by hand, or through a reviewed administrative path. Do not
    seed fabricated people into a live environment.

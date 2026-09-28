@@ -31,7 +31,10 @@ observable behavior only.
   **no live Slack retest after the rename**.
 - Two base migrations are applied to the linked schema and define both the `dev_*` and `prod_*`
   objects. The later ballot-clock migration and the rename migration are committed in the sibling
-  Foundation repository but are **not applied**.
+  Foundation repository and are now **applied** as well (verified read-only 2026-09-28: both
+  versions listed, ten new physical tables, ten old-name compatibility views and four RPC wrappers
+  present). Applied schema is not Agent use: this record's live evidence still predates the rename,
+  and no live Slack run has exercised the new names.
 - The verdicts below are the synthetic dev, case-document rubric outcome. They are not a release
   approval, and several cases keep explicit limitations.
 

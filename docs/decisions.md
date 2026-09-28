@@ -169,8 +169,9 @@ the voting window length; channel and space mapping; and who may see an individu
   while callers move over. That migration is `20260927110000_rein_governance_names.sql`, ordered after
   the committed `20260927103000`. It renames the physical tables and the two RPCs and keeps the
   `<env>_rein_mvp_*` table and RPC names reachable as compatibility views and RPC wrappers during the
-  transition; it is **not applied** to the linked project. Apply it before enabling agent code that
-  calls the new names. The interfaces are listed in
+  transition; it is **applied** to the linked project as of 2026-09-28, so the new names exist there
+  and the old names still resolve for callers that have not moved over. Applying it is not evidence
+  that the Agent has used the new names live. The interfaces are listed in
   [provider contracts](integration-contracts.md#naming-and-the-rename-migration). Source file and
   test filenames keep their historical `mvp-*.ts` / `mvp-*.mjs` names, which are not interfaces.
 
@@ -211,7 +212,7 @@ All items below are unresolved. PRD suggestions remain suggestions.
 | The MVP voting window length | First real vote |
 | Tie rule when the highest approval count is shared | First real vote that ties |
 | Who may see an individual ballot versus the published result | First real vote |
-| Whether the MVP slice may read or write the `prod_*` table set. The two migrations in the sibling repo `tempest2023/ReinProtocolFoundation` (`supabase/migrations/20260924094436_rein_slack_identity_and_fund_snapshots.sql` and `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql`) are committed on branch `tempest/agent-mvp-schema-and-welcome-email` (PR #13, head `08542ad09932a4cefb62f230a9bdcf9fd4d32dfe`, first authored at `4bd5ce8`) and applied to the linked `BeneficenceProtocol` project (verified read-only 2026-09-27 with `supabase migration list --linked`). Each creates both the `dev_*` and `prod_*` objects, so the `prod_*` schema already exists; the open question is data and Agent use, not schema. A third sibling migration, `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`, was committed at `32977bfb` but is **not applied** to the linked project. | Enabling the MVP against production data |
+| Whether the MVP slice may read or write the `prod_*` table set. The two migrations in the sibling repo `tempest2023/ReinProtocolFoundation` (`supabase/migrations/20260924094436_rein_slack_identity_and_fund_snapshots.sql` and `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql`) are committed on branch `tempest/agent-mvp-schema-and-welcome-email` (PR #13, head `08542ad09932a4cefb62f230a9bdcf9fd4d32dfe`, first authored at `4bd5ce8`) and applied to the linked `BeneficenceProtocol` project (verified read-only 2026-09-27 with `supabase migration list --linked`). Each creates both the `dev_*` and `prod_*` objects, so the `prod_*` schema already exists; the open question is data and Agent use, not schema. A third sibling migration, `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`, was committed at `32977bfb` and, together with the fourth, rename migration `20260927110000_rein_governance_names.sql`, is **applied** to the linked project as of 2026-09-28 (read-only verification: both versions listed, ten new physical tables, ten old-name views, four RPC wrappers); the live code path is still unverified. | Enabling the MVP against production data |
 | Installing the `users:read` and `users:read.email` bot scopes on the governance app, configuring its bot token, and enabling the implemented, opt-in D13 email resolver (`foundationDb.identityEmailMatch`) | Enabling the opt-in Slack identity path |
 | Zero-budget activity scope and exception authority | Automatic approval |
 | Cadence, timezone and notification lead time | Selection rounds |

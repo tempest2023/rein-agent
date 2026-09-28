@@ -12,8 +12,9 @@ belong to the deferred remainder and stay open until their phase starts.
 
 **Build state: current PR head 2026-09-28** (the earlier 2026-09-24 build state is superseded; the
 date below no longer describes the present tool set). The current PR head carries the long-term
-`rein_*` interface names in the plugin and config, with the database-side rename migration still
-unapplied, and has **no live Slack retest after the rename**. It has **12 database-backed tools —
+`rein_*` interface names in the plugin and config, with the database-side rename migration applied
+to the linked project but no live code run behind it, and has **no live Slack retest after the
+rename**. It has **12 database-backed tools —
 four reads
 (`rein_member_status`, `rein_funds`, `rein_poll_candidates`, `rein_vote_type_resolve`), one read-only
 field collector (`rein_proposal_collect`), four writes and three post-result feedback tools — and they
@@ -100,12 +101,13 @@ migration creates the `dev_*` and `prod_*` objects in the same transaction, and 
 project-level, so the applied schema covers both prefixes; the app's `DATABASE_ENVIRONMENT=dev`
 default selects which prefix a request reads and is not proof that only the `dev_*` schema exists.
 A third sibling migration, `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`, was committed at
-`32977bfb` and remains at the current head `08542ad`, but is **not applied** to the linked project,
-so its clock authority is not in effect anywhere. A fourth sibling migration,
-`20260927110000_rein_governance_names.sql`, is committed in PR #13 at head `08542ad` and also
-**not applied**: it renames the physical tables and the two RPCs to their long-term names and keeps
-the `<env>_rein_mvp_*` names reachable as compatibility views and RPC wrappers. Apply it after
-`20260927103000` and before enabling agent code that calls the new names. The sibling code's local
+`32977bfb` and is present at the current sibling head. A fourth,
+`20260927110000_rein_governance_names.sql`, renames the physical tables and the two RPCs to their
+long-term names and keeps the `<env>_rein_mvp_*` names reachable as compatibility views and RPC
+wrappers. Both are **applied** to the linked project as of 2026-09-28: read-only inspection lists
+both versions and finds the ten new physical tables, ten old-name views and four RPC wrappers, so the
+clock authority is in effect in the linked schema and the new names resolve. Applied schema is not a
+live code result; no live ballot or tool call has exercised the new names. The sibling code's local
 pgTAP suite stands at 187/187 assertions at that same commit, run twice in an isolated container.
 The phase-two migration carries the vote types, the approve-only ballot shape, the
 frozen candidate list, the finalize RPC and the material-revision approval rule this document
@@ -152,14 +154,13 @@ The integration requirements are in [provider contracts](integration-contracts.m
 A pre-launch review asked for the `mvp` naming to be removed from tools, tables, config and skills.
 The plugin and configuration now use the stable names in the table above: the twelve tools and the
 `foundationDb` config block. The database reaches matching names through the forward migration
-`20260927110000_rein_governance_names.sql`, tracked as a release gate in
+`20260927110000_rein_governance_names.sql`, tracked in
 [provider contracts](integration-contracts.md#naming-and-the-rename-migration). It is committed in PR
-#13 (at head `08542ad`) but **not applied** to the linked project; it renames the physical tables and
-the two RPCs and keeps the earlier `<env>_rein_mvp_*` table and RPC names reachable as compatibility
-views and wrappers during
-the transition. Apply it after `20260927103000` and before enabling agent code that calls the new
-names. Source file and test filenames keep their historical `mvp-*.mjs` names, which are not
-interfaces.
+#13 and **applied** to the linked project as of 2026-09-28; it renames the physical tables and the two
+RPCs and keeps the earlier `<env>_rein_mvp_*` table and RPC names reachable as compatibility views
+and wrappers during the transition, so the new names resolve and old-name callers still work. The
+schema gate is closed; the live code path remains unverified. Source file and test filenames keep
+their historical `mvp-*.mjs` names, which are not interfaces.
 
 The caller-facing names move with the plugin, so a caller that hits a malformed `foundationDb` block
 or an unset named variable now reads `foundation_db_config_invalid` or

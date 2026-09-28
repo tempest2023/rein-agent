@@ -19,8 +19,9 @@ The longer interface names live in the database as `<env>_rein_proposals`, `<env
 `<env>_rein_mvp_*` tables and RPCs through the committed forward migration
 `20260927110000_rein_governance_names.sql`, ordered after the committed `20260927103000` migration;
 the old table and RPC names stay reachable as compatibility views and RPC wrappers during the
-transition. The migration is **not** applied to the linked project, so apply it before enabling this
-code; until then the deployed database answers on the old names only.
+transition. The migration is **applied** to the linked project as of 2026-09-28, so the long-term
+names resolve there and the old names still work through the views and wrappers. Applied schema is not
+live code use: no end-to-end run has exercised these names against a real project.
 
 `rein_governance_proposal_submit` stores a proposal only after its author has confirmed the exact version.
 The first call prepares: it writes nothing and returns the canonical proposal text plus a

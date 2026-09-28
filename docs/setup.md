@@ -200,9 +200,9 @@ local work does not touch a global `~/.openclaw` profile.
   connection. Two base migrations are applied to the linked `BeneficenceProtocol` project (the
   `20260924094436` identity/funds migration and the `20260924095705` proposals/polls/ballots
   migration, in filename order); the `20260927103000` clock migration and the `20260927110000`
-  rename migration are **not applied** there. No tool has used any of that schema, and the twelve
-  tools stay unregistered until an operator enables them explicitly. There is no deployment or live
-  use of these tools to report.
+  rename migration are also **applied** there as of 2026-09-28. Applied schema is not Agent use: no
+  tool has used the new names live, and the twelve tools stay unregistered until an operator enables
+  them explicitly. There is no deployment or live use of these tools to report.
 - The opt-in Slack identity email match is implemented and locally tested but disabled by default;
   the governance app's `users:read` and `users:read.email` bot scopes and its bot token are not
   installed or configured, so senders still resolve through the retained link table.
@@ -219,9 +219,10 @@ names in this guide are the stable ones: the plugin now calls the tables and RPC
 `<env>_rein_proposals`, `<env>_rein_polls`, `<env>_rein_ballots`, `<env>_rein_vote_types`,
 `<env>_rein_proposal_revisions`, `<env>_rein_finalize_poll` and `<env>_rein_approve_revision`. Those
 names arrive through the forward migration `20260927110000_rein_governance_names.sql`, ordered after
-the committed `20260927103000`; it is **not applied** to the linked project yet, so apply it before
-enabling this code. Until it is applied, the deployed database still answers on the old
-`<env>_rein_mvp_*` names, which the migration keeps reachable as compatibility views and wrappers.
+the committed `20260927103000`; both are **applied** to the linked project as of 2026-09-28, so the
+new names resolve there. The migration keeps the old `<env>_rein_mvp_*` names reachable as
+compatibility views and wrappers, so old-name callers still work during the transition. Applying the
+migration is not Agent use: the live code path has no end-to-end result.
 Those aliases are a transition aid, not the long-term contract: they can be retired once every
 old-name client has been replaced and verified on the new `<env>_rein_*` names, and the migration
 that drops them must not be applied before that.

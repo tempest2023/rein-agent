@@ -92,7 +92,11 @@ becomes relevant. The confirmed MVP is:
 
 Local read-only building blocks for steps 1 and 4 are covered by tests, with no live database
 connected yet. Registered write tools for steps 2 and 3 exist but register only under an explicit
-`foundationDb` configuration block. The round tool takes its candidate cap from the stored vote type and
+`foundationDb` configuration block. All four governance migrations are committed in the sibling
+Foundation repository and applied to the linked `BeneficenceProtocol` project, so the new table and
+RPC names resolve there while the old names remain reachable through compatibility views and
+wrappers; applying them is not evidence that the Agent has used them. The round tool takes its
+candidate cap from the stored vote type and
 assembles the candidate pool itself from stored proposals, re-offering recently unselected ones, so
 no caller supplies candidates, a cap or an option label; the ballot tool accepts approvals bounded
 by the poll's own approval limit, and an empty list is the abstention. The database freezes the
@@ -115,12 +119,14 @@ is refused with `revision_not_approved` until a current director's approval is r
 material in the current implementation. Comments and suggested revisions both require a current
 director inside the approved Board channel, and a stored row additionally permits an active
 Contributor as its author — a database-level allowance the registered tools do not currently expose.
-Everything above is exercised by local synthetic tests only. The two base governance migrations are
-**committed and applied** to the linked `BeneficenceProtocol` project (the committed clock migration
-`20260927103000` and the rename migration `20260927110000_rein_governance_names.sql`, both committed
-in PR #13 at head `08542ad`, are still unapplied there), but no live database is connected to the
-Agent and no Slack workspace has run any of
-it, so nothing here is an end-to-end result.
+Everything above is exercised by local synthetic tests only. All four governance migrations are
+**committed and applied** to the linked `BeneficenceProtocol` project: the two base `20260924*`
+migrations, the committed clock migration `20260927103000`, and the rename migration
+`20260927110000_rein_governance_names.sql` committed in PR #13. The clock and rename migrations were
+verified applied read-only on 2026-09-28 (both versions listed; the ten new physical tables, ten
+old-name compatibility views and four RPC wrappers present). Applied schema is not live code: no live
+database is connected to the Agent and no Slack workspace has run any of it, so nothing here is an
+end-to-end result.
 
 A funding approval is a decision record only. It does not move money, does not commit a payment, and
 does not by itself authorize spending.
