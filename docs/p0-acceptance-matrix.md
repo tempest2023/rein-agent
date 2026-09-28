@@ -86,10 +86,12 @@ workspace exercises that resolver and the retained link table stays the read pat
 enabled. Two
 migrations are **tracked in the sibling Foundation repository**
 (`tempest2023/ReinProtocolFoundation`) on branch `tempest/agent-mvp-schema-and-welcome-email` (PR
-#13, open). Its current committed head is `08542ad09932a4cefb62f230a9bdcf9fd4d32dfe` ("Adopt
-long-term Rein governance names with legacy passthroughs", 2026-09-27); the earlier clock commit
+#13, open). Its current committed head is `2dc244aac6cfaf318a90d51c3c25876d0224c740` ("Recover
+Remote-Only Case 7 Same-Day Fixture Migration", 2026-09-28); the rename commit
+`08542ad09932a4cefb62f230a9bdcf9fd4d32dfe` ("Complete Rein governance catalog rename through
+triggers, constraints, and indexes") and the earlier clock commit
 `32977bfb6cd6ae73b81aa4b396f9ae1cb67d2ac8` ("Make the database clock authoritative for ballot
-`cast_at`") is its parent, and the two MVP schema files were first authored at `4bd5ce8` ("Add the
+`cast_at`") are its ancestors, and the two MVP schema files were first authored at `4bd5ce8` ("Add the
 Rein Agent MVP Slack identity, fund snapshot, and governance schema"). Both MVP migrations are
 **applied to the linked project**:
 `supabase/migrations/20260924094436_rein_slack_identity_and_fund_snapshots.sql` (identity links,

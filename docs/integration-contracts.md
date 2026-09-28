@@ -30,10 +30,12 @@ default.
 
 The slice's migrations live in the sibling Foundation repository `tempest2023/ReinProtocolFoundation`,
 which carries them on branch `tempest/agent-mvp-schema-and-welcome-email` (PR #13, open). The
-committed branch head is `08542ad09932a4cefb62f230a9bdcf9fd4d32dfe` ("Adopt long-term Rein
-governance names with legacy passthroughs", 2026-09-27); the two MVP schema commits below and the
-clock commit `32977bfb6cd6ae73b81aa4b396f9ae1cb67d2ac8` ("Make the database clock authoritative
-for ballot `cast_at`", 2026-09-27) are its ancestors, and the two schema files were first authored
+committed branch head is `2dc244aac6cfaf318a90d51c3c25876d0224c740` ("Recover Remote-Only Case 7
+Same-Day Fixture Migration", 2026-09-28); the rename commit
+`08542ad09932a4cefb62f230a9bdcf9fd4d32dfe` ("Complete Rein governance catalog rename through
+triggers, constraints, and indexes", 2026-09-28) and the clock commit
+`32977bfb6cd6ae73b81aa4b396f9ae1cb67d2ac8` ("Make the database clock authoritative for ballot
+`cast_at`", 2026-09-27) are its ancestors, and the two schema files were first authored
 at `4bd5ce8` ("Add the Rein Agent MVP Slack identity, fund snapshot, and governance schema",
 2026-09-26). The sibling repo holds pgTAP coverage in
 `supabase/tests/rein_mvp_governance.sql`, `supabase/tests/rls.sql` and
