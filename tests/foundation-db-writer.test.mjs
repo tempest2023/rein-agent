@@ -789,7 +789,10 @@ test('listVoteTypes reads the configured names and never invents or hides one', 
 
 test('listCandidateProposals reads the eligible proposals of one vote type', async () => {
   const second = proposalRow({ id: PROPOSAL_TWO, title: 'Repair the fence' });
-  const { writer, calls } = writerFor({ dev_rein_proposals: [proposalRow(), second] });
+  const { writer, calls } = writerFor({
+    dev_rein_proposals: [proposalRow(), second],
+    dev_rein_polls: [],
+  });
 
   const result = await writer.listCandidateProposals({ voteType: VOTE_TYPE });
 
@@ -797,22 +800,29 @@ test('listCandidateProposals reads the eligible proposals of one vote type', asy
   assert.equal(result.status, 'found');
   assert.equal(result.reason, 'candidates');
   assert.deepEqual(result.proposals.map(proposal => proposal.id), [PROPOSAL, PROPOSAL_TWO]);
-  assert.equal(calls[0].params.get('vote_type'), `eq.${VOTE_TYPE}`);
-  assert.equal(calls[0].params.get('status'), 'in.(submitted,unselected)');
-  assert.equal(calls[0].params.get('order'), 'created_at.asc,id.asc');
-  assert.equal(calls[0].params.get('limit'), '50');
+  // The open-poll inventory is read first, cross-type, and then the eligible proposals of this type.
+  assert.equal(calls[0].table, 'dev_rein_polls');
+  assert.equal(calls[0].params.get('status'), 'eq.open');
+  assert.equal(calls[0].params.get('select'), 'id,candidate_proposal_ids');
+  const proposals = calls.find(call => call.table === 'dev_rein_proposals');
+  assert.equal(proposals.params.get('vote_type'), `eq.${VOTE_TYPE}`);
+  assert.equal(proposals.params.get('status'), 'in.(submitted,unselected)');
+  assert.equal(proposals.params.get('order'), 'created_at.asc,id.asc');
+  assert.equal(proposals.params.get('limit'), '50');
+  assert.equal(proposals.params.get('offset'), '0');
 });
 
 test('listCandidateProposals can bound the age and offer recent unselected proposals first', async (t) => {
   await t.test('a submittedSince bound is sent as a created_at filter', async () => {
-    const { writer, calls } = writerFor({ dev_rein_proposals: [proposalRow()] });
+    const { writer, calls } = writerFor({ dev_rein_proposals: [proposalRow()], dev_rein_polls: [] });
     const result = await writer.listCandidateProposals({
       voteType: VOTE_TYPE,
       submittedSince: '2026-09-20T00:00:00Z',
     });
     assert.equal(result.ok, true);
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].params.get('created_at'), 'gte.2026-09-20T00:00:00Z');
+    assert.equal(calls.length, 2);
+    const proposals = calls.find(call => call.table === 'dev_rein_proposals');
+    assert.equal(proposals.params.get('created_at'), 'gte.2026-09-20T00:00:00Z');
   });
 
   await t.test('the recent unselected bucket is read second and offered first', async () => {
@@ -821,6 +831,7 @@ test('listCandidateProposals can bound the age and offer recent unselected propo
       dev_rein_proposals: call => (call.params.get('status') === 'eq.unselected'
         ? [proposalRow()]
         : [older, proposalRow()]),
+      dev_rein_polls: [],
     });
     const result = await writer.listCandidateProposals({
       voteType: VOTE_TYPE,
@@ -828,11 +839,12 @@ test('listCandidateProposals can bound the age and offer recent unselected propo
     });
     assert.equal(result.ok, true);
     assert.deepEqual(result.proposals.map(proposal => proposal.id), [PROPOSAL, PROPOSAL_TWO]);
-    assert.deepEqual(calls.map(call => call.params.get('status')), [
-      'eq.unselected',
-      'in.(submitted,unselected)',
-    ]);
-    assert.equal(calls[0].params.get('order'), 'created_at.desc,id.desc');
+    assert.deepEqual(
+      calls.filter(call => call.table === 'dev_rein_proposals').map(call => call.params.get('status')),
+      ['eq.unselected', 'in.(submitted,unselected)'],
+    );
+    const recent = calls.find(call => call.params.get('status') === 'eq.unselected');
+    assert.equal(recent.params.get('order'), 'created_at.desc,id.desc');
   });
 
   await t.test('a failed recent bucket read is unavailable, never a short list', async () => {
@@ -840,6 +852,7 @@ test('listCandidateProposals can bound the age and offer recent unselected propo
       dev_rein_proposals: call => (call.params.get('status') === 'eq.unselected'
         ? new Response('{}', { status: 503, headers: { 'content-type': 'application/json' } })
         : [proposalRow()]),
+      dev_rein_polls: [],
     });
     const result = await writer.listCandidateProposals({
       voteType: VOTE_TYPE,
@@ -854,18 +867,23 @@ test('listCandidateProposals can bound the age and offer recent unselected propo
 test('listCandidateProposals leaves excluded ids out and refuses a bad page', async (t) => {
   await t.test('an excluded candidate is left out', async () => {
     const second = proposalRow({ id: PROPOSAL_TWO, title: 'Repair the fence' });
-    const { writer, calls } = writerFor({ dev_rein_proposals: [proposalRow(), second] });
+    const { writer, calls } = writerFor({
+      dev_rein_proposals: [proposalRow(), second],
+      dev_rein_polls: [],
+    });
     const result = await writer.listCandidateProposals({
       voteType: VOTE_TYPE,
       excludeProposalIds: [PROPOSAL],
     });
     assert.deepEqual(result.proposals.map(proposal => proposal.id), [PROPOSAL_TWO]);
-    assert.equal(calls[0].params.get('limit'), '51');
+    const proposals = calls.find(call => call.table === 'dev_rein_proposals');
+    assert.equal(proposals.params.get('limit'), '51');
   });
 
   await t.test('a candidate of another vote type is not a candidate', async () => {
     const { writer } = writerFor({
       dev_rein_proposals: [proposalRow({ vote_type: 'other_type' })],
+      dev_rein_polls: [],
     });
     const result = await writer.listCandidateProposals({ voteType: VOTE_TYPE });
     assert.equal(result.ok, false);
@@ -879,6 +897,187 @@ test('listCandidateProposals leaves excluded ids out and refuses a bad page', as
     assert.equal(result.ok, false);
     assert.equal(result.reason, 'candidate_limit_invalid');
     assert.equal(calls.length, 0);
+  });
+});
+
+test('listCandidateProposals never offers a candidate another open poll already froze', async (t) => {
+  const free = () => proposalRow({ id: PROPOSAL_TWO, title: 'Repair the fence' });
+
+  await t.test('a candidate of an open poll of the same type is left out', async () => {
+    const { writer, calls } = writerFor({
+      dev_rein_proposals: [proposalRow(), free()],
+      dev_rein_polls: [pollRow({ candidate_proposal_ids: [PROPOSAL] })],
+    });
+
+    const result = await writer.listCandidateProposals({ voteType: VOTE_TYPE });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.proposals.map(proposal => proposal.id), [PROPOSAL_TWO]);
+    // The inventory read is cross-type: it filters on the open status only, never on the vote type,
+    // because the database's own overlap guard does not look at the type either.
+    const polls = calls.find(call => call.table === 'dev_rein_polls');
+    assert.equal(polls.params.get('status'), 'eq.open');
+    assert.equal(polls.params.get('vote_type'), null);
+  });
+
+  await t.test('a candidate of an open poll of another type is left out too', async () => {
+    const { writer } = writerFor({
+      dev_rein_proposals: [proposalRow(), free()],
+      dev_rein_polls: [pollRow({ vote_type: 'other_type', candidate_proposal_ids: [PROPOSAL] })],
+    });
+
+    const result = await writer.listCandidateProposals({ voteType: VOTE_TYPE });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.proposals.map(proposal => proposal.id), [PROPOSAL_TWO]);
+  });
+
+  await t.test('a frozen candidate is left out alongside the caller-supplied exclusions', async () => {
+    const third = proposalRow({ id: '66666666-6666-4666-8666-666666666666', title: 'Repair the gate' });
+    const { writer } = writerFor({
+      dev_rein_proposals: [proposalRow(), free(), third],
+      dev_rein_polls: [pollRow({ candidate_proposal_ids: [PROPOSAL] })],
+    });
+
+    const result = await writer.listCandidateProposals({
+      voteType: VOTE_TYPE,
+      excludeProposalIds: [PROPOSAL_TWO],
+    });
+
+    assert.deepEqual(result.proposals.map(proposal => proposal.id), [third.id]);
+  });
+
+  await t.test('an entirely frozen pool is an empty answer, not an outage', async () => {
+    const { writer } = writerFor({
+      dev_rein_proposals: [proposalRow(), free()],
+      dev_rein_polls: [pollRow({ candidate_proposal_ids: [PROPOSAL, PROPOSAL_TWO] })],
+    });
+
+    const result = await writer.listCandidateProposals({ voteType: VOTE_TYPE });
+
+    assert.equal(result.ok, true, 'a fully frozen pool is a real answer');
+    assert.equal(result.status, 'found');
+    assert.deepEqual(result.proposals, []);
+  });
+
+  await t.test('the oldest eligible proposal is skipped so the next free one is offered', async () => {
+    const { writer } = writerFor({
+      dev_rein_proposals: [proposalRow(), free()],
+      dev_rein_polls: [pollRow({ candidate_proposal_ids: [PROPOSAL] })],
+    });
+
+    const result = await writer.listCandidateProposals({ voteType: VOTE_TYPE, limit: 1 });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(
+      result.proposals.map(proposal => proposal.id),
+      [PROPOSAL_TWO],
+      'the frozen oldest proposal must not be selected',
+    );
+  });
+
+  await t.test('the scan continues past the page cap to fill the answer with free candidates', async () => {
+    // The page is at most MAX_CANDIDATE_PAGE rows, so a full page of 200 that holds 50 frozen
+    // candidates yields only 150 free ones. The listing must read on rather than answer short.
+    const id = (n, prefix) =>
+      `${prefix}${String(n).padStart(7, '0')}-7777-4777-8777-${String(n).padStart(12, '0')}`;
+    const locked = Array.from({ length: 50 }, (_, index) => proposalRow({ id: id(index, '7'), title: `Locked ${index}` }));
+    const freeFirstPage = Array.from({ length: 150 }, (_, index) =>
+      proposalRow({ id: id(index, '8'), title: `Free first ${index}` }),
+    );
+    const freeSecondPage = Array.from({ length: 40 }, (_, index) =>
+      proposalRow({ id: id(index, '9'), title: `Free later ${index}` }),
+    );
+    const { writer, calls } = writerFor({
+      dev_rein_proposals: call => (call.params.get('offset') === '0'
+        ? [...locked, ...freeFirstPage]
+        : freeSecondPage),
+      dev_rein_polls: [pollRow({ candidate_proposal_ids: locked.map(row => row.id) })],
+    });
+
+    const result = await writer.listCandidateProposals({ voteType: VOTE_TYPE, limit: 200 });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.proposals.length, 190, 'every free candidate is offered, not just the first page');
+    const returned = new Set(result.proposals.map(proposal => proposal.id));
+    assert.equal(locked.some(row => returned.has(row.id)), false, 'no frozen candidate is offered');
+    assert.deepEqual(
+      calls.filter(call => call.table === 'dev_rein_proposals').map(call => call.params.get('offset')),
+      ['0', '200'],
+      'a full capped page is followed by the next page',
+    );
+    assert.equal(calls.find(call => call.table === 'dev_rein_proposals').params.get('limit'), '200');
+  });
+});
+
+test('listCandidateProposals fails closed when the open-poll inventory is unusable', async (t) => {
+  await t.test('an unreadable inventory refuses before any pool is read', async () => {
+    const { writer, calls } = writerFor({
+      dev_rein_proposals: [proposalRow()],
+      dev_rein_polls: () => new Response('{}', { status: 503, headers: { 'content-type': 'application/json' } }),
+    });
+
+    const result = await writer.listCandidateProposals({ voteType: VOTE_TYPE });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.proposals, null, 'an unreadable inventory never answers with a free list');
+    assert.equal(
+      calls.some(call => call.table === 'dev_rein_proposals'),
+      false,
+      'the pool is not read when the exclusion cannot be computed',
+    );
+  });
+
+  await t.test('a truncated inventory refuses instead of under-reporting the free pool', async () => {
+    const page = Array.from({ length: 100 }, (_, index) => ({
+      id: `9999999${index % 10}-9999-4999-8999-9999999999${String(index).padStart(2, '0')}`,
+      candidate_proposal_ids: [],
+    }));
+    const { writer } = writerFor({
+      dev_rein_proposals: [proposalRow()],
+      dev_rein_polls: page,
+    });
+
+    const result = await writer.listCandidateProposals({ voteType: VOTE_TYPE });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.reason, 'poll_inventory_truncated');
+    assert.equal(result.proposals, null);
+  });
+
+  for (const [label, row] of [
+    ['a candidate list that is not a list of identifiers', { id: POLL, candidate_proposal_ids: ['not-a-uuid'] }],
+    ['a poll row without a usable identifier', { id: 'not-a-uuid', candidate_proposal_ids: [] }],
+    ['a candidate list carrying a duplicate', { id: POLL, candidate_proposal_ids: [PROPOSAL, PROPOSAL] }],
+  ]) {
+    await t.test(`a malformed inventory row is refused: ${label}`, async () => {
+      const { writer, calls } = writerFor({
+        dev_rein_proposals: [proposalRow()],
+        dev_rein_polls: [row],
+      });
+
+      const result = await writer.listCandidateProposals({ voteType: VOTE_TYPE });
+
+      assert.equal(result.ok, false);
+      assert.equal(result.status, 'rejected');
+      assert.equal(result.reason, 'poll_inventory_malformed');
+      assert.equal(result.proposals, null);
+      assert.equal(calls.some(call => call.table === 'dev_rein_proposals'), false);
+    });
+  }
+
+  await t.test('a poll row with no candidate column is treated as carrying none', async () => {
+    const { writer } = writerFor({
+      dev_rein_proposals: [proposalRow()],
+      dev_rein_polls: [{ id: POLL, candidate_proposal_ids: null }],
+    });
+
+    const result = await writer.listCandidateProposals({ voteType: VOTE_TYPE });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.proposals.map(proposal => proposal.id), [PROPOSAL]);
   });
 });
 

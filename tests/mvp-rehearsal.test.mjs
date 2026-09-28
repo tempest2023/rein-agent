@@ -250,6 +250,8 @@ function createWorld({ funds = null, records = [], rules = {} } = {}) {
         assertInvocationCurrent,
       };
       const clock = () => new Date(at);
+      // A fresh registration per call is one host turn: the write tools refuse a confirmation token
+      // that the same turn prepared, so the proposal path below resolves its two turns separately.
       const tools = name => {
         const registration =
           name === 'read'
@@ -270,14 +272,16 @@ function createWorld({ funds = null, records = [], rules = {} } = {}) {
         assert.ok(found, `tool ${toolName} is registered for this turn`);
         return found;
       };
-      // A proposal is stored only after the author confirms the prepared text, so the rehearsal goes
-      // through both phases. A refusal on the prepare phase short-circuits, which keeps every
-      // refusal assertion honest about what was never written.
+      // A proposal is stored only after the author confirms the prepared text, and the confirmation
+      // has to arrive in a later turn than the preparation. So the rehearsal prepares in this turn,
+      // then confirms in the following turn's own factory instance. A refusal on the prepare phase
+      // short-circuits, which keeps every refusal assertion honest about what was never written.
       const writeProposal = async (args, toolCallId) => {
-        const submit = tool('write', 'rein_governance_proposal_submit');
-        const prepared = await submit.execute(toolCallId, args);
+        const prepare = tool('write', 'rein_governance_proposal_submit');
+        const prepared = await prepare.execute(toolCallId, args);
         if (prepared.details.status !== 'prepared') return prepared;
-        return submit.execute(toolCallId, {
+        const confirm = tool('write', 'rein_governance_proposal_submit');
+        return confirm.execute(toolCallId, {
           ...args,
           confirmationToken: prepared.details.confirmationToken,
           confirmPronouncedByAuthor: true,
@@ -751,9 +755,9 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
     'two directors hold one stored ballot each',
   );
 
-  // Turn 10 (Board channel, director A). Before the deadline the counts stay provisional: the tool
-  // publishes no winner and no counts at all, even though the store already holds both ballots, and
-  // it finalizes nothing.
+  // Turn 10 (Board channel, director A). Before the deadline the read stays provisional: the tool
+  // publishes no winner, no counts, no participation total and no voter identity at all, even though
+  // the store already holds both ballots, and it finalizes nothing.
   const provisional = await world
     .turn({ sender: DIRECTOR_A.slackUserId, channel: BOARD_CHANNEL, at: at('2026-09-26T17:59:00Z') })
     .write('rein_poll_result', { pollId });
@@ -764,7 +768,11 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   assert.equal(provisional.details.official, false);
   assert.equal(provisional.details.winner, null);
   assert.equal(provisional.details.counts, null, 'a provisional read publishes no tally');
-  assert.equal(provisional.details.totalBallots, 2, 'the recorded ballots are counted as a readable fact');
+  assert.equal(
+    provisional.details.totalBallots,
+    null,
+    'a provisional read publishes no participation total, even with two ballots stored',
+  );
   assert.equal(provisional.details.finalized, false);
   assert.equal(world.finalizations.size, 0, 'nothing is finalized before the deadline');
 
@@ -839,7 +847,8 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
   assert.equal(outsiderFunds.details.error, 'board_membership_required');
 
   // Turn 16 (proposal channel, director B). A failed identity lookup is not eligibility: an
-  // unavailable provider never reads as an active Contributor.
+  // unavailable provider never reads as an active Contributor, and an unreadable record is reported
+  // as an unavailable identity check rather than as an unlinked account.
   const swayed = await world
     .turn({
       sender: DIRECTOR_B.slackUserId,
@@ -859,7 +868,7 @@ test('a Slack rehearsal runs proposal intake, a capped candidate pool, ballots a
       },
     })
     .write('rein_governance_proposal_submit', { voteType: VOTE_TYPE, title: 'Request during an outage' });
-  assert.equal(swayed.details.error, 'identity_link_required');
+  assert.equal(swayed.details.error, 'identity_check_unavailable');
   assert.equal(world.proposals.size, 1, 'an outage stores no proposal');
 
   // Nothing was posted anywhere: the candidate freeze survived every later turn.

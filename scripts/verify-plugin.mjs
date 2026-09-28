@@ -93,8 +93,9 @@ try {
   assert.deepEqual(
     mvp.report.tools.flatMap(tool => tool.names),
     [
-      'rein_member_status', 'rein_funds',
+      'rein_member_status', 'rein_funds', 'rein_poll_candidates', 'rein_vote_type_resolve',
       'rein_governance_proposal_submit', 'rein_poll_open', 'rein_poll_vote', 'rein_poll_result',
+      'rein_proposal_collect',
       'rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply',
       'rein_status',
     ],

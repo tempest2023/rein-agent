@@ -148,8 +148,9 @@ test('mvp mode registers the database-backed read tools instead of the simulator
     });
 
     assert.deepEqual(registrations.map(entry => entry.tool.name ?? entry.options.names.join(',')), [
-      'rein_member_status,rein_funds',
+      'rein_member_status,rein_funds,rein_poll_candidates,rein_vote_type_resolve',
       'rein_governance_proposal_submit,rein_poll_open,rein_poll_vote,rein_poll_result',
+      'rein_proposal_collect',
       'rein_proposal_comment_suggest,rein_revision_approve,rein_revision_apply',
       'rein_status',
     ]);
@@ -160,13 +161,13 @@ test('mvp mode registers the database-backed read tools instead of the simulator
       nativeChannelId: 'C_BOARD',
       requesterSenderId: 'U0123456ABC',
       assertInvocationCurrent() {},
-    }).map(tool => tool.name), ['rein_member_status', 'rein_funds']);
-    assert.deepEqual(mvp.options.names, manifest.contracts.tools.slice(7, 9));
+    }).map(tool => tool.name), ['rein_member_status', 'rein_funds', 'rein_poll_candidates', 'rein_vote_type_resolve']);
+    assert.deepEqual(mvp.options.names, manifest.contracts.tools.slice(7, 11));
 
     const writes = registrations.find(entry => entry.options?.names?.includes('rein_poll_open'));
     assert.ok(writes, 'MVP mode must register the write tools');
     assert.equal(writes.tool.contextVersion, 2);
-    assert.deepEqual(writes.options.names, manifest.contracts.tools.slice(9, 13));
+    assert.deepEqual(writes.options.names, manifest.contracts.tools.slice(11, 15));
     assert.deepEqual(writes.tool.create({
       messageChannel: 'slack',
       nativeChannelId: 'C_BOARD',
@@ -174,11 +175,23 @@ test('mvp mode registers the database-backed read tools instead of the simulator
       assertInvocationCurrent() {},
     }).map(tool => tool.name), [...writes.options.names]);
 
+    // Multi-turn field collection registers from the same explicit block and is read-only.
+    const collect = registrations.find(entry => entry.options?.names?.includes('rein_proposal_collect'));
+    assert.ok(collect, 'MVP mode must register the field-collection tool');
+    assert.equal(collect.tool.contextVersion, 2);
+    assert.deepEqual(collect.tool.create({
+      messageChannel: 'slack',
+      nativeChannelId: 'C_PROPOSAL',
+      requesterSenderId: 'U0123456ABC',
+      assertInvocationCurrent() {},
+    }).map(tool => tool.name), ['rein_proposal_collect']);
+    assert.deepEqual(collect.options.names, manifest.contracts.tools.slice(15, 16));
+
     // Post-result feedback registers from the same explicit block, with its own v2 factory.
     const feedback = registrations.find(entry => entry.options?.names?.includes('rein_revision_apply'));
     assert.ok(feedback, 'MVP mode must register the post-result feedback tools');
     assert.equal(feedback.tool.contextVersion, 2);
-    assert.deepEqual(feedback.options.names, manifest.contracts.tools.slice(13));
+    assert.deepEqual(feedback.options.names, manifest.contracts.tools.slice(16));
     assert.deepEqual(feedback.tool.create({
       messageChannel: 'slack',
       nativeChannelId: 'C_BOARD',
@@ -190,11 +203,14 @@ test('mvp mode registers the database-backed read tools instead of the simulator
     const result = await status.tool.execute('status-call', {});
     assert.deepEqual(result.details.implemented, [
       'rein_status', 'rein_member_status', 'rein_funds',
+      'rein_poll_candidates', 'rein_vote_type_resolve',
       'rein_governance_proposal_submit', 'rein_poll_open', 'rein_poll_vote', 'rein_poll_result',
+      'rein_proposal_collect',
       'rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply',
     ]);
     assert.equal(result.details.mvpReadToolsEnabled, true);
     assert.equal(result.details.mvpWriteToolsEnabled, true);
+    assert.equal(result.details.mvpCollectToolsEnabled, true);
     assert.equal(result.details.mvpFeedbackToolsEnabled, true);
     assert.equal(result.details.proposalToolsEnabled, false);
     assert.equal(result.details.automationEnabled, false);

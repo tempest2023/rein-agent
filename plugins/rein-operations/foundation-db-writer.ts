@@ -20,9 +20,12 @@
 //
 // The database is the authority for every governance rule: it freezes a poll's candidate limit and
 // per-voter approval limit from the named vote type, refuses a candidate that does not belong to the
-// poll, refuses a second or replaced ballot, and refuses writes from the Data API roles. This module
-// shapes one request, records exactly one immutable row per call and collapses every failure to a
-// fixed reason code.
+// poll, refuses a candidate that already sits on an open poll of any type, refuses a second or
+// replaced ballot, and refuses writes from the Data API roles. A candidate read answers with the
+// eligible proposals that no open round has frozen yet, so the caller and the database agree on what
+// is free; the database's own overlap guard stays the final race guard for the moment between that
+// read and the insert. This module shapes one request, records exactly one immutable row per call
+// and collapses every failure to a fixed reason code.
 //
 // Access model: those tables enable RLS, grant nothing to `anon` or `authenticated` and are writable
 // by `service_role` only, so this writer authenticates with the server-only secret key over
@@ -415,7 +418,11 @@ export interface FoundationDbWriter {
    * it is the only source from which a caller may name a type; the writer never invents one.
    */
   listVoteTypes(input?: { limit?: number | null }): Promise<VoteTypeListResult>;
-  /** Read the proposals that may enter a new poll of one vote type. */
+  /**
+   * Read the proposals that may enter a new poll of one vote type: the eligible submissions of that
+   * type, minus every proposal already frozen by a currently open poll of any type, because the
+   * database refuses a candidate that is already on an open round.
+   */
   listCandidateProposals(input: ListCandidateProposalsInput): Promise<CandidateProposalListResult>;
   /**
    * Close a poll after its deadline and record the outcome the database counts from the ballots, as
@@ -473,6 +480,12 @@ const MAX_NOTE_LENGTH = 2000;
 const MAX_BALLOT_PAGE = 1000;
 const MAX_CANDIDATE_PAGE = 200;
 const DEFAULT_CANDIDATE_PAGE = 50;
+/** Page size for the open-poll inventory the candidate exclusion reads. */
+const OPEN_POLL_SCAN_PAGE = 100;
+/** Open polls one candidate listing reads before it refuses rather than under-report the free pool. */
+const MAX_OPEN_POLL_SCAN = 500;
+/** Raw proposal rows one candidate listing scans before it refuses rather than under-report. */
+const MAX_CANDIDATE_SCAN = 1000;
 /** The fields a revision may name. Empty names a comment. */
 const REVISION_FIELDS = Object.freeze([
   'title',
@@ -1581,6 +1594,56 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     return { ok: true, status: 'found', reason: 'vote_types', voteTypes, httpStatus: read.httpStatus };
   };
 
+  /**
+   * Every proposal identifier frozen by a currently open poll, whatever that poll's vote type, or a
+   * refusal when the inventory could not be read whole. The database refuses a new poll whose
+   * candidates overlap any open poll and does not filter that check by type, so the exclusion has to
+   * be cross-type too. The inventory is read in bounded pages: more open polls than the bound, an
+   * unreadable page or a malformed row is reported rather than silently shrinking the set.
+   */
+  const readOpenPollCandidates = async (): Promise<
+    | { ok: true; ids: string[] }
+    | { ok: false; status: WriterStatus; reason: string; httpStatus: number | null }
+  > => {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    let offset = 0;
+    for (;;) {
+      const read = await request('GET', `${tablePrefix}rein_polls`, {
+        select: 'id,candidate_proposal_ids',
+        status: 'eq.open',
+        order: 'created_at.asc,id.asc',
+        limit: String(OPEN_POLL_SCAN_PAGE),
+        offset: String(offset),
+      });
+      if (!read.ok) {
+        return { ok: false, status: 'unavailable', reason: read.reason, httpStatus: read.httpStatus };
+      }
+      for (const row of read.rows) {
+        if (!isPlainObject(row) || asUuid(row.id) === null) {
+          return { ok: false, status: 'rejected', reason: 'poll_inventory_malformed', httpStatus: read.httpStatus };
+        }
+        const candidates = row.candidate_proposal_ids;
+        if (candidates === null || candidates === undefined) continue;
+        const listed = uuidList(candidates, true);
+        if (listed === null) {
+          return { ok: false, status: 'rejected', reason: 'poll_inventory_malformed', httpStatus: read.httpStatus };
+        }
+        for (const id of listed) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+          ids.push(id);
+        }
+      }
+      if (read.rows.length < OPEN_POLL_SCAN_PAGE) break;
+      offset += OPEN_POLL_SCAN_PAGE;
+      if (offset >= MAX_OPEN_POLL_SCAN) {
+        return { ok: false, status: 'unavailable', reason: 'poll_inventory_truncated', httpStatus: read.httpStatus };
+      }
+    }
+    return { ok: true, ids };
+  };
+
   const listCandidateProposals = async (
     input: ListCandidateProposalsInput,
   ): Promise<CandidateProposalListResult> => {
@@ -1608,6 +1671,17 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
     if (typeof recentlyUnselected !== 'boolean') {
       return candidateFailure('invalid_request', 'candidate_buckets_invalid', null);
     }
+    // A proposal may sit on only one open round at a time, and the database's own guard does not look
+    // at the vote type when it refuses an overlap: one open poll of another type freezes a candidate
+    // just as firmly as one of this type. So the free pool is computed here against the whole open
+    // inventory, and the trigger stays the final race guard for the moment between this read and the
+    // insert. An inventory that cannot be read whole refuses instead of answering with a free list
+    // that may not be free.
+    const openPolls = await readOpenPollCandidates();
+    if (!openPolls.ok) {
+      return candidateFailure(openPolls.status, openPolls.reason, openPolls.httpStatus);
+    }
+    for (const id of openPolls.ids) excluded.add(id);
     // The exclusion is applied to the fetched page, so the page is widened by the number of
     // excluded ids rather than by guessing how many rows they would have occupied.
     const pageSize = Math.min(limit + excluded.size, MAX_CANDIDATE_PAGE);
@@ -1633,34 +1707,59 @@ export function createFoundationDbWriter(config: FoundationDbWriterConfig): Foun
         recent.push(proposal);
       }
     }
-    const baseParams: Record<string, string> = {
-      select: PROPOSAL_COLUMNS,
-      vote_type: `eq.${voteType}`,
-      status: `in.(${CANDIDATE_STATUSES.join(',')})`,
-      order: 'created_at.asc,id.asc',
-      limit: String(pageSize),
-    };
-    if (submittedSince !== null) baseParams.created_at = `gte.${submittedSince}`;
-    const read = await request('GET', `${tablePrefix}rein_proposals`, baseParams);
-    if (!read.ok) return candidateFailure('unavailable', read.reason, read.httpStatus);
     const fetched: ProposalRecord[] = [];
-    for (const row of read.rows) {
-      const proposal = proposalFromRow(row);
-      // Every row must still carry the queried vote type: a mismatched row is not a candidate.
-      if (proposal === null || proposal.voteType !== voteType) {
-        return candidateFailure('rejected', 'response_malformed', read.httpStatus);
+    /** The page of free candidates this answer may return, in the order the two buckets are merged. */
+    const freePage = (): ProposalRecord[] => {
+      const proposals: ProposalRecord[] = [];
+      const seen = new Set<string>();
+      for (const proposal of [...recent, ...fetched]) {
+        if (seen.has(proposal.id) || excluded.has(proposal.id)) continue;
+        seen.add(proposal.id);
+        proposals.push(proposal);
+        if (proposals.length === limit) break;
       }
-      fetched.push(proposal);
+      return proposals;
+    };
+    // A first page that is entirely frozen must not read as "nothing can be voted on", so the scan
+    // continues page by page until the answer is full or the eligible rows run out.
+    let scannedStatus: number | null = null;
+    let offset = 0;
+    for (;;) {
+      const params: Record<string, string> = {
+        select: PROPOSAL_COLUMNS,
+        vote_type: `eq.${voteType}`,
+        status: `in.(${CANDIDATE_STATUSES.join(',')})`,
+        order: 'created_at.asc,id.asc',
+        limit: String(pageSize),
+        offset: String(offset),
+      };
+      if (submittedSince !== null) params.created_at = `gte.${submittedSince}`;
+      const read = await request('GET', `${tablePrefix}rein_proposals`, params);
+      if (!read.ok) return candidateFailure('unavailable', read.reason, read.httpStatus);
+      scannedStatus = read.httpStatus;
+      for (const row of read.rows) {
+        const proposal = proposalFromRow(row);
+        // Every row must still carry the queried vote type: a mismatched row is not a candidate.
+        if (proposal === null || proposal.voteType !== voteType) {
+          return candidateFailure('rejected', 'response_malformed', read.httpStatus);
+        }
+        fetched.push(proposal);
+      }
+      if (freePage().length >= limit) break;
+      // A short page is the end of the eligible rows; a full one may be followed by more.
+      if (read.rows.length < pageSize) break;
+      if (fetched.length >= MAX_CANDIDATE_SCAN) {
+        return candidateFailure('unavailable', 'candidate_scan_truncated', read.httpStatus);
+      }
+      offset += pageSize;
     }
-    const proposals: ProposalRecord[] = [];
-    const seen = new Set<string>();
-    for (const proposal of [...recent, ...fetched]) {
-      if (seen.has(proposal.id) || excluded.has(proposal.id)) continue;
-      seen.add(proposal.id);
-      proposals.push(proposal);
-      if (proposals.length === limit) break;
-    }
-    return { ok: true, status: 'found', reason: 'candidates', proposals, httpStatus: read.httpStatus };
+    return {
+      ok: true,
+      status: 'found',
+      reason: 'candidates',
+      proposals: freePage(),
+      httpStatus: scannedStatus,
+    };
   };
 
   const finalizePoll = async (input: FinalizePollInput): Promise<PollFinalizationResult> => {

@@ -107,10 +107,10 @@
   - Agent（期望）：截止前只能给「临时读数」，不给计数与赢家。
   - 董事：`@Agent 现在结果出来了吗？谁赢了？`
   - Agent（期望）：截止后给出赢家与票数，并强调这只是决策记录。
-- **用户可见**：截止前说明「还没有正式结果」；截止后解释赢家、参与人数、以及结果不移动资金。
+- **用户可见**：截止前说明「还没有正式结果」；截止后同时给出赢家、参与人数与弃权数，并解释结果不移动资金。
 - **工具 / 数据库**：
   - 截止前 `rein_poll_result` 返回 `status = 'provisional'`、`ok = false`、`closed = false`、`official = false`、`outcome = null`、`winner = null`、`counts = null`，只给 `closesAt`、`totalBallots` 等可读事实。
-  - 截止后由 `rein_finalize_poll` 由数据库落库结果，工具返回 `ok = true`、`closed = true`、`official = true`、`outcome`（`'winner'` 或 `'no_winner'`）、`winner`、`counts`（各候选人得票）、`totalBallots`、`abstainCount`。
+  - 截止后由 `rein_finalize_poll` 由数据库落库结果，工具返回 `ok = true`、`closed = true`、`official = true`、`outcome`（`'winner'` 或 `'no_winner'`）、`winner`、`counts`（各候选人得票）、`totalBallots`、`abstainCount`（截止后参与总数与各候选人票数**仍可读**）。
   - 再次查询已关闭的一轮返回 `repeated = true`，回放该轮已落库的结果，不重新计票。
 - **缺口**：没有专门的结果叙述或回帖工具，工具只返回原始结果字段；workspace 的持久原则要求 Agent 依据这些字段自己讲清楚，且**不得声称结果已回帖到频道**。叙述话术的可用性未经真实对话验证，属目标验收缺口，见[验收缺口](#验收缺口)。
 

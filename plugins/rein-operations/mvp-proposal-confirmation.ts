@@ -6,21 +6,45 @@
 // that binds one proposer to one exact payload, and the submit step refuses to write until it
 // receives that token back together with an explicit confirmation statement.
 //
-// The token is an HMAC-SHA256 over a canonical JSON document, keyed by a server-only secret that
-// lives in the process environment. It carries no credential of its own: the document it commits to
-// is the proposer's own request text, and the signature only proves the server minted this exact
-// binding. Verification re-derives the payload from the submitted arguments, so altering the title,
-// the type, the amount or the currency after the preview invalidates the token.
+// Confidentiality. The token travels back through the model and the chat transcript, so the payload
+// it carries must not be readable there. The token is an AES-256-GCM ciphertext of the canonical
+// payload document: the proposer's own request text and their private contact identifier never
+// appear in the clear. One key is derived per purpose from the server-only confirmation signing
+// secret with HKDF-SHA256 under an explicit domain separation label, and the expiry, the token
+// version and the proposer binding are authenticated as additional data, so a token cannot be
+// re-aimed at another proposer, another binding or another window without failing authentication.
+//
+// Verification re-derives the payload from the submitted arguments, so altering the title, the type,
+// the amount or the currency after the preview invalidates the token. The token carries no
+// credential of its own: the ciphertext protects the content, and the GCM tag only proves the server
+// minted this exact binding.
 //
 // Replay: a token is bound to the proposer and the payload, and the identifier that becomes the
 // proposal row's primary key is derived from that same binding. Submitting the same confirmed
-// payload twice therefore addresses the same database row: the first write inserts it and the
-// second is reported as the same record, so a retry cannot create a second proposal. A token is
+// payload twice therefore addresses the same database row: the first write inserts it and the second
+// is reported as the same record, so a retry cannot create a second proposal. A token is
 // short-lived and expiry is enforced against the injected clock.
+//
+// Size. Encryption does not compress: the ciphertext is the UTF-8 document plus a fixed header and
+// one 16-byte tag, base64url-encoded. The document fence, the token cap and the envelope width are
+// tied together by `maxDocumentBytesForToken`, so the fence can never admit a document whose token
+// would exceed the cap the schema advertises. A document over the fence, or one whose minted token
+// would still exceed the cap, is refused before a token is handed out rather than emitted unusable.
+//
+// Migration. Tokens minted by the previous HMAC-only shape (`rpc1`) carried the payload in the
+// clear and are not accepted here. The TTL is short, so a proposer whose token predates this change
+// simply prepares the proposal again and reads the prepared text back once more.
 
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHmac,
+  hkdfSync,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto';
 
-export const CONFIRMATION_TOKEN_VERSION = 'rpc1';
+export const CONFIRMATION_TOKEN_VERSION = 'rpc2';
 // The token guards a long-lived write interface, so its prefix names the proposal confirmation
 // itself rather than the MVP stage that first introduced it.
 export const CONFIRMATION_TOKEN_PREFIX = 'rein_proposal_confirm';
@@ -56,7 +80,46 @@ export type ConfirmationVerification =
   | { ok: true; payload: ConfirmationPayload }
   | { ok: false; reason: ConfirmationFailure };
 
+export type ConfirmationIssueResult =
+  | { ok: true; token: string; expiresAt: string; proposalId: string }
+  | { ok: false; reason: 'proposal_confirmation_payload_too_large'; documentBytes: number };
+
 const DOCUMENT_VERSION = 1;
+const NONCE_BYTES = 12;
+const TAG_BYTES = 16;
+const KEY_BYTES = 32;
+const ALGORITHM = 'aes-256-gcm';
+/**
+ * Domain separation for the per-token encryption key. The signing secret is never used as the key
+ * itself: HKDF derives a distinct 32-byte key for this one purpose under a fixed salt and label.
+ */
+const KEY_SALT = 'rein.proposal-confirmation.hkdf-salt-rpc2';
+const KEY_LABEL = 'rein.proposal-confirmation.aes-256-gcm-rpc2';
+
+/**
+ * The largest confirmation token the tool contract accepts, and therefore the schema's own cap. The
+ * schema counts characters, and the token is ASCII once base64url-encoded, so characters and bytes
+ * are the same here. The cap is a measured bound for the longest legal payload in the widest
+ * encoding plus a deliberate margin, not a guess.
+ */
+export const MAX_CONFIRMATION_TOKEN_LENGTH = 65400;
+
+/** Bytes of envelope that travel before the sealed blob: `prefix.version.expiry.` plus its dots. */
+const ENVELOPE_PREFIX_LENGTH = CONFIRMATION_TOKEN_PREFIX.length + CONFIRMATION_TOKEN_VERSION.length + 18;
+
+/**
+ * The largest canonical document, in UTF-8 bytes, whose token still fits the cap. The sealed blob is
+ * `nonce || ciphertext || tag` and base64url expands 3 bytes to 4 characters, so a document that
+ * exactly fills the fence can add a 4-character group the fence did not count. The fence therefore
+ * keeps that group inside the cap instead of assuming the last partial group costs nothing.
+ */
+export const maxDocumentBytesForToken = (tokenCap: number): number => {
+  const budget = tokenCap - ENVELOPE_PREFIX_LENGTH - 3;
+  return Math.floor((budget * 3) / 4) - NONCE_BYTES - TAG_BYTES;
+};
+
+/** The fence the mint path enforces, derived from the same cap the schema advertises. */
+export const MAX_CONFIRMATION_DOCUMENT_BYTES = maxDocumentBytesForToken(MAX_CONFIRMATION_TOKEN_LENGTH);
 
 const canonicalDocument = (payload: ConfirmationPayload): string =>
   JSON.stringify({
@@ -94,6 +157,30 @@ export const proposalIdForConfirmation = (payload: ConfirmationPayload, signingK
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 };
 
+/** Derive the one 32-byte AES-256-GCM key for this purpose from the server-only signing secret. */
+const documentKey = (signingKey: string): Buffer =>
+  Buffer.from(
+    hkdfSync(
+      'sha256',
+      Buffer.from(signingKey, 'utf8'),
+      Buffer.from(KEY_SALT, 'utf8'),
+      Buffer.from(KEY_LABEL, 'utf8'),
+      KEY_BYTES,
+    ),
+  );
+
+/**
+ * The additional authenticated data of one token: the token's own envelope. The expiry is inside
+ * it, so a token cannot be re-dated; the version is inside it, so one token shape cannot be read as
+ * another; and the proposer binding is inside it, so a ciphertext lifted onto another proposer's
+ * request fails authentication instead of decrypting.
+ */
+const envelopeAad = (expiresAt: number, proposerContactId: string): Buffer =>
+  Buffer.from(
+    `${CONFIRMATION_TOKEN_PREFIX}.${CONFIRMATION_TOKEN_VERSION}.${expiresAt}.${proposerContactId}`,
+    'utf8',
+  );
+
 /**
  * Mint one confirmation token that binds this proposer to this exact payload until `expiresAt`.
  * The signing key never leaves the process and never appears in the token or in a result.
@@ -102,33 +189,42 @@ export function issueProposalConfirmation(
   payload: ConfirmationPayload,
   signingKey: string,
   now: Date,
-): { token: string; expiresAt: string; proposalId: string } {
+): ConfirmationIssueResult {
   const expiresAt = now.getTime() + CONFIRMATION_TTL_MS;
-  const document = Buffer.from(canonicalDocument(payload), 'utf8').toString('base64url');
-  const signature = createHmac('sha256', signingKey)
-    .update(`${CONFIRMATION_TOKEN_VERSION}.${expiresAt}.${document}`)
-    .digest('base64url');
+  const document = Buffer.from(canonicalDocument(payload), 'utf8');
+  if (document.length > MAX_CONFIRMATION_DOCUMENT_BYTES) {
+    // Fail closed before minting: a token the schema would refuse is never handed to a caller.
+    return { ok: false, reason: 'proposal_confirmation_payload_too_large', documentBytes: document.length };
+  }
+  const nonce = randomBytes(NONCE_BYTES);
+  const cipher = createCipheriv(ALGORITHM, documentKey(signingKey), nonce);
+  cipher.setAAD(envelopeAad(expiresAt, payload.proposerContactId));
+  const ciphertext = Buffer.concat([cipher.update(document), cipher.final()]);
+  // Layout: nonce || ciphertext || tag. The tag is what proves the server minted this binding.
+  const sealed = Buffer.concat([nonce, ciphertext, cipher.getAuthTag()]).toString('base64url');
+  const token = `${CONFIRMATION_TOKEN_PREFIX}.${CONFIRMATION_TOKEN_VERSION}.${expiresAt}.${sealed}`;
+  if (token.length > MAX_CONFIRMATION_TOKEN_LENGTH) {
+    // Belt and braces behind the fence: whatever the arithmetic says, a token longer than the
+    // advertised cap is never returned, because the confirm side could not accept it back.
+    return { ok: false, reason: 'proposal_confirmation_payload_too_large', documentBytes: document.length };
+  }
   return {
-    token: `${CONFIRMATION_TOKEN_PREFIX}.${CONFIRMATION_TOKEN_VERSION}.${expiresAt}.${document}.${signature}`,
+    ok: true,
+    token,
     expiresAt: new Date(expiresAt).toISOString(),
     proposalId: proposalIdForConfirmation(payload, signingKey),
   };
 }
 
-const sameSignature = (left: string, right: string): boolean => {
+const sameBytes = (left: string, right: string): boolean => {
   const a = Buffer.from(left);
   const b = Buffer.from(right);
   return a.length === b.length && timingSafeEqual(a, b);
 };
 
-const decodeDocument = (document: string): ConfirmationPayload | null => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(Buffer.from(document, 'base64url').toString('utf8'));
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== 'object') return null;
+/** Accept only a document whose every field is at its declared type and shape. */
+const asConfirmationPayload = (parsed: unknown): ConfirmationPayload | null => {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   const doc = parsed as Record<string, unknown>;
   if (doc.v !== DOCUMENT_VERSION) return null;
   const proposerContactId = typeof doc.proposerContactId === 'string' ? doc.proposerContactId : null;
@@ -149,6 +245,55 @@ const decodeDocument = (document: string): ConfirmationPayload | null => {
 };
 
 /**
+ * Read the encrypted document, or null when the token does not authenticate. The proposer binding is
+ * part of the additional authenticated data, so this is called with the proposer the caller is
+ * currently submitting as: another author's ciphertext fails authentication here.
+ */
+const openDocument = (
+  sealed: string,
+  expiresAt: number,
+  proposerContactId: string,
+  signingKey: string,
+): ConfirmationPayload | null => {
+  if (!/^[A-Za-z0-9_-]+$/.test(sealed)) return null;
+  const buffer = Buffer.from(sealed, 'base64url');
+  if (buffer.length <= NONCE_BYTES + TAG_BYTES) return null;
+  const nonce = buffer.subarray(0, NONCE_BYTES);
+  const ciphertext = buffer.subarray(NONCE_BYTES, buffer.length - TAG_BYTES);
+  const tag = buffer.subarray(buffer.length - TAG_BYTES);
+  let plaintext: Buffer;
+  try {
+    const decipher = createDecipheriv(ALGORITHM, documentKey(signingKey), nonce);
+    decipher.setAAD(envelopeAad(expiresAt, proposerContactId));
+    decipher.setAuthTag(tag);
+    plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  } catch {
+    // A forged, truncated, re-dated, re-aimed or wrongly keyed token fails here and is invalid.
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(plaintext.toString('utf8'));
+  } catch {
+    return null;
+  }
+  return asConfirmationPayload(parsed);
+};
+
+/** Read the envelope out of a token without trusting any of it. */
+const readEnvelope = (token: unknown): { expiresAt: number; sealed: string } | null => {
+  if (typeof token !== 'string' || !token.trim()) return null;
+  const parts = token.trim().split('.');
+  if (parts.length !== 4) return null;
+  const [prefix, version, expiresText, sealed] = parts;
+  if (prefix !== CONFIRMATION_TOKEN_PREFIX || version !== CONFIRMATION_TOKEN_VERSION) return null;
+  if (!sealed) return null;
+  const expiresAt = Number(expiresText);
+  if (!Number.isFinite(expiresAt)) return null;
+  return { expiresAt, sealed };
+};
+
+/**
  * Verify a returned token against the payload the caller is now submitting.
  *
  * Four outcomes are kept apart so a caller can tell an omitted token from an altered one: a missing
@@ -164,23 +309,20 @@ export function verifyProposalConfirmation(
   if (typeof token !== 'string' || !token.trim()) {
     return { ok: false, reason: 'proposal_confirmation_required' };
   }
-  const parts = token.trim().split('.');
-  if (parts.length !== 5) return { ok: false, reason: 'proposal_confirmation_invalid' };
-  const [prefix, version, expiresText, document, signature] = parts;
-  if (prefix !== CONFIRMATION_TOKEN_PREFIX || version !== CONFIRMATION_TOKEN_VERSION) {
-    return { ok: false, reason: 'proposal_confirmation_invalid' };
-  }
-  const expectedSignature = createHmac('sha256', signingKey)
-    .update(`${version}.${expiresText}.${document}`)
-    .digest('base64url');
-  if (!sameSignature(signature, expectedSignature)) {
-    return { ok: false, reason: 'proposal_confirmation_invalid' };
-  }
-  const decoded = decodeDocument(document);
-  if (decoded === null) return { ok: false, reason: 'proposal_confirmation_invalid' };
-  const expiresAt = Number(expiresText);
-  if (!Number.isFinite(expiresAt) || expiresAt <= now.getTime()) {
+  const envelope = readEnvelope(token);
+  if (envelope === null) return { ok: false, reason: 'proposal_confirmation_invalid' };
+  // The expiry travels in the clear because the confirm phase has to report an expired token as
+  // expired; it is authenticated as additional data, so moving it breaks decryption instead of
+  // granting a longer window.
+  if (envelope.expiresAt <= now.getTime()) {
     return { ok: false, reason: 'proposal_confirmation_expired' };
+  }
+  const decoded = openDocument(envelope.sealed, envelope.expiresAt, payload.proposerContactId, signingKey);
+  if (decoded === null) return { ok: false, reason: 'proposal_confirmation_invalid' };
+  // The ciphertext is authenticated under the submitting proposer's own binding, so a token lifted
+  // from another author's request fails here rather than being reported as a field mismatch.
+  if (!sameBytes(decoded.proposerContactId, payload.proposerContactId)) {
+    return { ok: false, reason: 'proposal_confirmation_invalid' };
   }
   if (canonicalDocument(decoded) !== canonicalDocument(payload)) {
     return { ok: false, reason: 'proposal_confirmation_mismatch' };
