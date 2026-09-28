@@ -128,11 +128,11 @@ export default definePluginEntry({
             ? ["rein_status", ...MVP_READ_TOOL_NAMES, ...MVP_WRITE_TOOL_NAMES, ...MVP_COLLECT_TOOL_NAMES, ...MVP_FEEDBACK_TOOL_NAMES]
             : ["rein_status", "rein_simulate_vote", "rein_simulate_proposal", ...(proposalEnabled ? [...PROPOSAL_TOOL_NAMES] : [])],
           automationEnabled: false,
-          mvpReadToolsEnabled: mvpEnabled,
-          mvpWriteToolsEnabled: mvpEnabled,
-          // The field-collection tool is its own read-only surface inside MVP mode.
-          mvpCollectToolsEnabled: mvpEnabled,
-          mvpFeedbackToolsEnabled: mvpEnabled,
+          foundationDbReadToolsEnabled: mvpEnabled,
+          foundationDbWriteToolsEnabled: mvpEnabled,
+          // The field-collection tool is its own read-only surface inside foundationDb mode.
+          foundationDbCollectToolsEnabled: mvpEnabled,
+          foundationDbFeedbackToolsEnabled: mvpEnabled,
           proposalToolsEnabled: proposalEnabled && !mvpEnabled,
           formalProposalActionsEnabled: false,
           integrations: {

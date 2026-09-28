@@ -169,7 +169,7 @@ const POLICY_KEYS = Object.freeze([
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 function configError(message: string): never {
-  throw new MvpReadToolError('mvp_config_invalid', `mvp read tools: ${message}`);
+  throw new MvpReadToolError('foundation_db_config_invalid', `foundationDb read tools: ${message}`);
 }
 
 function readChannelIds(field: string, value: unknown): string[] {
@@ -220,8 +220,8 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
   const value = env?.[name];
   if (typeof value !== 'string' || !value.trim()) {
     throw new MvpReadToolError(
-      'mvp_env_value_missing',
-      `mvp read tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
+      'foundation_db_env_value_missing',
+      `foundationDb read tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
     );
   }
   return value.trim();

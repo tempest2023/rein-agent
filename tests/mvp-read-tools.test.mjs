@@ -173,11 +173,11 @@ test('the Supabase key is read from the server environment and never appears in 
   const missing = {};
   assert.throws(
     () => createMvpReadToolRegistration({ config: baseConfig, env: missing }),
-    error => error.code === 'mvp_env_value_missing' && error.message.includes(URL_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(URL_ENV),
   );
   assert.throws(
     () => createMvpReadToolRegistration({ config: baseConfig, env: { [URL_ENV]: 'https://project-ref.supabase.co' } }),
-    error => error.code === 'mvp_env_value_missing' && error.message.includes(KEY_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(KEY_ENV),
   );
 
   const registration = createMvpReadToolRegistration({
@@ -257,7 +257,7 @@ test('email identity matching names the bot token variable and never echoes its 
         config: named,
         env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET },
       }),
-    error => error.code === 'mvp_env_value_missing' && error.message.includes(BOT_TOKEN_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(BOT_TOKEN_ENV),
   );
 
   const registration = createMvpReadToolRegistration({

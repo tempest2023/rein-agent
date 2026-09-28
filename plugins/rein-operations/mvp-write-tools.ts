@@ -237,7 +237,7 @@ const asIsoInstant = (value: unknown): string | null =>
     : null;
 
 function configError(message: string): never {
-  throw new MvpWriteToolError('mvp_config_invalid', `mvp write tools: ${message}`);
+  throw new MvpWriteToolError('foundation_db_config_invalid', `foundationDb write tools: ${message}`);
 }
 
 function readChannelIds(field: string, value: unknown): string[] {
@@ -275,8 +275,8 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
   const value = env?.[name];
   if (typeof value !== 'string' || !value.trim()) {
     throw new MvpWriteToolError(
-      'mvp_env_value_missing',
-      `mvp write tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
+      'foundation_db_env_value_missing',
+      `foundationDb write tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
     );
   }
   return value.trim();

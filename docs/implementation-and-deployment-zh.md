@@ -142,6 +142,10 @@ MVP 方向已落地 12 个工具，且**只在显式 `foundationDb` 配置块下
 
 预上线审查要求移除工具、表、配置与 skill 里的 `mvp` 命名。插件与配置现已改用长期名称：12 个工具 `rein_member_status`、`rein_funds`、`rein_poll_candidates`、`rein_vote_type_resolve`、`rein_proposal_collect`、`rein_governance_proposal_submit`、`rein_poll_open`、`rein_poll_vote`、`rein_poll_result`、`rein_proposal_comment_suggest`、`rein_revision_approve`、`rein_revision_apply`，以及 `foundationDb` 配置块。数据库侧因为两个基础迁移已应用到已链接项目，表名与 RPC 名不能就地修改：改名由一份**向前迁移** `20260927110000_rein_governance_names.sql` 完成，它排在已提交的 `20260927103000` 之后，重命名物理表与两个 RPC，并保留 `<env>_rein_mvp_*` 旧表名与旧 RPC 名的兼容视图与包装。该迁移**已在 PR #13（head `f15c7ea`）提交但尚未应用到已链接项目**：必须**先应用它、再启用使用新名称的 Agent 代码**，在此之前线上数据库只认旧名，也不得声称新名称已在任一环境生效。接口完整清单见[服务方接口契约的命名小节](integration-contracts.md#naming-and-the-rename-migration)。源文件与测试文件保留历史 `mvp-*.ts`／`mvp-*.mjs` 文件名，这些文件名不是接口。
 
+调用方可见的名称随插件一起改：`foundationDb` 配置块格式错误时返回 `foundation_db_config_invalid`，被引用的服务端环境变量未设置或为空时返回 `foundation_db_env_value_missing`；`rein_status` 改为报告 `foundationDbReadToolsEnabled`、`foundationDbWriteToolsEnabled`、`foundationDbFeedbackToolsEnabled`。这些是代码接口，不涉及迁移。改名迁移仍在 PR #13 中处理：该 PR 未合并，`20260927110000` 尚未应用，现**已包含**独立成立所需的改名工作——在每个环境里除五张物理表与两个 RPC 外，还改十个辅助函数与触发器函数的名称，把函数体改写到新的物理表名、辅助函数名与 GUC 名，并一并改名相关的触发器、约束与索引，因此不再依赖它要替换的旧名；同时保留恰好十个旧名视图与四个旧名 RPC 包装以兼容旧调用方。因为尚未应用，在应用前修改它不会改写已应用的历史，两个基础 `20260924*` 迁移保持已应用状态并保留其历史文件名不变，应用后它才进入已应用历史、不再可改。旧名兼容视图与包装只是过渡手段，等旧调用方全部替换并验证走新名 `<env>_rein_*` 后即可移除，移除它们的迁移绝不能提前合并或应用。
+
+**兼容名退役条件。** `<env>_rein_mvp_*` 兼容视图与 RPC 包装只是过渡手段，不是长期契约。只要还有运行中的客户端在调用旧名，就保留它们：在旧客户端仍活跃时删除视图或包装会直接打断该客户端且没有替代。退役条件是旧名客户端已被替换并在新 `<env>_rein_*` 名称上验证通过；在该验证出现之前，删除视图与包装的迁移一律推迟，不得提前合并或应用。
+
 ## 十个 Agent 演练案例
 
 这些案例已改写为 **MVP Slack 场景**，使用**合成测试身份与虚构活动**。它们是当前可执行的证据形式：模块级自动测试加上**真实提供方上的合成演练**（真实测试 Slack 工作区 + 已链接的 `dev_*` 表集、行为合成数据）。**它们仍只算合成演练，不能当作上线验收**：未接入真实成员名册，未写入 `prod_*` 业务表，未做生产部署。

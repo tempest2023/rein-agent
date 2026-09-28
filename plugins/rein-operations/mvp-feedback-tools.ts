@@ -195,7 +195,7 @@ const asUuid = (value: unknown): string | null =>
   typeof value === 'string' && UUID_PATTERN.test(value) ? value : null;
 
 function configError(message: string): never {
-  throw new MvpFeedbackToolError('mvp_config_invalid', `mvp feedback tools: ${message}`);
+  throw new MvpFeedbackToolError('foundation_db_config_invalid', `foundationDb feedback tools: ${message}`);
 }
 
 function readChannelIds(field: string, value: unknown): string[] {
@@ -233,8 +233,8 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
   const value = env?.[name];
   if (typeof value !== 'string' || !value.trim()) {
     throw new MvpFeedbackToolError(
-      'mvp_env_value_missing',
-      `mvp feedback tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
+      'foundation_db_env_value_missing',
+      `foundationDb feedback tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
     );
   }
   return value.trim();

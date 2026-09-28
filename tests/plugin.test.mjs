@@ -208,10 +208,10 @@ test('mvp mode registers the database-backed read tools instead of the simulator
       'rein_proposal_collect',
       'rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply',
     ]);
-    assert.equal(result.details.mvpReadToolsEnabled, true);
-    assert.equal(result.details.mvpWriteToolsEnabled, true);
-    assert.equal(result.details.mvpCollectToolsEnabled, true);
-    assert.equal(result.details.mvpFeedbackToolsEnabled, true);
+    assert.equal(result.details.foundationDbReadToolsEnabled, true);
+    assert.equal(result.details.foundationDbWriteToolsEnabled, true);
+    assert.equal(result.details.foundationDbCollectToolsEnabled, true);
+    assert.equal(result.details.foundationDbFeedbackToolsEnabled, true);
     assert.equal(result.details.proposalToolsEnabled, false);
     assert.equal(result.details.automationEnabled, false);
     assert.equal(result.details.formalProposalActionsEnabled, false);
@@ -253,6 +253,6 @@ test('mvp mode refuses to load with an incomplete block or an unset referenced v
       },
       registerTool,
     }),
-    error => error.code === 'mvp_env_value_missing' && error.message.includes('REIN_TEST_ABSENT_URL'),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes('REIN_TEST_ABSENT_URL'),
   );
 });

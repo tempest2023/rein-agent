@@ -415,11 +415,11 @@ test('an enabled but incomplete MVP block fails loudly instead of registering si
 test('the Supabase key is read from the server environment and never appears in the tools', () => {
   assert.throws(
     () => createMvpWriteToolRegistration({ config: baseConfig, env: {} }),
-    error => error.code === 'mvp_env_value_missing' && error.message.includes(URL_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(URL_ENV),
   );
   assert.throws(
     () => createMvpWriteToolRegistration({ config: baseConfig, env: { [URL_ENV]: 'https://project-ref.supabase.co' } }),
-    error => error.code === 'mvp_env_value_missing' && error.message.includes(KEY_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(KEY_ENV),
   );
   // The confirmation signing key is a third server-only secret, read the same way and named only by
   // its environment variable. A deployment missing it fails loudly instead of signing with an
@@ -430,7 +430,7 @@ test('the Supabase key is read from the server environment and never appears in 
         config: baseConfig,
         env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET },
       }),
-    error => error.code === 'mvp_env_value_missing' && error.message.includes(CONFIRM_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(CONFIRM_ENV),
   );
 
   const registration = createMvpWriteToolRegistration({
@@ -504,8 +504,8 @@ test('enabled email matching names the bot token variable and never echoes its v
   );
   const named = { ...enabled, slackBotTokenEnvVar: BOT_TOKEN_ENV };
   assert.throws(
-    () => resolve(named, { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET }),
-    error => error.code === 'mvp_env_value_missing' && error.message.includes(BOT_TOKEN_ENV),
+    () => resolve(named, { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET, [CONFIRM_ENV]: CONFIRM_KEY }),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(BOT_TOKEN_ENV),
   );
 
   const registration = resolve(named, {

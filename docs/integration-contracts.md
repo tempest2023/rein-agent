@@ -156,13 +156,37 @@ answers on the old names.
 | --- | --- |
 | Registered tools | `rein_member_status`, `rein_funds`, `rein_governance_proposal_submit`, `rein_poll_open`, `rein_poll_vote`, `rein_poll_result`, `rein_proposal_comment_suggest`, `rein_revision_approve`, `rein_revision_apply` |
 | Plugin config block | the `foundationDb` object under `plugins.entries.rein-operations.config`, including its `enabled` flag |
+| Caller-visible refusal codes | `foundation_db_config_invalid` for a malformed `foundationDb` block, and `foundation_db_env_value_missing` for a named server environment variable that is unset or empty |
+| `rein_status` flags | `foundationDbReadToolsEnabled`, `foundationDbWriteToolsEnabled`, `foundationDbFeedbackToolsEnabled` |
 | Tables | `<env>_rein_proposals`, `<env>_rein_polls`, `<env>_rein_ballots`, `<env>_rein_vote_types`, `<env>_rein_proposal_revisions` |
 | RPCs | `<env>_rein_finalize_poll`, `<env>_rein_approve_revision` |
 | Compatibility names | `<env>_rein_mvp_*` tables and RPCs, kept alive by the rename migration's views and wrappers until callers move over |
 
+The plugin's own names for tools, config, refusal codes and status flags are adopted in the code and
+need no migration. The tables and RPCs are the part that lags, because the two base `20260924*`
+migrations were applied under the old `mvp` names, so renaming them in place would edit applied
+history; the forward migration `20260927110000_rein_governance_names.sql` does the rename instead.
+
 The migration is a release gate, not a wording edit: the tables and RPCs are already applied to the
 linked dev project, so the rename is a schema change with its own review. No document claims it is
 applied or live.
+
+PR #13 is still open, and the `20260927110000` migration now includes the rename work it needs to
+stand on its own: in each environment it renames the ten helper and trigger functions alongside the
+five tables and two RPCs, rewrites the bodies to the new physical table, helper and GUC names, and
+renames the dependent triggers, constraints and indexes. The rename therefore no longer leans on the
+old names it is replacing, and the migration keeps exactly ten old-name views and four old-name RPC
+wrappers for compatibility. Because the migration is **not applied** to the linked project, editing
+it before it is applied does not rewrite applied history; the two base `20260924*` migrations stay
+applied and keep their historical filenames unchanged. Only after `20260927110000` is applied does it
+become part of applied history and stop being editable.
+
+**Compatibility retirement.** The `<env>_rein_mvp_*` views and RPC wrappers are a transition
+mechanism, not the long-term contract. They stay in place while any runtime client still calls the
+old names, because dropping a view or wrapper while an old client is active would break that client
+with no replacement. The criterion for retirement is that the old-name clients have been replaced
+and verified on the new `<env>_rein_*` names. Until that verification exists, the migration that
+removes the views and wrappers is deferred and must never be merged or applied ahead of it.
 
 ## Money boundary
 

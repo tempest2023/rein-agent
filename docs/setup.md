@@ -153,6 +153,13 @@ proposal tools. The twelve are `rein_member_status`, `rein_funds`, `rein_poll_ca
 and `rein_revision_apply`. `verify:plugin` checks all of this through the
 real loader; `verify:proposal-tools` does the same for the four v2 proposal tools.
 
+`rein_status` reports which of these groups are registered through
+`foundationDbReadToolsEnabled`, `foundationDbWriteToolsEnabled` and
+`foundationDbFeedbackToolsEnabled`. A malformed `foundationDb` block is refused with
+`foundation_db_config_invalid`, and a named server environment variable that is unset or empty is
+refused with `foundation_db_env_value_missing`; both name the offending key or variable and never
+echo the secret itself.
+
 ## 6. Run the gateway locally
 
 ```sh
@@ -189,9 +196,12 @@ local work does not touch a global `~/.openclaw` profile.
 - `config/operations.example.json` is a design input, not native OpenClaw configuration, and
   nothing loads it.
 - The MVP slice exists as code but is not wired to anything: no Slack workspace and no live database
-  connection. Its two migrations are applied to the linked `BeneficenceProtocol` project's `dev_*`
-  set, but no tool has used that schema. Its twelve tools stay unregistered until an operator enables
-  them explicitly.
+  connection. Two base migrations are applied to the linked `BeneficenceProtocol` project (the
+  `20260924094436` identity/funds migration and the `20260924095705` proposals/polls/ballots
+  migration, in filename order); the `20260927103000` clock migration and the `20260927110000`
+  rename migration are **not applied** there. No tool has used any of that schema, and the twelve
+  tools stay unregistered until an operator enables them explicitly. There is no deployment or live
+  use of these tools to report.
 - The opt-in Slack identity email match is implemented and locally tested but disabled by default;
   the governance app's `users:read` and `users:read.email` bot scopes and its bot token are not
   installed or configured, so senders still resolve through the retained link table.
@@ -211,6 +221,9 @@ names arrive through the forward migration `20260927110000_rein_governance_names
 the committed `20260927103000`; it is **not applied** to the linked project yet, so apply it before
 enabling this code. Until it is applied, the deployed database still answers on the old
 `<env>_rein_mvp_*` names, which the migration keeps reachable as compatibility views and wrappers.
+Those aliases are a transition aid, not the long-term contract: they can be retired once every
+old-name client has been replaced and verified on the new `<env>_rein_*` names, and the migration
+that drops them must not be applied before that.
 The plugin config names server environment variables rather than carrying credentials:
 
 ```json

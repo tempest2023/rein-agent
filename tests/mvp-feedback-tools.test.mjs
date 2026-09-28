@@ -290,7 +290,7 @@ test('the injected writer must implement every feedback method', () => {
 test('the Supabase key is read from the server environment and never appears in the tools', () => {
   assert.throws(
     () => createMvpFeedbackToolRegistration({ config: baseConfig, env: {} }),
-    error => error.code === 'mvp_env_value_missing' && error.message.includes(URL_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(URL_ENV),
   );
   assert.throws(
     () =>
@@ -298,7 +298,7 @@ test('the Supabase key is read from the server environment and never appears in 
         config: baseConfig,
         env: { [URL_ENV]: 'https://project-ref.supabase.co' },
       }),
-    error => error.code === 'mvp_env_value_missing' && error.message.includes(KEY_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(KEY_ENV),
   );
 
   const registration = createMvpFeedbackToolRegistration({
@@ -370,7 +370,7 @@ test('enabled email matching names the bot token variable and never echoes its v
   const named = { ...enabled, slackBotTokenEnvVar: BOT_TOKEN_ENV };
   assert.throws(
     () => resolve(named, { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET }),
-    error => error.code === 'mvp_env_value_missing' && error.message.includes(BOT_TOKEN_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(BOT_TOKEN_ENV),
   );
 
   const registration = resolve(named, {
