@@ -175,11 +175,11 @@ test('an enabled but incomplete block fails loudly instead of registering silent
 test('the signing key is read from the server environment and never appears in a result', async () => {
   assert.throws(
     () => createMvpCollectToolRegistration({ config: baseConfig, env: {} }),
-    error => error.code === 'mvp_env_value_missing' && error.message.includes(URL_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(URL_ENV),
   );
   assert.throws(
     () => createMvpCollectToolRegistration({ config: baseConfig, env: { [URL_ENV]: 'https://project-ref.supabase.co' } }),
-    error => error.code === 'mvp_env_value_missing' && error.message.includes(KEY_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(KEY_ENV),
   );
   const built = build({ fakes: createFakes() });
   const result = await built.tool().execute('call-1', { title: 'September meetup' });

@@ -164,7 +164,8 @@ interfaces.
 The caller-facing names move with the plugin, so a caller that hits a malformed `foundationDb` block
 or an unset named variable now reads `foundation_db_config_invalid` or
 `foundation_db_env_value_missing`, and `rein_status` reports `foundationDbReadToolsEnabled`,
-`foundationDbWriteToolsEnabled` and `foundationDbFeedbackToolsEnabled`. These are code interfaces, not
+`foundationDbWriteToolsEnabled`, `foundationDbCollectToolsEnabled` and `foundationDbFeedbackToolsEnabled`.
+These are code interfaces, not
 schema, so they need no migration. The `<env>_rein_mvp_*` compatibility views and RPC wrappers stay
 until the old-name clients are replaced and verified on the new `<env>_rein_*` names; a later
 migration removes them, and they must never be dropped while an old client is still active.

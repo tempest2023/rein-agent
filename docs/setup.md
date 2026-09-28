@@ -154,8 +154,9 @@ and `rein_revision_apply`. `verify:plugin` checks all of this through the
 real loader; `verify:proposal-tools` does the same for the four v2 proposal tools.
 
 `rein_status` reports which of these groups are registered through
-`foundationDbReadToolsEnabled`, `foundationDbWriteToolsEnabled` and
-`foundationDbFeedbackToolsEnabled`. A malformed `foundationDb` block is refused with
+`foundationDbReadToolsEnabled`, `foundationDbWriteToolsEnabled`,
+`foundationDbCollectToolsEnabled` and `foundationDbFeedbackToolsEnabled`. A malformed `foundationDb`
+block is refused with
 `foundation_db_config_invalid`, and a named server environment variable that is unset or empty is
 refused with `foundation_db_env_value_missing`; both name the offending key or variable and never
 echo the secret itself.

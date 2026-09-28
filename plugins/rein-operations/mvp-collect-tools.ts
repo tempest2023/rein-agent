@@ -177,7 +177,7 @@ const asVoteType = (value: unknown): string | null =>
   typeof value === 'string' && VOTE_TYPE_PATTERN.test(value) ? value : null;
 
 function configError(message: string): never {
-  throw new MvpCollectToolError('mvp_config_invalid', `mvp proposal collect tool: ${message}`);
+  throw new MvpCollectToolError('foundation_db_config_invalid', `foundationDb proposal collect tool: ${message}`);
 }
 
 function readChannelIds(field: string, value: unknown): string[] {
@@ -210,8 +210,8 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
   const value = env?.[name];
   if (typeof value !== 'string' || !value.trim()) {
     throw new MvpCollectToolError(
-      'mvp_env_value_missing',
-      `mvp proposal collect tool: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
+      'foundation_db_env_value_missing',
+      `foundationDb proposal collect tool: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
     );
   }
   return value.trim();

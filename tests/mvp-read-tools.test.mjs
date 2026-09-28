@@ -1132,7 +1132,7 @@ test('an enabled block with a malformed voteTypeAliases map fails loudly at regi
   ]) {
     assert.throws(
       () => createMvpReadToolRegistration({ config: labelConfig(labels), reader: labelReader() }),
-      error => error.code === 'mvp_config_invalid' && expected.test(error.message),
+      error => error.code === 'foundation_db_config_invalid' && expected.test(error.message),
       `expected a loud config failure for ${JSON.stringify(labels)}`,
     );
   }

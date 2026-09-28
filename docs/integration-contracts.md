@@ -157,7 +157,7 @@ answers on the old names.
 | Registered tools | `rein_member_status`, `rein_funds`, `rein_governance_proposal_submit`, `rein_poll_open`, `rein_poll_vote`, `rein_poll_result`, `rein_proposal_comment_suggest`, `rein_revision_approve`, `rein_revision_apply` |
 | Plugin config block | the `foundationDb` object under `plugins.entries.rein-operations.config`, including its `enabled` flag |
 | Caller-visible refusal codes | `foundation_db_config_invalid` for a malformed `foundationDb` block, and `foundation_db_env_value_missing` for a named server environment variable that is unset or empty |
-| `rein_status` flags | `foundationDbReadToolsEnabled`, `foundationDbWriteToolsEnabled`, `foundationDbFeedbackToolsEnabled` |
+| `rein_status` flags | `foundationDbReadToolsEnabled`, `foundationDbWriteToolsEnabled`, `foundationDbCollectToolsEnabled`, `foundationDbFeedbackToolsEnabled` |
 | Tables | `<env>_rein_proposals`, `<env>_rein_polls`, `<env>_rein_ballots`, `<env>_rein_vote_types`, `<env>_rein_proposal_revisions` |
 | RPCs | `<env>_rein_finalize_poll`, `<env>_rein_approve_revision` |
 | Compatibility names | `<env>_rein_mvp_*` tables and RPCs, kept alive by the rename migration's views and wrappers until callers move over |
