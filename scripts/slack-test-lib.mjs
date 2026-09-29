@@ -1,4 +1,5 @@
-// Local Slack MVP test harness library: five test identities, user OAuth tokens only.
+// Local Slack MVP test harness library: five required test identities plus one optional `guest`
+// identity, user OAuth tokens only.
 //
 // Dependency-free and credential-safe. It reads per-account user tokens from a gitignored local
 // file or environment, verifies each token with `auth.test`, and refuses to continue on any
@@ -25,6 +26,9 @@ export const SLACK_TEST_TEAM_ID = 'T0C4GRL55HB';
 /**
  * `lead` is the identity the harness sends as; the other four are directory/approver identities.
  * `env` names the per-account environment variable, `json` the key inside the local token file.
+ *
+ * The five below are **required**: their Slack user ids are fixed in this workspace, so absence of a
+ * token is an error. `guest` is the optional sixth identity (see `SLACK_TEST_OPTIONAL_IDENTITIES`).
  */
 export const SLACK_TEST_IDENTITIES = [
   { id: 'lead', expectedUserId: 'U0C4V074CTW', json: 'REIN_SLACK_USER_TOKEN_LEAD', env: 'SLACK_USER_TOKEN_LEAD' },
@@ -33,6 +37,58 @@ export const SLACK_TEST_IDENTITIES = [
   { id: 'dir2', expectedUserId: 'U0C4T82EPPB', json: 'REIN_SLACK_USER_TOKEN_DIR2', env: 'SLACK_USER_TOKEN_DIR2' },
   { id: 'dir3', expectedUserId: 'U0C4L74QGCD', json: 'REIN_SLACK_USER_TOKEN_DIR3', env: 'SLACK_USER_TOKEN_DIR3' },
 ];
+
+/**
+ * Optional synthetic identities. A `guest` account is meant for the unlinked-identity case (a real
+ * invited person whose Slack profile email matches no community record), so its Slack user id is
+ * **not** known at build time and must never be hardcoded. The id is supplied by the operator through
+ * gitignored configuration, and the account is enrolled only when both the id and a user token are
+ * present. No id or token is ever committed; a missing configuration simply leaves the account out.
+ */
+export const SLACK_TEST_OPTIONAL_IDENTITIES = [
+  {
+    id: 'guest',
+    // Name of the gitignored config/env entries; the value is the Slack user id, e.g. `U0123ABCDEF`.
+    idEnv: 'SLACK_USER_ID_GUEST',
+    idJson: 'REIN_SLACK_USER_ID_GUEST',
+    json: 'REIN_SLACK_USER_TOKEN_GUEST',
+    env: 'SLACK_USER_TOKEN_GUEST',
+  },
+];
+
+/** Slack workspace member ids are upper-case `U`/`W` prefixed, 9-11 characters. */
+const SLACK_USER_ID_PATTERN = /^[UW][A-Z0-9]{6,14}$/;
+
+/** Whether a value looks like a Slack member id (never a token). */
+export function isSlackUserId(value) {
+  return SLACK_USER_ID_PATTERN.test(trim(value));
+}
+
+/**
+ * Resolve the optional identities the operator has configured. An entry is enrolled only when its
+ * user id is present and well formed; a token alone is not enough, because `auth.test` must be able
+ * to compare the resolved user id against an expected one. Returns descriptors shaped exactly like
+ * `SLACK_TEST_IDENTITIES`, so every downstream helper treats them the same way.
+ */
+export function resolveOptionalIdentities({ env = process.env, meta = {} } = {}) {
+  const resolved = [];
+  for (const optional of SLACK_TEST_OPTIONAL_IDENTITIES) {
+    const fromEnv = env[optional.idEnv] ?? env[optional.idJson];
+    const fromMeta = rotationEntry(meta, optional.id).expectedUserId;
+    const expectedUserId = trim(isSlackUserId(fromEnv) ? fromEnv : fromMeta);
+    if (!isSlackUserId(expectedUserId)) continue;
+    resolved.push({ ...optional, expectedUserId: normalize(expectedUserId) });
+  }
+  return resolved;
+}
+
+/**
+ * Every identity active for one run: the five required ones first, then any configured optional
+ * identities. Order is stable so output and tests do not depend on optional enrolment.
+ */
+export function activeIdentities({ env = process.env, meta = {} } = {}) {
+  return [...SLACK_TEST_IDENTITIES, ...resolveOptionalIdentities({ env, meta })];
+}
 
 /** Only the channels below may receive test messages. */
 export const SLACK_TEST_CHANNELS = [
@@ -102,6 +158,20 @@ for (const identity of SLACK_TEST_IDENTITIES) {
   TOKEN_ALIASES.set(identity.json, identity.id);
   TOKEN_ALIASES.set(identity.env, identity.id);
 }
+// Optional identities are read from the same document, but their enrolment still depends on a
+// configured user id, so a stray `guest` token alone never enrolls the account.
+for (const identity of SLACK_TEST_OPTIONAL_IDENTITIES) {
+  TOKEN_ALIASES.set(identity.json, identity.id);
+  TOKEN_ALIASES.set(identity.env, identity.id);
+}
+
+/** The base ids whose descriptors are fixed in code; used to distinguish required from optional. */
+const REQUIRED_IDENTITY_IDS = new Set(SLACK_TEST_IDENTITIES.map(identity => identity.id));
+
+/** Whether a token document key maps to a known identity id. */
+function isKnownIdentityId(id) {
+  return REQUIRED_IDENTITY_IDS.has(id) || SLACK_TEST_OPTIONAL_IDENTITIES.some(item => item.id === id);
+}
 
 /**
  * Read the shared token document. Contract: flat top-level keys
@@ -123,7 +193,7 @@ export function readJsonTokenDoc(doc) {
     if (key === TOKEN_META_KEY) continue;
     if (key === 'accounts' && value && typeof value === 'object' && !Array.isArray(value)) {
       for (const [accountId, entry] of Object.entries(value)) {
-        if (!SLACK_TEST_IDENTITIES.some(identity => identity.id === accountId)) continue;
+        if (!isKnownIdentityId(accountId)) continue;
         if (typeof entry === 'string') {
           if (isToken(entry)) tokens.set(accountId, trim(entry));
           continue;
@@ -148,8 +218,12 @@ export function readJsonTokenDoc(doc) {
 /**
  * Resolve one user token per account from the environment or the first local file that defines it.
  * Throws a single aggregated error listing only which accounts are missing; never prints values.
+ *
+ * The five required identities must all be present. An optional identity is loaded only when the
+ * operator has configured its user id (see `resolveOptionalIdentities`), so the same helper works
+ * unchanged whether or not a `guest` account exists.
  */
-export function loadUserTokens({ env = process.env, paths = DEFAULT_TOKEN_PATHS } = {}) {
+export function loadUserTokens({ env = process.env, paths = DEFAULT_TOKEN_PATHS, identities } = {}) {
   const existing = paths.filter(path => existsSync(path));
   const fileMaps = existing.map(path => {
     try {
@@ -160,10 +234,16 @@ export function loadUserTokens({ env = process.env, paths = DEFAULT_TOKEN_PATHS 
     }
   });
 
+  // Merge meta from every readable file first, so an optional identity's expected user id may live in
+  // the token document itself rather than only in the environment.
+  const mergedMeta = {};
+  for (const file of fileMaps) Object.assign(mergedMeta, file.meta ?? {});
+  const wanted = identities ?? activeIdentities({ env, meta: mergedMeta });
+
   const tokens = new Map();
   const meta = {};
   const missing = [];
-  for (const identity of SLACK_TEST_IDENTITIES) {
+  for (const identity of wanted) {
     const fromEnv = env[identity.env] ?? env[identity.json];
     if (isToken(fromEnv)) {
       tokens.set(identity.id, trim(fromEnv));
@@ -179,6 +259,8 @@ export function loadUserTokens({ env = process.env, paths = DEFAULT_TOKEN_PATHS 
       }
     }
     if (value) tokens.set(identity.id, value);
+    // A required identity, and an optional identity the operator has already enrolled by configuring
+    // its user id, must both carry a token; only a wholly unconfigured optional account is skipped.
     else missing.push(`${identity.id} (${identity.env})`);
   }
 
@@ -268,12 +350,23 @@ export async function verifyIdentity(identity, token, { fetchImpl = globalThis.f
   };
 }
 
-/** Verify all five identities and return a Map keyed by account id. Fails before any message is sent. */
+/**
+ * Verify the five required identities and any enrolled optional identity, returning a Map keyed by
+ * account id. Fails before any message is sent. `identities` defaults to the accounts present in
+ * `tokens`, so callers that already resolved the active set keep exact control.
+ */
 export async function verifyAllIdentities(tokens, options = {}) {
+  const wanted = options.identities ?? activeIdentities({ env: options.env ?? {}, meta: options.meta ?? {} });
   const verified = new Map();
-  for (const identity of SLACK_TEST_IDENTITIES) {
+  for (const identity of wanted) {
     const token = tokens.get(identity.id);
-    if (!token) throw new HarnessError('missing-tokens', `No token loaded for ${identity.id}`);
+    if (!token) {
+      // Skip an optional account that is not enrolled; a required one is always an error.
+      if (!SLACK_TEST_IDENTITIES.some(base => base.id === identity.id) && options.requireOptional !== true) {
+        continue;
+      }
+      throw new HarnessError('missing-tokens', `No token loaded for ${identity.id}`);
+    }
     verified.set(identity.id, await verifyIdentity(identity, token, options));
   }
   return verified;
@@ -487,14 +580,15 @@ export function assertTokenFresh(meta, accountId, options = {}) {
  * Describe token presence and rotation state for operator diagnostics.
  * Returns only account ids, booleans and timestamps; never a token or refresh token.
  */
-export function describeTokenStore(tokens, meta, { now = Date.now() } = {}) {
-  return SLACK_TEST_IDENTITIES.map(identity => {
+export function describeTokenStore(tokens, meta, { now = Date.now(), env = process.env } = {}) {
+  return activeIdentities({ env, meta }).map(identity => {
     const entry = rotationEntry(meta, identity.id);
     const freshness = assessTokenFreshness(meta, identity.id, { now });
     return {
       id: identity.id,
       expectedUserId: identity.expectedUserId,
       present: tokens.has(identity.id),
+      optional: !SLACK_TEST_IDENTITIES.some(base => base.id === identity.id),
       expiresAt: freshness.expiresAt === null ? null : new Date(freshness.expiresAt).toISOString(),
       refreshTokenRecorded: typeof entry.refreshToken === 'string' && entry.refreshToken.length > 0,
       refreshTokenRequired: entry.refreshTokenRequired === true,
@@ -504,7 +598,12 @@ export function describeTokenStore(tokens, meta, { now = Date.now() } = {}) {
   });
 }
 
-/** Freshness check for every account, used before any send so a stale peer is surfaced early. */
+/**
+ * Freshness check for every active account, used before any send so a stale peer is surfaced early.
+ * An optional account is checked only when it is enrolled (its user id is configured).
+ */
 export function assertAllTokensFresh(meta, options = {}) {
-  for (const identity of SLACK_TEST_IDENTITIES) assertTokenFresh(meta, identity.id, options);
+  for (const identity of activeIdentities({ env: options.env ?? process.env, meta })) {
+    assertTokenFresh(meta, identity.id, options);
+  }
 }

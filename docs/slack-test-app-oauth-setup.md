@@ -183,6 +183,39 @@ matches no `<env>_contact_identities` row, or whose profile email is hidden; non
 accounts represents that case. Under D13 identity is resolved from that email match, so no account
 here relies on a `dev_rein_slack_links` row.
 
+### Optional `guest` account for the unmatched-email case
+
+The harness also supports one **optional** sixth identity, `guest`, for the unmatched-email case
+above. It is off until an operator provisions it, because its Slack user id does not exist at build
+time: the account must first be invited to `T0C4GRL55HB`, and its id recorded. Nothing about it is
+hardcoded, and the five accounts above are unaffected whether or not it exists.
+
+Provisioning is two gitignored values, kept out of the repository exactly like the tokens:
+
+| Value | Environment variable | JSON key | Meaning |
+| --- | --- | --- | --- |
+| Slack user id | `SLACK_USER_ID_GUEST` | `REIN_SLACK_USER_ID_GUEST` | The invited account's member id, e.g. `U0123ABCDEF` |
+| User token | `SLACK_USER_TOKEN_GUEST` | `REIN_SLACK_USER_TOKEN_GUEST` | The `xoxp-` token minted by the local test app |
+
+The account is enrolled **only** when the user id is present and shaped like a real member id. A token
+alone never enrolls it, and a value that looks like a token is refused rather than treated as an id,
+so a misplaced token can never be read as an identity. Once enrolled, `guest` behaves like any other
+account: `auth.test` must resolve it to the configured id in `T0C4GRL55HB`, it may only post in the
+approved test channels, and the same local run ledger and `client_msg_id` dedupe apply. When the id is
+configured but the token is missing, the load reports `missing-tokens` for `guest` instead of silently
+continuing.
+
+Authorize it with the same helper, once its id is configured:
+
+```sh
+node scripts/slack-test-oauth.mjs start --account guest
+```
+
+Do not provide a real member for this account: it exists to be a person the Agent **cannot** match to
+a community record, so it should hold no verified `dev_rein_slack_links` row and an email that matches
+no `<env>_contact_identities` row. This harness support is preparation only; inviting the account,
+minting its token and running the case are separate operator steps.
+
 User ids and channel ids are non-secret Slack identifiers; the harness source
 `scripts/slack-test-lib.mjs` holds the same lists.
 

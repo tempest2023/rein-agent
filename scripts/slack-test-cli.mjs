@@ -12,6 +12,7 @@ import {
   HarnessError,
   SLACK_TEST_CHANNELS,
   SLACK_TEST_IDENTITIES,
+  activeIdentities,
   caseLabel,
   assertAllowedChannel,
   assertCaseKey,
@@ -30,6 +31,7 @@ import {
   permalinkFrom,
   readRunLedger,
   redactTokens,
+  resolveOptionalIdentities,
   repoRoot,
   slackApi,
   verifyAllIdentities,
@@ -72,6 +74,7 @@ Usage:
 
 Accounts:
 ${SLACK_TEST_IDENTITIES.map(i => `  ${i.id.padEnd(7)} expects ${i.expectedUserId}  (${i.env})`).join('\n')}
+  guest   optional, only when SLACK_USER_ID_GUEST and SLACK_USER_TOKEN_GUEST are configured
 
 Channels:
 ${SLACK_TEST_CHANNELS.map(c => `  ${c.id}  ${c.label}`).join('\n')}
@@ -126,11 +129,15 @@ const flag = (options, name) => {
 
 function resolveAccountId(value) {
   const id = (value ?? DEFAULT_ACCOUNT).trim();
-  const identity = SLACK_TEST_IDENTITIES.find(item => item.id === id);
+  // The five fixed accounts are always known. An optional account (e.g. `guest`) is only selectable
+  // once the operator has configured its user id, which keeps an unconfigured account unusable.
+  const identity =
+    SLACK_TEST_IDENTITIES.find(item => item.id === id) ??
+    resolveOptionalIdentities({ env: process.env }).find(item => item.id === id);
   if (!identity) {
     throw new HarnessError(
       'unknown-account',
-      `account ${id || '<none>'} is not one of: ${SLACK_TEST_IDENTITIES.map(i => i.id).join(', ')}`,
+      `account ${id || '<none>'} is not one of: ${activeIdentities({ env: process.env }).map(i => i.id).join(', ')}`,
     );
   }
   return identity;
@@ -147,8 +154,9 @@ const filePaths = options => (flag(options, 'file') ? [flag(options, 'file')] : 
 async function commandWhoami(options) {
   const { verified } = await loadVerified(filePaths(options));
   console.log('Identities verified (user OAuth tokens, no bot identities):');
-  for (const identity of SLACK_TEST_IDENTITIES) {
+  for (const identity of activeIdentities({ env: process.env })) {
     const account = verified.get(identity.id);
+    if (!account) continue;
     console.log(`  ${formatIdentity(account)}  ${account.user}`);
   }
   const lead = verified.get(DEFAULT_ACCOUNT);

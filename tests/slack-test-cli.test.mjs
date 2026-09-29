@@ -7,10 +7,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  SLACK_TEST_OPTIONAL_IDENTITIES,
   SLACK_TEST_CHANNELS,
   SLACK_TEST_IDENTITIES,
   SLACK_TEST_TEAM_ID,
   HarnessError,
+  activeIdentities,
   assertAllowedChannel,
   assertCaseKey,
   assertTokenFresh,
@@ -21,6 +23,7 @@ import {
   lookupLedger,
   readJsonTokenDoc,
   redactTokens,
+  resolveOptionalIdentities,
   verifyAllIdentities,
 } from '../scripts/slack-test-lib.mjs';
 import { runSend } from '../scripts/slack-test-cli.mjs';
@@ -59,9 +62,10 @@ function fixtureTokens({ meta = {} } = {}) {
 
 /**
  * Mock Slack Web API. `authUser` maps account id -> user id returned by auth.test, so a test can
- * deliberately return the wrong user for one account. Records every call.
+ * deliberately return the wrong user for one account. `identities` widens the recognised account set
+ * (e.g. an enrolled `guest`); it defaults to the five required identities. Records every call.
  */
-function mockFetch({ authUser = {}, teamId = SLACK_TEST_TEAM_ID, postResponse, authOk = true } = {}) {
+function mockFetch({ authUser = {}, teamId = SLACK_TEST_TEAM_ID, postResponse, authOk = true, identities = SLACK_TEST_IDENTITIES } = {}) {
   const calls = [];
   const overrides = new Map(Object.entries(authUser));
   const fetchImpl = async (url, init) => {
@@ -72,8 +76,8 @@ function mockFetch({ authUser = {}, teamId = SLACK_TEST_TEAM_ID, postResponse, a
     const json = payload => ({ status: 200, json: async () => payload });
 
     if (method === 'auth.test') {
-      const accountId = SLACK_TEST_IDENTITIES.map(item => item.id).find(id => TOKEN(id) === token);
-      const identity = SLACK_TEST_IDENTITIES.find(item => item.id === accountId);
+      const accountId = identities.map(item => item.id).find(id => TOKEN(id) === token);
+      const identity = identities.find(item => item.id === accountId);
       if (!identity || authOk === false) return json({ ok: false, error: 'invalid_auth' });
       return json({
         ok: true,
@@ -488,4 +492,82 @@ test('a bot identity reported by auth.test is refused', async () => {
     () => verifyAllIdentities(tokens, { fetchImpl }),
     error => error.code === 'bot-token',
   );
+});
+
+test('the five required identities are unchanged and guest is optional with no hardcoded id', () => {
+  assert.deepEqual(
+    SLACK_TEST_IDENTITIES.map(i => i.id),
+    ['lead', 'member', 'dir1', 'dir2', 'dir3'],
+    'the five required identities must not change',
+  );
+  assert.deepEqual(SLACK_TEST_OPTIONAL_IDENTITIES.map(i => i.id), ['guest']);
+  const guest = SLACK_TEST_OPTIONAL_IDENTITIES[0];
+  assert.equal(guest.expectedUserId, undefined, 'the optional id must not be hardcoded');
+  assert.equal(guest.idEnv, 'SLACK_USER_ID_GUEST');
+  assert.equal(guest.env, 'SLACK_USER_TOKEN_GUEST');
+});
+
+test('guest is enrolled only when its user id is configured, and default stays at five', () => {
+  assert.deepEqual(activeIdentities({ env: {} }).map(i => i.id), ['lead', 'member', 'dir1', 'dir2', 'dir3']);
+  const enrolled = activeIdentities({ env: { SLACK_USER_ID_GUEST: 'U0ABCDEF123' } });
+  assert.deepEqual(enrolled.map(i => i.id), ['lead', 'member', 'dir1', 'dir2', 'dir3', 'guest']);
+  assert.equal(enrolled.at(-1).expectedUserId, 'U0ABCDEF123');
+  // A token-shaped or malformed id must not enroll the account, and must never be echoed as an id.
+  assert.deepEqual(activeIdentities({ env: { SLACK_USER_ID_GUEST: 'xoxp-secret' } }).map(i => i.id), ['lead', 'member', 'dir1', 'dir2', 'dir3']);
+  assert.deepEqual(resolveOptionalIdentities({ env: { SLACK_USER_ID_GUEST: 'nope' } }), []);
+});
+
+test('guest verifies through auth.test with its configured id and never leaks its token', async () => {
+  const guestId = 'U0ABCDEF123';
+  const tokens = new Map([...SLACK_TEST_IDENTITIES.map(i => [i.id, TOKEN(i.id)]), ['guest', TOKEN('guest')]]);
+  const identities = activeIdentities({ env: { SLACK_USER_ID_GUEST: guestId } });
+  const { fetchImpl, calls } = mockFetch({ identities });
+  const verified = await verifyAllIdentities(tokens, { fetchImpl, identities });
+  assert.equal(verified.get('guest').userId, guestId);
+  assert.equal(calls.filter(call => call.method === 'auth.test').length, 6);
+  for (const [, token] of tokens) assert.ok(!JSON.stringify([...verified.values()]).includes(token));
+});
+
+test('guest is refused when the token resolves to a different user', async () => {
+  const tokens = new Map([...SLACK_TEST_IDENTITIES.map(i => [i.id, TOKEN(i.id)]), ['guest', TOKEN('guest')]]);
+  const identities = activeIdentities({ env: { SLACK_USER_ID_GUEST: 'U0ABCDEF123' } });
+  const { fetchImpl } = mockFetch({ identities, authUser: { guest: 'U0DIFFERENT1' } });
+  await assert.rejects(
+    verifyAllIdentities(tokens, { fetchImpl, identities }),
+    error => error instanceof HarnessError && error.code === 'user-mismatch',
+  );
+});
+
+test('an enrolled guest without a token is a missing-tokens error, not a silent skip', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rein-slack-guest-'));
+  try {
+    const path = join(dir, 'slack-test-tokens.json');
+    const doc = {};
+    for (const identity of SLACK_TEST_IDENTITIES) doc[identity.json] = TOKEN(identity.id);
+    writeFileSync(path, JSON.stringify(doc), { mode: 0o600 });
+    assert.throws(
+      () => loadUserTokens({ env: { SLACK_USER_ID_GUEST: 'U0ABCDEF123' }, paths: [path] }),
+      error => {
+        assert.equal(error.code, 'missing-tokens');
+        assert.match(error.message, /guest/);
+        return true;
+      },
+    );
+    // The same file loads cleanly when the optional account is not enrolled.
+    const loaded = loadUserTokens({ env: {}, paths: [path] });
+    assert.equal(loaded.tokens.has('guest'), false);
+    assert.equal(loaded.tokens.size, 5);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an optional guest token key in the document is recognised without enrolling the account', () => {
+  const doc = {};
+  for (const identity of SLACK_TEST_IDENTITIES) doc[identity.json] = TOKEN(identity.id);
+  doc.REIN_SLACK_USER_TOKEN_GUEST = TOKEN('guest');
+  const { tokens } = readJsonTokenDoc(doc);
+  assert.equal(tokens.get('guest'), TOKEN('guest'));
+  // Recognition of the token key does not enroll the identity; enrolment needs the configured id.
+  assert.deepEqual(activeIdentities({ env: {} }).map(i => i.id), ['lead', 'member', 'dir1', 'dir2', 'dir3']);
 });

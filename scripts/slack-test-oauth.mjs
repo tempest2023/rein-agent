@@ -92,6 +92,42 @@ export const SLACK_TEST_ACCOUNTS = [
   { id: 'dir3', expectedUserId: 'U0C4L74QGCD', env: 'SLACK_USER_TOKEN_DIR3', json: 'REIN_SLACK_USER_TOKEN_DIR3' },
 ];
 
+/**
+ * Optional accounts. A `guest` identity is the invited-but-unlinked person used by the
+ * identity-refusal case, so its Slack user id is unknown until an operator invites the account and
+ * records the id. The id is read from gitignored configuration, never hardcoded and never committed;
+ * `idEnv`/`idJson` differ from the token keys on purpose, so a token alone cannot enroll the account.
+ */
+export const SLACK_TEST_OPTIONAL_ACCOUNTS = [
+  {
+    id: 'guest',
+    idEnv: 'SLACK_USER_ID_GUEST',
+    idJson: 'REIN_SLACK_USER_ID_GUEST',
+    env: 'SLACK_USER_TOKEN_GUEST',
+    json: 'REIN_SLACK_USER_TOKEN_GUEST',
+  },
+];
+
+/** Slack member ids look like `U0123ABCDEF`; a value of any other shape is refused. */
+const SLACK_USER_ID_PATTERN = /^[UW][A-Z0-9]{6,14}$/;
+
+/** Resolve an optional account only when its user id is configured. */
+export function resolveOptionalAccount(id, { env = process.env, meta = null } = {}) {
+  const wanted = trim(id).toLowerCase();
+  const optional = SLACK_TEST_OPTIONAL_ACCOUNTS.find(item => item.id === wanted);
+  if (!optional) return null;
+  const fromEnv = env[optional.idEnv] ?? env[optional.idJson];
+  const fromMeta = meta?.accounts?.[optional.id]?.expectedUserId ?? meta?.[optional.id]?.expectedUserId;
+  const candidate = trim(isSlackUserId(fromEnv) ? fromEnv : fromMeta);
+  if (!isSlackUserId(candidate)) return null;
+  return { ...optional, expectedUserId: normalize(candidate) };
+}
+
+/** Whether a value looks like a Slack member id (never a token). */
+export function isSlackUserId(value) {
+  return SLACK_USER_ID_PATTERN.test(trim(value));
+}
+
 export class OAuthError extends Error {
   constructor(code, message) {
     super(`${code}: ${message}`);
@@ -112,11 +148,23 @@ export function redactTokens(text) {
   return String(text).replace(/\bxox[abpeors]-[A-Za-z0-9-]+/g, '[redacted-slack-token]');
 }
 
-/** Resolve one account descriptor by id, case-insensitively. */
-export function resolveAccount(id) {
+/**
+ * Resolve one account descriptor by id, case-insensitively. The five fixed accounts always resolve;
+ * an optional account resolves only when its user id is configured, and otherwise reports the
+ * account as not-yet-provisioned with the exact configuration it still needs.
+ */
+export function resolveAccount(id, { env = process.env, meta = null } = {}) {
   const wanted = trim(id).toLowerCase();
-  const account = SLACK_TEST_ACCOUNTS.find(item => item.id === wanted);
+  const account =
+    SLACK_TEST_ACCOUNTS.find(item => item.id === wanted) ?? resolveOptionalAccount(wanted, { env, meta });
   if (!account) {
+    const optional = SLACK_TEST_OPTIONAL_ACCOUNTS.find(item => item.id === wanted);
+    if (optional) {
+      throw new OAuthError(
+        'account-not-provisioned',
+        `account ${wanted} is optional and not yet configured; set ${optional.idEnv} to its Slack user id before authorizing it`,
+      );
+    }
     throw new OAuthError(
       'unknown-account',
       `account ${trim(id) || '<none>'} is not one of: ${SLACK_TEST_ACCOUNTS.map(item => item.id).join(', ')}`,

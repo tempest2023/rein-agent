@@ -11,6 +11,7 @@ import {
   DEFAULT_TOKEN_STORE,
   OAuthError,
   SLACK_TEST_ACCOUNTS,
+  SLACK_TEST_OPTIONAL_ACCOUNTS,
   SLACK_TEST_TEAM_ID,
   allowsLocalhostRedirect,
   buildAuthorizeUrl,
@@ -23,6 +24,7 @@ import {
   redirectUri,
   redactTokens,
   resolveAccount,
+  resolveOptionalAccount,
   resolveRedirectUri,
   verifyCallbackState,
   verifyUserToken,
@@ -468,4 +470,58 @@ test('waitForCallback exposes no code path that requires a client secret', async
   const source = readFileSync(new URL('../scripts/slack-test-oauth.mjs', import.meta.url), 'utf8');
   const accessCall = source.slice(source.indexOf('export async function exchangeCode'), source.indexOf('export async function verifyUserToken'));
   assert.ok(!accessCall.includes('client_secret') && !accessCall.includes('authorization'), 'the exchange carries no secret and no basic auth header');
+});
+
+test('the fixed five accounts are unchanged and the guest account is declared optional', () => {
+  assert.deepEqual(
+    SLACK_TEST_ACCOUNTS.map(a => a.id),
+    ['lead', 'member', 'dir1', 'dir2', 'dir3'],
+    'the five fixed accounts must not change',
+  );
+  assert.deepEqual(SLACK_TEST_OPTIONAL_ACCOUNTS.map(a => a.id), ['guest']);
+  const guest = SLACK_TEST_OPTIONAL_ACCOUNTS[0];
+  // The optional account must carry no hardcoded user id; the id is operator configuration only.
+  assert.equal(guest.expectedUserId, undefined);
+  assert.equal(guest.idEnv, 'SLACK_USER_ID_GUEST');
+  assert.equal(guest.idJson, 'REIN_SLACK_USER_ID_GUEST');
+  assert.equal(guest.env, 'SLACK_USER_TOKEN_GUEST');
+  assert.equal(guest.json, 'REIN_SLACK_USER_TOKEN_GUEST');
+});
+
+test('resolveAccount keeps the five working and gates guest on configured id', () => {
+  for (const account of SLACK_TEST_ACCOUNTS) {
+    assert.equal(resolveAccount(account.id, { env: {} }).expectedUserId, account.expectedUserId);
+  }
+  assert.throws(
+    () => resolveAccount('guest', { env: {} }),
+    error => error instanceof OAuthError && error.code === 'account-not-provisioned',
+  );
+  const resolved = resolveAccount('guest', { env: { SLACK_USER_ID_GUEST: 'U0ABCDEF123' } });
+  assert.equal(resolved.id, 'guest');
+  assert.equal(resolved.expectedUserId, 'U0ABCDEF123');
+  // A token value and a non-Slack-shaped id must never enroll the account, and an unknown id still
+  // reports unknown. Real member ids are upper case, so a lower-case value is refused by shape.
+  assert.throws(
+    () => resolveAccount('guest', { env: { SLACK_USER_ID_GUEST: 'xoxp-not-an-id' } }),
+    error => error instanceof OAuthError && error.code === 'account-not-provisioned',
+  );
+  assert.throws(
+    () => resolveAccount('guest', { env: { SLACK_USER_ID_GUEST: 'u0abcdef123' } }),
+    error => error instanceof OAuthError && error.code === 'account-not-provisioned',
+  );
+  assert.throws(
+    () => resolveAccount('nobody', { env: {} }),
+    error => error instanceof OAuthError && error.code === 'unknown-account',
+  );
+});
+
+test('resolveOptionalAccount reads the id from config and refuses anything token-shaped', () => {
+  assert.equal(resolveOptionalAccount('guest', { env: {} }), null);
+  assert.equal(resolveOptionalAccount('lead', { env: { SLACK_USER_ID_GUEST: 'U0ABCDEF123' } }), null);
+  const fromEnv = resolveOptionalAccount('guest', { env: { REIN_SLACK_USER_ID_GUEST: 'W0123456789' } });
+  assert.equal(fromEnv.expectedUserId, 'W0123456789');
+  const fromMeta = resolveOptionalAccount('guest', { env: {}, meta: { accounts: { guest: { expectedUserId: 'U0ABCDEF123' } } } });
+  assert.equal(fromMeta.expectedUserId, 'U0ABCDEF123');
+  assert.equal(resolveOptionalAccount('guest', { env: { SLACK_USER_ID_GUEST: 'xoxp-secret-value' } }), null);
+  assert.equal(resolveOptionalAccount('guest', { env: { SLACK_USER_ID_GUEST: 'not a user id' } }), null);
 });
