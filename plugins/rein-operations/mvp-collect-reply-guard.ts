@@ -67,7 +67,8 @@
 // Diagnostics. A live run showed a collect reaching the run while the delivered Slack reply stayed
 // the model's own prose, and nothing in the host's gateway log could say whether the hooks ran, ran
 // under a different tool name, or ran but matched no remembered run. This module therefore carries
-// one optional trace, off unless `REIN_MVP_GUARD_DIAG` is set AND the registration injects a sink:
+// one optional trace, off unless `REIN_GOVERNANCE_GUARD_DIAG` is set AND the registration injects a
+// sink:
 // `after_tool_call.match`, `after_tool_call.arm` or `after_tool_call.reject` (with the refusing
 // reason) and `reply_payload_sending.entry`, `.hit` or `.miss`. Each line carries only the event
 // kind plus channel, run id and tool names rendered by this module's own identifier rule, which
@@ -147,7 +148,7 @@ const COLLECT_REPLY_GUARD_STORE_VERSION = 1;
  * no user wording, no token, no draft or confirmation secret, and no sensitive parameter or result
  * field.
  */
-export const COLLECT_REPLY_GUARD_DIAG_ENV = 'REIN_MVP_GUARD_DIAG';
+export const COLLECT_REPLY_GUARD_DIAG_ENV = 'REIN_GOVERNANCE_GUARD_DIAG';
 /** Longest tool-supplied `nextPrompt` line this guard will repeat back. */
 const MAX_PROMPT_LINE_LENGTH = 400;
 /**
