@@ -29,13 +29,13 @@ Rein Protocol Foundation 的组织运营 Agent：管理员、秘书与线上主�
 `rein_proposal_collect`、`rein_proposal_comment_suggest`、`rein_revision_approve` 与
 `rein_revision_apply`；配置块为 `foundationDb`；表为 `<env>_rein_vote_types`、`<env>_rein_proposals`、
 `<env>_rein_polls`、`<env>_rein_ballots` 与 `<env>_rein_proposal_revisions`；RPC 为
-`<env>_rein_finalize_poll` 与 `<env>_rein_approve_revision`。它们取代了此前的 `rein_mvp_*` 工具名、
-`mvp` 配置块与 `<env>_rein_mvp_*` 表／RPC——后者只是开发阶段的命名。升级方式是姊妹仓库中一份已提交的
-向前迁移 `20260927110000_rein_governance_names.sql`，排在已提交的 `20260927103000` 迁移之后。
-两份迁移现均**已应用到已链接项目**（project ref `ksgyfyysnojqrwfuyqwe`）：2026-09-28 只读核对确认已链接
-远端已列出这两个版本，并存在十张新物理表、十个旧名兼容视图与四个 RPC 包装。它重命名物理表与 RPC，并让
-旧表名与旧 RPC 名以可读写的兼容视图与 RPC 包装在过渡期内继续可用；尚未改名的调用方仍可照旧工作。
-**已应用不等于代码已实机验证**：代码在真实环境上的端到端验证仍然缺位。
+`<env>_rein_finalize_poll` 与 `<env>_rein_approve_revision`。这些是 v0.1 初版名称；早期开发构建使用带阶段
+前缀的工具名、阶段命名的配置块与带阶段前缀的表／RPC。稳定名称由姊妹仓库中一份已提交的向前迁移
+`20260927110000_rein_governance_names.sql` 引入，排在已提交的 `20260927103000` 迁移之后。
+两份迁移现均**已应用到已链接项目**（project ref `ksgyfyysnojqrwfuyqwe`，2026-09-28 只读核对）。
+改名迁移的过渡兼容视图与 RPC 包装已由后续已应用迁移
+`20260929045543_remove_stage_compatibility_objects.sql` 删除，因此已链接 schema 现在只以稳定
+`<env>_rein_*` 名称应答。**已应用不等于代码已实机验证**：代码在真实环境上的端到端验证仍然缺位。
 
 该切片此前的两个数据库迁移已在姊妹仓库提交，并已应用到已链接的 `BeneficenceProtocol` 项目
 （2026-09-27 只读核对）。两者都在同一事务里定义 `dev_*` 与 `prod_*` 两套对象，因此已应用的 schema
@@ -47,7 +47,7 @@ Rein Protocol Foundation 的组织运营 Agent：管理员、秘书与线上主�
 付款、预留与发布均未启用；加权投票、法定人数、回避、预算竞争、活动空间、提醒、文章与监督仍属延后项。
 参见[开发与部署记录](docs/implementation-and-deployment-zh.md)。
 逐项验收状态见 [P0 验收矩阵](docs/p0-acceptance-matrix.md)；十案例最终结论见
-[MVP Slack 验收记录（2026-09-28）](docs/mvp-acceptance-2026-09-28.md)：案例 2–10 按合成开发证据通过，
+[v0.1 治理验收记录（2026-09-28）](docs/governance-acceptance-2026-09-28.md)：案例 2–10 按合成开发证据通过，
 案例 1 由负责人决定跳过、**未通过**。
 
 ## 仓库结构
@@ -129,7 +129,7 @@ Contributor 提案 → 信息确认与评估 → 零预算授权快速通道 / B
 - [部署准备](docs/setup.md)
 - [更新 OpenClaw](docs/upstream.md)
 - [P0 实施与验收清单](docs/roadmap.md)
-- [MVP Slack 验收记录（2026-09-28）](docs/mvp-acceptance-2026-09-28.md)
+- [v0.1 治理验收记录（2026-09-28）](docs/governance-acceptance-2026-09-28.md)
 - [待决事项](docs/decisions.md)
 - [正式 Bot Icon 与设计历史](assets/brand/README.md)
 

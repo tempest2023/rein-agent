@@ -15,13 +15,13 @@ key over PostgREST, no tool posts a Slack message, and no tool authorizes, reser
 
 The longer interface names live in the database as `<env>_rein_proposals`, `<env>_rein_polls`,
 `<env>_rein_ballots`, `<env>_rein_vote_types` and `<env>_rein_proposal_revisions` with the
-`<env>_rein_finalize_poll` and `<env>_rein_approve_revision` RPCs. They replace the earlier
-`<env>_rein_mvp_*` tables and RPCs through the committed forward migration
-`20260927110000_rein_governance_names.sql`, ordered after the committed `20260927103000` migration;
-the old table and RPC names stay reachable as compatibility views and RPC wrappers during the
-transition. The migration is **applied** to the linked project as of 2026-09-28, so the long-term
-names resolve there and the old names still work through the views and wrappers. Applied schema is not
-live code use: no end-to-end run has exercised these names against a real project.
+`<env>_rein_finalize_poll` and `<env>_rein_approve_revision` RPCs. The stable names arrived through
+the committed forward migration `20260927110000_rein_governance_names.sql`, ordered after the
+committed `20260927103000` migration.
+That migration is **applied** to the linked project as of 2026-09-28, so the long-term names resolve
+there. The transition compatibility views and RPC wrappers were removed by the later
+`20260929045543_remove_stage_compatibility_objects.sql`, so only the long-term names remain. Applied
+schema is not live code use: no end-to-end run has exercised these names against a real project.
 
 `rein_governance_proposal_submit` stores a proposal only after its author has confirmed the exact version.
 The first call prepares: it writes nothing and returns the canonical proposal text plus a

@@ -1,5 +1,5 @@
 /**
- * MVP approval tally.
+ * approval tally.
  *
  * One frozen round, one deterministic count. A round freezes the eligible member roster and the
  * candidate proposal identifiers; every eligible member may return at most one immutable ballot
@@ -16,24 +16,24 @@
  * ballots it is given and returns a report.
  */
 
-export class MvpVoteTallyError extends Error {
+export class VoteTallyError extends Error {
   readonly code: string;
 
   constructor(code: string, message: string) {
     super(message);
-    this.name = "MvpVoteTallyError";
+    this.name = "VoteTallyError";
     this.code = code;
   }
 }
 
-export interface MvpBallot {
+export interface Ballot {
   /** Canonical member id of the voter. */
   memberId: string;
   /** Candidate proposal ids this member approves. Empty means the member abstained. */
   approvedProposalIds: readonly string[];
 }
 
-export interface MvpTallyInput {
+export interface TallyInput {
   /** Frozen snapshot of eligible canonical member ids. Compared exactly; order is irrelevant. */
   eligibleMemberIds: readonly string[];
   /** Frozen candidate proposal ids for this round. Compared exactly; order is irrelevant. */
@@ -41,7 +41,7 @@ export interface MvpTallyInput {
   /** How many distinct candidates one member may approve; 0 approvals is always allowed. */
   maxApprovalsPerVoter: number;
   /** Ballots to count. Each member counts at most once. */
-  ballots: readonly MvpBallot[];
+  ballots: readonly Ballot[];
 }
 
 export type RejectedBallotReason =
@@ -59,9 +59,9 @@ export interface RejectedBallot {
   reason: RejectedBallotReason;
 }
 
-export type MvpTallyOutcome = "unique_winner" | "tie" | "no_winner";
+export type TallyOutcome = "unique_winner" | "tie" | "no_winner";
 
-export interface MvpTallyResult {
+export interface TallyResult {
   candidateProposalIds: readonly string[];
   maxApprovalsPerVoter: number;
   /** Approvals per candidate. Every frozen candidate is a key, even at zero. */
@@ -78,7 +78,7 @@ export interface MvpTallyResult {
     /** Total approvals counted across all ballots. */
     approvals: number;
   };
-  outcome: MvpTallyOutcome;
+  outcome: TallyOutcome;
   winner: string | null;
   /** Candidates sharing the highest count when the outcome is a tie; empty otherwise. */
   tiedProposalIds: readonly string[];
@@ -86,7 +86,7 @@ export interface MvpTallyResult {
 }
 
 function fail(code: string, message: string): never {
-  throw new MvpVoteTallyError(code, message);
+  throw new VoteTallyError(code, message);
 }
 
 function deepFreeze<T>(value: T): T {
@@ -121,7 +121,7 @@ function requireIdList(value: unknown, field: string): string[] {
  *
  * Malformed configuration (blank or duplicate eligible member ids, blank or duplicate candidate
  * proposal ids, or a `maxApprovalsPerVoter` that is not a positive integer) is a caller bug and
- * throws {@link MvpVoteTallyError} with code `invalid_input`. Malformed individual ballots are
+ * throws {@link VoteTallyError} with code `invalid_input`. Malformed individual ballots are
  * normal data and are reported in `rejectedBallots` instead of throwing, so a frozen ballot set
  * always produces a readable result.
  *
@@ -131,7 +131,7 @@ function requireIdList(value: unknown, field: string): string[] {
  * ballot from the same member is rejected as `duplicate_ballot` rather than replacing it, so the
  * count never depends on which ballot arrived last.
  */
-export function tallyMvpVote(input: MvpTallyInput): MvpTallyResult {
+export function tallyVote(input: TallyInput): TallyResult {
   if (input === null || typeof input !== "object") {
     fail("invalid_input", "tally input must be an object");
   }
@@ -241,7 +241,7 @@ export function tallyMvpVote(input: MvpTallyInput): MvpTallyResult {
 
   const highest = Math.max(...candidateProposalIds.map((id) => counts.get(id) ?? 0));
   const leaders = candidateProposalIds.filter((id) => counts.get(id) === highest);
-  const outcome: MvpTallyOutcome =
+  const outcome: TallyOutcome =
     highest === 0 ? "no_winner" : leaders.length === 1 ? "unique_winner" : "tie";
   const reasons: string[] = [];
   if (outcome === "no_winner") {
@@ -252,7 +252,7 @@ export function tallyMvpVote(input: MvpTallyInput): MvpTallyResult {
     reasons.push("unique_highest_count");
   }
 
-  return deepFreeze<MvpTallyResult>({
+  return deepFreeze<TallyResult>({
     candidateProposalIds,
     maxApprovalsPerVoter,
     counts: Object.fromEntries(counts),

@@ -9,18 +9,18 @@
  * Board authority. Pure: no I/O, timers, generated ids or tool registration, and no money movement.
  */
 
-export class MvpProposalFeedbackError extends Error {
+export class ProposalRevisionError extends Error {
   readonly code: string;
 
   constructor(code: string, message: string) {
     super(message);
-    this.name = 'MvpProposalFeedbackError';
+    this.name = 'ProposalRevisionError';
     this.code = code;
   }
 }
 
 const fail = (code: string, message: string): never => {
-  throw new MvpProposalFeedbackError(code, message);
+  throw new ProposalRevisionError(code, message);
 };
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -259,7 +259,7 @@ function readSnapshot(snapshot: unknown): {
  * neither the effective version's lead nor a current Board member, or nothing changed. A material
  * revision without a counted approval is refused and the effective version stays in place.
  *
- * A malformed snapshot or a structurally invalid request throws {@link MvpProposalFeedbackError}
+ * A malformed snapshot or a structurally invalid request throws {@link ProposalRevisionError}
  * with code `invalid_input`; a valid request always returns a readable decision.
  */
 export function decidePostVoteFeedback(snapshot: FeedbackSnapshot, request: FeedbackRequest): FeedbackDecision {

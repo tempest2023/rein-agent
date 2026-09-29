@@ -173,7 +173,7 @@ test('an https loopback host is refused unless the operator explicitly opted out
 
 test('the manifest and the setup guide register an https tunnel callback, never the rejected localhost form', () => {
   const manifest = JSON.parse(
-    readFileSync(new URL('../docs/slack-mvp-test-app-manifest.json', import.meta.url), 'utf8'),
+    readFileSync(new URL('../docs/slack-governance-test-app-manifest.json', import.meta.url), 'utf8'),
   );
   const redirects = manifest.oauth_config.redirect_urls;
   assert.ok(Array.isArray(redirects) && redirects.length > 0, 'the manifest must register at least one redirect URL');

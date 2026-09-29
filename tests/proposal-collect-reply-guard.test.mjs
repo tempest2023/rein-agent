@@ -13,7 +13,7 @@ import {
   SUBMIT_GUARD_TOOL_NAME,
   TOOL_SEARCH_DISPATCHER_TOOL_NAME,
   createCollectReplyGuard,
-} from '../plugins/rein-operations/mvp-collect-reply-guard.ts';
+} from '../plugins/rein-operations/proposal-collect-reply-guard.ts';
 
 // Focused tests for the case-3 outbound guard. They drive the guard's own hooks with plain objects,
 // so no host, gateway, Slack API or database is involved. Each test asserts on the exact payload
@@ -623,7 +623,7 @@ test('the remembered set is bounded and drops the oldest run first', () => {
 // the remembered entries live in one store that every loaded copy in the process reaches.
 
 test('a collect armed in one guard instance rewrites the reply delivered by another', () => {
-  const key = Symbol.for('rein-mvp-collect-reply-guard-test.two-instance');
+  const key = Symbol.for('rein-proposal-collect-reply-guard-test.two-instance');
   const arming = createCollectReplyGuard({ now: () => 0, stateKey: key });
   const replying = createCollectReplyGuard({ now: () => 0, stateKey: key });
 
@@ -661,7 +661,7 @@ test('two instances built without a key share the plugin-wide slot by default', 
 });
 
 test('a submit seen by another instance clears the collect armed by the first', () => {
-  const key = Symbol.for('rein-mvp-collect-reply-guard-test.two-instance-submit');
+  const key = Symbol.for('rein-proposal-collect-reply-guard-test.two-instance-submit');
   const arming = createCollectReplyGuard({ now: () => 0, stateKey: key });
   const submitting = createCollectReplyGuard({ now: () => 0, stateKey: key });
 
@@ -685,7 +685,7 @@ test('an entry armed in one instance is swept on the other instance clock', () =
   // not because the arming instance happened to look again.
   let armingClock = 0;
   let replyingClock = 0;
-  const key = Symbol.for('rein-mvp-collect-reply-guard-test.two-instance-expiry');
+  const key = Symbol.for('rein-proposal-collect-reply-guard-test.two-instance-expiry');
   const arming = createCollectReplyGuard({ now: () => armingClock, ttlMs: 60_000, stateKey: key });
   const replying = createCollectReplyGuard({ now: () => replyingClock, ttlMs: 60_000, stateKey: key });
 

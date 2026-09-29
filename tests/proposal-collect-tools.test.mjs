@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MVP_COLLECT_TOOL_NAMES,
+  GOVERNANCE_COLLECT_TOOL_NAMES,
   MAX_COLLECT_TOKEN_LENGTH,
   COLLECT_TTL_MS,
-  createMvpCollectToolRegistration,
-} from '../plugins/rein-operations/mvp-collect-tools.ts';
+  createProposalCollectToolRegistration,
+} from '../plugins/rein-operations/proposal-collect-tools.ts';
 import {
   COLLECT_TOKEN_CAP,
   MAX_DRAFT_DOCUMENT_BYTES,
@@ -13,12 +13,12 @@ import {
   draftPreview,
   issueProposalDraft,
   verifyProposalDraft,
-} from '../plugins/rein-operations/mvp-proposal-draft.ts';
+} from '../plugins/rein-operations/proposal-draft.ts';
 import {
   issueProposalConfirmation,
   maxDocumentBytesForToken,
   verifyProposalConfirmation,
-} from '../plugins/rein-operations/mvp-proposal-confirmation.ts';
+} from '../plugins/rein-operations/proposal-confirmation.ts';
 
 // Focused fake-reader and fake-writer tests for `rein_proposal_collect`, the read-only multi-turn
 // field-collection tool. No live database or Slack call is made. The fakes record every call, so each
@@ -113,7 +113,7 @@ function build({
     },
     ...overrides,
   };
-  const registration = createMvpCollectToolRegistration({
+  const registration = createProposalCollectToolRegistration({
     config,
     reader: fakes.reader,
     writer: fakes.writer,
@@ -134,11 +134,11 @@ function build({
 test('no collect tool registers without an explicit enabled block', () => {
   for (const config of [undefined, {}, { enabled: false }, { enabled: 'true' }]) {
     const fakes = createFakes();
-    const registration = createMvpCollectToolRegistration({ config, reader: fakes.reader, writer: fakes.writer });
+    const registration = createProposalCollectToolRegistration({ config, reader: fakes.reader, writer: fakes.writer });
     assert.equal(registration.create({ messageChannel: 'slack' }), null);
     assert.equal(registration.contextVersion, 2);
   }
-  assert.deepEqual([...MVP_COLLECT_TOOL_NAMES], ['rein_proposal_collect']);
+  assert.deepEqual([...GOVERNANCE_COLLECT_TOOL_NAMES], ['rein_proposal_collect']);
 });
 
 test('an enabled but incomplete block fails loudly instead of registering silently', () => {
@@ -152,7 +152,7 @@ test('an enabled but incomplete block fails loudly instead of registering silent
   ];
   for (const [config, expected] of cases) {
     assert.throws(
-      () => createMvpCollectToolRegistration({ config, reader: fakes.reader, writer: fakes.writer, signingKey: SIGNING_KEY }),
+      () => createProposalCollectToolRegistration({ config, reader: fakes.reader, writer: fakes.writer, signingKey: SIGNING_KEY }),
       expected,
     );
   }
@@ -160,7 +160,7 @@ test('an enabled but incomplete block fails loudly instead of registering silent
     const partial = { ...fakes.writer, [missing]: undefined };
     assert.throws(
       () =>
-        createMvpCollectToolRegistration({
+        createProposalCollectToolRegistration({
           config: baseConfig,
           reader: fakes.reader,
           writer: partial,
@@ -174,11 +174,11 @@ test('an enabled but incomplete block fails loudly instead of registering silent
 
 test('the signing key is read from the server environment and never appears in a result', async () => {
   assert.throws(
-    () => createMvpCollectToolRegistration({ config: baseConfig, env: {} }),
+    () => createProposalCollectToolRegistration({ config: baseConfig, env: {} }),
     error => error.code === 'foundation_db_env_value_missing' && error.message.includes(URL_ENV),
   );
   assert.throws(
-    () => createMvpCollectToolRegistration({ config: baseConfig, env: { [URL_ENV]: 'https://project-ref.supabase.co' } }),
+    () => createProposalCollectToolRegistration({ config: baseConfig, env: { [URL_ENV]: 'https://project-ref.supabase.co' } }),
     error => error.code === 'foundation_db_env_value_missing' && error.message.includes(KEY_ENV),
   );
   const built = build({ fakes: createFakes() });

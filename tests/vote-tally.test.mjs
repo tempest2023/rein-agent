@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MvpVoteTallyError,
-  tallyMvpVote,
-} from '../plugins/rein-operations/mvp-vote-tally.ts';
+  VoteTallyError,
+  tallyVote,
+} from '../plugins/rein-operations/vote-tally.ts';
 
 const ROSTER = ['m1', 'm2', 'm3', 'm4'];
 const CANDIDATES = ['EV-012', 'EV-013'];
@@ -14,7 +14,7 @@ function ballot(memberId, approvedProposalIds) {
 }
 
 function tally(overrides = {}) {
-  return tallyMvpVote({
+  return tallyVote({
     eligibleMemberIds: ROSTER,
     candidateProposalIds: CANDIDATES,
     maxApprovalsPerVoter: MAX,
@@ -79,7 +79,7 @@ test('zero approvals is an abstention: participation that gives no candidate a c
 });
 
 test('a candidate nobody approves keeps a zero count and never wins', () => {
-  const result = tallyMvpVote({
+  const result = tallyVote({
     eligibleMemberIds: ROSTER,
     candidateProposalIds: ['EV-012', 'EV-013', 'EV-014'],
     maxApprovalsPerVoter: 3,
@@ -140,7 +140,7 @@ test('a member may approve up to the limit, and a generous limit is not an error
   assert.deepEqual(atLimit.counts, { 'EV-012': 1, 'EV-013': 1 });
   assert.equal(atLimit.outcome, 'tie');
 
-  const generous = tallyMvpVote({
+  const generous = tallyVote({
     eligibleMemberIds: ROSTER,
     candidateProposalIds: CANDIDATES,
     maxApprovalsPerVoter: 5,
@@ -237,7 +237,7 @@ test('a rejected first ballot does not consume the member one ballot', () => {
 });
 
 test('malformed ballots are reported rather than thrown', () => {
-  const result = tallyMvpVote({
+  const result = tallyVote({
     eligibleMemberIds: ROSTER,
     candidateProposalIds: CANDIDATES,
     maxApprovalsPerVoter: MAX,
@@ -328,7 +328,7 @@ test('the count does not depend on ballot order or approval order', () => {
 });
 
 test('arbitrary identifiers work, including a single candidate and unicode ids', () => {
-  const single = tallyMvpVote({
+  const single = tallyVote({
     eligibleMemberIds: ['a', 'b'],
     candidateProposalIds: ['only-proposal'],
     maxApprovalsPerVoter: 1,
@@ -339,7 +339,7 @@ test('arbitrary identifiers work, including a single candidate and unicode ids',
   assert.equal(single.participation.abstained, 1);
   assert.deepEqual(single.counts, { 'only-proposal': 1 });
 
-  const unicode = tallyMvpVote({
+  const unicode = tallyVote({
     eligibleMemberIds: ['成员-1', '成员-2'],
     candidateProposalIds: ['方案甲', '方案乙'],
     maxApprovalsPerVoter: 2,
@@ -350,10 +350,10 @@ test('arbitrary identifiers work, including a single candidate and unicode ids',
 });
 
 test('malformed configuration throws invalid_input', () => {
-  assert.throws(() => tallyMvpVote(null), (error) => {
-    assert.ok(error instanceof MvpVoteTallyError);
+  assert.throws(() => tallyVote(null), (error) => {
+    assert.ok(error instanceof VoteTallyError);
     assert.equal(error.code, 'invalid_input');
-    assert.equal(error.name, 'MvpVoteTallyError');
+    assert.equal(error.name, 'VoteTallyError');
     return true;
   });
   assert.throws(() => tally({ eligibleMemberIds: [] }), { code: 'invalid_input' });
@@ -385,7 +385,7 @@ test('the result is deeply frozen and the inputs are not mutated', () => {
   ];
   const snapshot = structuredClone({ eligibleMemberIds, candidateProposalIds, inputBallots });
 
-  const result = tallyMvpVote({
+  const result = tallyVote({
     eligibleMemberIds,
     candidateProposalIds,
     maxApprovalsPerVoter: MAX,

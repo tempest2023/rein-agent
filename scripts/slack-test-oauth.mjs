@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Local Slack PKCE user-token helper for the five Rein MVP test identities.
+// Local Slack PKCE user-token helper for the five Rein governance test identities.
 //
 // Purpose: acquire one user OAuth token (`xoxp-...`) per test account so the local harness can act
 // as a real human. Scope is user-only (`chat:write`); no bot scopes are requested.

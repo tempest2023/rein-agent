@@ -1,11 +1,11 @@
-// MVP write tools: Contributor proposal intake, Board approval polls, one immutable ballot per
+// governance write tools: Contributor proposal intake, Board approval polls, one immutable ballot per
 // director per poll, and the round result.
 //
 // Scope: PRD R02 (a chat account acts only after an explicit link to a community record, and a
 // display name never establishes identity), R04-R08 with D04/D08/D09 (approval-only voting: one
 // equal weight per eligible director, explicit approvals or abstain, no reject choice), C15 (a
 // requested amount is a request, never an authorization) and the fail-closed posture of AC01/AC06.
-// This module registers only under an explicit `mvp` config block, exactly like `mvp-read-tools.ts`.
+// This module registers only under an explicit `foundationDb` config block, exactly like `governance-read-tools.ts`.
 //
 // Trust boundary:
 // - The acting account comes only from `ctx.requesterSenderId`, the approved channel only from
@@ -74,7 +74,7 @@ import {
   issueProposalConfirmation,
   proposalIdForConfirmation,
   verifyProposalConfirmation,
-} from './mvp-proposal-confirmation.ts';
+} from './proposal-confirmation.ts';
 import { assertCurrentInvocation } from './request-context.ts';
 import type {
   FoundationDbWriter,
@@ -86,28 +86,28 @@ import type {
 import type { SlackMemberResolution } from './foundation-db-reader.ts';
 
 /** Names the caller must declare in the manifest and pass to `registerTool(..., { names })`. */
-export const MVP_WRITE_TOOL_NAMES = Object.freeze([
+export const GOVERNANCE_WRITE_TOOL_NAMES = Object.freeze([
   'rein_governance_proposal_submit',
   'rein_poll_open',
   'rein_poll_vote',
   'rein_poll_result',
 ]);
 
-export class MvpWriteToolError extends Error {
+export class GovernanceWriteToolError extends Error {
   readonly code: string;
   /** Extra facts a refusal may carry, such as the names an operator did configure. */
   readonly details: Record<string, unknown>;
 
   constructor(code: string, message: string, details: Record<string, unknown> = {}) {
     super(message);
-    this.name = 'MvpWriteToolError';
+    this.name = 'GovernanceWriteToolError';
     this.code = code;
     this.details = details;
   }
 }
 
 /** The one reader method this slice uses: resolve a trusted Slack sender to a community record. */
-export interface MvpWriteToolReader {
+export interface GovernanceWriteToolReader {
   resolveSlackMember(slackUserId: string): Promise<SlackMemberResolution>;
 }
 
@@ -118,7 +118,7 @@ export interface MvpWriteToolReader {
  * deadline. Every one of them keeps the database as the authority for the per-type caps, for the
  * frozen candidate list and for the counted outcome.
  */
-export type MvpWriteToolWriter = Pick<
+export type GovernanceWriteToolWriter = Pick<
   FoundationDbWriter,
   | 'submitProposal'
   | 'createPoll'
@@ -132,9 +132,9 @@ export type MvpWriteToolWriter = Pick<
   | 'finalizePoll'
 >;
 
-export interface MvpWriteToolsOptions {
+export interface GovernanceWriteToolsOptions {
   /**
-   * The `mvp` block of plugin config, read as untrusted input. Expected keys: `enabled`, `platform`
+   * The `foundationDb` block of plugin config, read as untrusted input. Expected keys: `enabled`, `platform`
    * (`slack`), `slackTeamId`, `environment` (`dev` or `prod`), `proposalChannelIds`,
    * `boardChannelIds`, `supabaseUrlEnvVar`, `supabaseServiceKeyEnvVar`,
    * `proposalConfirmationKeyEnvVar`, the optional `identityEmailMatch` (`enabled` or `disabled`)
@@ -145,9 +145,9 @@ export interface MvpWriteToolsOptions {
   /** Server environment holding the referenced values. Defaults to `process.env`. */
   env?: Record<string, string | undefined>;
   /** Injectable reader for tests and local rehearsal; skips the env-var lookups. */
-  reader?: MvpWriteToolReader;
+  reader?: GovernanceWriteToolReader;
   /** Injectable writer for tests and local rehearsal; skips the env-var lookups. */
-  writer?: MvpWriteToolWriter;
+  writer?: GovernanceWriteToolWriter;
   /**
    * Injectable confirmation signing key for tests and local rehearsal. When omitted, the key is
    * read from the server environment variable named by `foundationDb.proposalConfirmationKeyEnvVar`.
@@ -157,12 +157,12 @@ export interface MvpWriteToolsOptions {
   now?: () => Date;
 }
 
-interface ResolvedMvpWriteConfig {
+interface ResolvedGovernanceWriteConfig {
   platform: 'slack';
   proposalChannelIds: string[];
   boardChannelIds: string[];
-  reader: MvpWriteToolReader;
-  writer: MvpWriteToolWriter;
+  reader: GovernanceWriteToolReader;
+  writer: GovernanceWriteToolWriter;
   /** Server-only key that signs one proposal confirmation token. Never leaves the process. */
   confirmationSigningKey: string;
   now: () => Date;
@@ -237,7 +237,7 @@ const asIsoInstant = (value: unknown): string | null =>
     : null;
 
 function configError(message: string): never {
-  throw new MvpWriteToolError('foundation_db_config_invalid', `foundationDb write tools: ${message}`);
+  throw new GovernanceWriteToolError('foundation_db_config_invalid', `foundationDb write tools: ${message}`);
 }
 
 function readChannelIds(field: string, value: unknown): string[] {
@@ -274,7 +274,7 @@ function readIdentityEmailMatch(value: unknown): 'enabled' | 'disabled' {
 function readEnvValue(env: Record<string, string | undefined>, name: string, field: string): string {
   const value = env?.[name];
   if (typeof value !== 'string' || !value.trim()) {
-    throw new MvpWriteToolError(
+    throw new GovernanceWriteToolError(
       'foundation_db_env_value_missing',
       `foundationDb write tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
     );
@@ -283,12 +283,12 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
 }
 
 /**
- * Validate the operator configuration. Returns null when the MVP block is absent or disabled so the
+ * Validate the operator configuration. Returns null when the foundationDb block is absent or disabled so the
  * caller registers no tools; throws on an enabled-but-incomplete block so a misconfiguration fails
  * loudly instead of silently exposing nothing. The same block configures the read slice, so the
- * checks and reason codes match `mvp-read-tools.ts`.
+ * checks and reason codes match `governance-read-tools.ts`.
  */
-function resolveMvpWriteConfig(options?: MvpWriteToolsOptions): ResolvedMvpWriteConfig | null {
+function resolveGovernanceWriteConfig(options?: GovernanceWriteToolsOptions): ResolvedGovernanceWriteConfig | null {
   const config = options?.config;
   if (!config || typeof config !== 'object' || config.enabled !== true) return null;
 
@@ -326,8 +326,8 @@ function resolveMvpWriteConfig(options?: MvpWriteToolsOptions): ResolvedMvpWrite
       ? readEnvReference(config.slackBotTokenEnvVar, 'slackBotTokenEnvVar')
       : null;
 
-  let reader: MvpWriteToolReader | undefined = options?.reader;
-  let writer: MvpWriteToolWriter | undefined = options?.writer;
+  let reader: GovernanceWriteToolReader | undefined = options?.reader;
+  let writer: GovernanceWriteToolWriter | undefined = options?.writer;
   let confirmationSigningKey: string | undefined =
     typeof options?.confirmationSigningKey === 'string' && options.confirmationSigningKey.trim()
       ? options.confirmationSigningKey.trim()
@@ -414,7 +414,7 @@ function assertNoImpersonationArgs(args: unknown) {
   if (!args || typeof args !== 'object') return;
   for (const key of IMPERSONATION_KEYS) {
     if (Object.hasOwn(args, key)) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'actor_argument_rejected',
         `The "${key}" argument is not accepted; the acting account comes only from the host context.`,
       );
@@ -431,7 +431,7 @@ function assertNoPolicyArgs(args: unknown) {
   if (!args || typeof args !== 'object') return;
   for (const key of POLICY_KEYS) {
     if (Object.hasOwn(args, key)) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'policy_argument_rejected',
         `The "${key}" argument is not accepted; the stored vote type and the database decide it.`,
       );
@@ -554,7 +554,7 @@ function provisionalResult(
   return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
 }
 
-function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
+function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
   const { proposalChannelIds, boardChannelIds, reader, writer, confirmationSigningKey, now } = config;
 
   const nativeChannelId = typeof ctx?.nativeChannelId === 'string' ? ctx.nativeChannelId.trim() : '';
@@ -564,13 +564,13 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
   // approved channels may call this tool; the acting account is never taken from arguments.
   const requester = (audience: string, scoped: string[]) => {
     if (ctx?.messageChannel !== 'slack') {
-      throw new MvpWriteToolError('platform_out_of_scope', 'These tools act on Slack host context only.');
+      throw new GovernanceWriteToolError('platform_out_of_scope', 'These tools act on Slack host context only.');
     }
     if (!senderId) {
-      throw new MvpWriteToolError('trusted_requester_unavailable', 'The host did not supply a sender ID.');
+      throw new GovernanceWriteToolError('trusted_requester_unavailable', 'The host did not supply a sender ID.');
     }
     if (!nativeChannelId || !scoped.includes(nativeChannelId)) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'channel_out_of_scope',
         `This tool is limited to its approved ${audience} channel.`,
       );
@@ -579,7 +579,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
   };
 
   const linkRequired = (audience: string) =>
-    new MvpWriteToolError(
+    new GovernanceWriteToolError(
       'identity_link_required',
       `This ${audience} tool requires a verified link between your Slack account and a community record.`,
     );
@@ -590,7 +590,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
    * unauthorized account; no member status or role is disclosed either way.
    */
   const identityCheckUnavailable = (audience: string) =>
-    new MvpWriteToolError(
+    new GovernanceWriteToolError(
       'identity_check_unavailable',
       `The community record for your Slack account could not be read, so this ${audience} tool refuses instead of treating the failed lookup as an unlinked account.`,
     );
@@ -601,7 +601,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
     if (member.status === 'unavailable') throw identityCheckUnavailable('proposal');
     if (member.status !== 'resolved' || !member.contactId) throw linkRequired('proposal');
     if (member.isActiveContributor !== true) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'contributor_status_required',
         'Submitting a proposal requires a currently active Contributor record for your Slack account.',
       );
@@ -615,7 +615,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
     if (member.status === 'unavailable') throw identityCheckUnavailable('Board');
     if (member.status !== 'resolved' || !member.contactId) throw linkRequired('Board');
     if (member.isDirector !== true) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'board_membership_required',
         'This Board tool requires a currently verified director link for your Slack account.',
       );
@@ -630,10 +630,10 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
       const value: unknown = now();
       iso = value instanceof Date ? value.toISOString() : new Date(value as string).toISOString();
     } catch (error) {
-      throw new MvpWriteToolError('clock_invalid', `The configured clock failed: ${describe(error)}`);
+      throw new GovernanceWriteToolError('clock_invalid', `The configured clock failed: ${describe(error)}`);
     }
     if (!ISO_INSTANT_PATTERN.test(iso)) {
-      throw new MvpWriteToolError('clock_invalid', 'The configured clock did not return a valid instant.');
+      throw new GovernanceWriteToolError('clock_invalid', 'The configured clock did not return a valid instant.');
     }
     return iso;
   };
@@ -647,7 +647,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
   const mintedIds = new Map<string, string>();
   const recordId = (kind: 'proposal' | 'poll', toolCallId: unknown): string => {
     if (typeof toolCallId !== 'string' || !toolCallId.trim()) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'tool_call_id_required',
         'The host must supply the tool call id; it is what makes a retry the same record.',
       );
@@ -675,7 +675,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
   const resolveTitle = (value: unknown): string => {
     const title = typeof value === 'string' ? value.trim() : '';
     if (title.length < 1 || title.length > MAX_TITLE_LENGTH) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'title_invalid',
         `title must be ${MAX_TITLE_LENGTH} characters or fewer and not empty.`,
       );
@@ -687,7 +687,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
   const resolveSummary = (value: unknown): string | null => {
     if (value === undefined || value === null) return null;
     if (typeof value !== 'string' || value.length > MAX_SUMMARY_LENGTH) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'summary_invalid',
         `summary must be text of at most ${MAX_SUMMARY_LENGTH} characters.`,
       );
@@ -709,7 +709,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
     const hasCurrency = currencyValue !== undefined && currencyValue !== null;
     if (!hasAmount && !hasCurrency) return { requestedMinor: null, currency: null };
     if (hasAmount !== hasCurrency) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'proposal_request_incomplete',
         'A requested amount and its currency are recorded together or not at all.',
       );
@@ -719,14 +719,14 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
       !Number.isInteger(requestedMinorValue) ||
       requestedMinorValue < 0
     ) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'proposal_requested_minor_invalid',
         'requestedMinor must be a whole number of minor units, zero or more.',
       );
     }
     const currency = typeof currencyValue === 'string' ? currencyValue.trim().toUpperCase() : '';
     if (!CURRENCY_PATTERN.test(currency)) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'proposal_currency_invalid',
         'currency must be one ISO 4217 code such as USD.',
       );
@@ -742,7 +742,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
   const readConfiguredVoteTypes = async (): Promise<string[]> => {
     const result = await writer.listVoteTypes({ limit: MAX_CONFIGURED_VOTE_TYPES });
     if (!result.ok || !result.voteTypes) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'vote_type_configuration_unavailable',
         'The configured proposal types could not be read, so no type could be checked.',
       );
@@ -759,7 +759,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
   const requireConfiguredVoteType = (value: unknown, configured: readonly string[]): string => {
     const voteType = asVoteType(value);
     if (voteType === null) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'vote_type_invalid',
         configured.length === 0
           ? 'voteType must be one configured lower snake case proposal type; no type is configured yet.'
@@ -767,7 +767,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
       );
     }
     if (!configured.includes(voteType)) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'vote_type_not_configured',
         'That proposal type is not configured; the type and its limits are operator configuration.',
         {
@@ -788,9 +788,9 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
     const result = await writer.getPoll(pollId);
     if (!result.ok || !result.poll) {
       if (result.reason === 'poll_not_found') {
-        throw new MvpWriteToolError('poll_not_found', 'No stored poll has that identifier.');
+        throw new GovernanceWriteToolError('poll_not_found', 'No stored poll has that identifier.');
       }
-      throw new MvpWriteToolError('poll_lookup_unavailable', 'The stored poll could not be read.');
+      throw new GovernanceWriteToolError('poll_lookup_unavailable', 'The stored poll could not be read.');
     }
     return result.poll;
   };
@@ -803,12 +803,12 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
     const result = await writer.getVoteType(voteType);
     if (!result.ok || !result.voteType) {
       if (result.reason === 'vote_type_not_found') {
-        throw new MvpWriteToolError(
+        throw new GovernanceWriteToolError(
           'vote_type_not_found',
           'No configured vote type has that name; the type and its limits are operator configuration.',
         );
       }
-      throw new MvpWriteToolError('vote_type_lookup_unavailable', 'The configured vote type could not be read.');
+      throw new GovernanceWriteToolError('vote_type_lookup_unavailable', 'The configured vote type could not be read.');
     }
     return result.voteType;
   };
@@ -832,7 +832,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
       includeRecentlyUnselected: true,
     });
     if (!listed.ok || !listed.proposals) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'candidate_pool_unavailable',
         'The eligible proposals of this type could not be read.',
       );
@@ -878,13 +878,13 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
   const resolveApprovals = (value: unknown, poll: PollRecord): string[] => {
     if (value === undefined) return [];
     if (!Array.isArray(value)) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'approved_proposal_ids_invalid',
         'approvedProposalIds must be an array of candidate proposal identifiers.',
       );
     }
     if (value.length > MAX_APPROVALS) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'approved_proposal_ids_invalid',
         `approvedProposalIds accepts at most ${MAX_APPROVALS} entries.`,
       );
@@ -893,7 +893,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
     for (const entry of value as unknown[]) {
       const id = asUuid(entry);
       if (id === null || approved.includes(id)) {
-        throw new MvpWriteToolError(
+        throw new GovernanceWriteToolError(
           'approved_proposal_ids_invalid',
           'Every entry must be one canonical proposal identifier, without repeats.',
         );
@@ -901,14 +901,14 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
       approved.push(id);
     }
     if (approved.length > poll.maxApprovalsPerVoter) {
-      throw new MvpWriteToolError(
+      throw new GovernanceWriteToolError(
         'too_many_approvals',
         `This poll counts at most ${poll.maxApprovalsPerVoter} approvals per voter.`,
       );
     }
     for (const id of approved) {
       if (!poll.candidateProposalIds.includes(id)) {
-        throw new MvpWriteToolError(
+        throw new GovernanceWriteToolError(
           'approved_proposal_not_in_poll',
           'Every approved proposal must be a candidate of this poll.',
         );
@@ -952,7 +952,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
               // The token is an AES-256-GCM ciphertext of the canonical proposal document, so it is
               // larger than the text it carries. The cap is the measured worst case for the longest
               // legal payload, counting characters rather than bytes: one summary code point can be
-              // several UTF-8 bytes. `mvp-proposal-confirmation.ts` refuses to mint a token longer
+              // several UTF-8 bytes. `proposal-confirmation.ts` refuses to mint a token longer
               // than this instead of returning one the schema would reject.
               maxLength: MAX_CONFIRMATION_TOKEN_LENGTH,
               description:
@@ -994,7 +994,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           // The token is also remembered here, so this same turn cannot turn around and confirm it.
           if (args?.confirmationToken === undefined) {
             if (args?.confirmPronouncedByAuthor === true) {
-              throw new MvpWriteToolError(
+              throw new GovernanceWriteToolError(
                 'proposal_confirmation_required',
                 'A confirmation needs the token returned by the prepare call; prepare first, then confirm.',
               );
@@ -1003,7 +1003,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
             // A document too large to seal into a legal token is refused here, before anything is
             // handed back: a caller never receives a token the confirm phase would have to reject.
             if (!issued.ok) {
-              throw new MvpWriteToolError(
+              throw new GovernanceWriteToolError(
                 issued.reason,
                 `The prepared proposal text is too long to seal into one confirmation token (${issued.documentBytes} bytes); shorten the summary and prepare it again.`,
               );
@@ -1028,7 +1028,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           // and the caller must state that the author confirmed it. A token without that statement,
           // a token that has expired, and a token whose payload moved all stop before any write.
           if (args?.confirmPronouncedByAuthor !== true) {
-            throw new MvpWriteToolError(
+            throw new GovernanceWriteToolError(
               'proposal_confirmation_required',
               'confirmPronouncedByAuthor must be true: the proposer has to confirm the prepared version explicitly.',
             );
@@ -1042,7 +1042,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
             typeof args.confirmationToken === 'string' &&
             issuedConfirmationTokens.has(args.confirmationToken)
           ) {
-            throw new MvpWriteToolError(
+            throw new GovernanceWriteToolError(
               'proposal_confirmation_next_turn_required',
               'The confirmation has to come in a later turn than the preparation: show the prepared text to the proposer and confirm only the token they answer.',
             );
@@ -1054,7 +1054,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
             now(),
           );
           if (!verified.ok) {
-            throw new MvpWriteToolError(
+            throw new GovernanceWriteToolError(
               verified.reason,
               verified.reason === 'proposal_confirmation_expired'
                 ? 'The confirmation token has expired; prepare the proposal again and re-read it to the proposer.'
@@ -1137,7 +1137,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           const title = resolveTitle(args?.title);
           const closesAt = asIsoInstant(args?.closesAt);
           if (closesAt === null) {
-            throw new MvpWriteToolError(
+            throw new GovernanceWriteToolError(
               'poll_closes_at_invalid',
               'closesAt must be one ISO instant such as 2026-09-26T18:00:00Z.',
             );
@@ -1147,7 +1147,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
               ? null
               : asIsoInstant(args.submittedSince);
           if (args?.submittedSince !== undefined && args?.submittedSince !== null && submittedSince === null) {
-            throw new MvpWriteToolError(
+            throw new GovernanceWriteToolError(
               'submitted_since_invalid',
               'submittedSince must be one ISO instant such as 2026-09-01T00:00:00Z.',
             );
@@ -1156,7 +1156,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           const rule = await readVoteType(voteType);
           const opensAt = instant();
           if (Date.parse(closesAt) <= Date.parse(opensAt)) {
-            throw new MvpWriteToolError(
+            throw new GovernanceWriteToolError(
               'poll_window_invalid',
               'closesAt must be later than the current time, because a round opens now.',
             );
@@ -1166,7 +1166,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           const pool = await readCandidatePool(voteType, rule.maxCandidates, submittedSince);
           const candidateProposalIds = pool.slice(0, rule.maxCandidates).map(proposal => proposal.id);
           if (candidateProposalIds.length === 0) {
-            throw new MvpWriteToolError(
+            throw new GovernanceWriteToolError(
               'no_candidate_proposals',
               'No stored proposal of this type is available, so no round is opened.',
             );
@@ -1238,23 +1238,23 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           assertNoImpersonationArgs(args);
           const pollId = asUuid(args?.pollId);
           if (pollId === null) {
-            throw new MvpWriteToolError('poll_id_invalid', 'pollId must be one stored poll identifier.');
+            throw new GovernanceWriteToolError('poll_id_invalid', 'pollId must be one stored poll identifier.');
           }
           const member = await boardRequester();
           const poll = await readPoll(pollId);
           // The recorded poll window decides, not the caller. A cancelled poll is never reopened.
           if (poll.status === 'cancelled') {
-            throw new MvpWriteToolError('poll_cancelled', 'This poll was cancelled, so no ballot is recorded.');
+            throw new GovernanceWriteToolError('poll_cancelled', 'This poll was cancelled, so no ballot is recorded.');
           }
           if (poll.status !== 'open') {
-            throw new MvpWriteToolError('poll_closed', 'This poll is closed, so no ballot is recorded.');
+            throw new GovernanceWriteToolError('poll_closed', 'This poll is closed, so no ballot is recorded.');
           }
           const at = instant();
           if (Date.parse(at) < Date.parse(poll.opensAt)) {
-            throw new MvpWriteToolError('poll_not_open', 'This poll has not opened yet.');
+            throw new GovernanceWriteToolError('poll_not_open', 'This poll has not opened yet.');
           }
           if (Date.parse(at) >= Date.parse(poll.closesAt)) {
-            throw new MvpWriteToolError('poll_closed', 'This poll closed before this ballot arrived.');
+            throw new GovernanceWriteToolError('poll_closed', 'This poll closed before this ballot arrived.');
           }
           const approvedProposalIds = resolveApprovals(args?.approvedProposalIds, poll);
           // Final authority check immediately before the write: a stale turn cannot commit.
@@ -1297,7 +1297,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           assertNoImpersonationArgs(args);
           const pollId = asUuid(args?.pollId);
           if (pollId === null) {
-            throw new MvpWriteToolError('poll_id_invalid', 'pollId must be one stored poll identifier.');
+            throw new GovernanceWriteToolError('poll_id_invalid', 'pollId must be one stored poll identifier.');
           }
           const member = await boardRequester();
           const poll = await readPoll(pollId);
@@ -1370,7 +1370,7 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
           assertCurrentInvocation(ctx);
           const written = await writer.finalizePoll({ pollId, actorContactId: member.contactId });
           if (!written.ok || !written.finalization) {
-            throw new MvpWriteToolError(written.reason || 'finalize_failed', 'The outcome could not be finalized.');
+            throw new GovernanceWriteToolError(written.reason || 'finalize_failed', 'The outcome could not be finalized.');
           }
           const finalization = written.finalization;
           // The recorded candidates of the closed round, with the stored title behind each
@@ -1490,12 +1490,12 @@ function buildTools(config: ResolvedMvpWriteConfig, ctx: any) {
 }
 
 /**
- * Build the v2 tool factory for the MVP write tools. Register it as
- * `api.registerTool(createMvpWriteToolRegistration({ config }), { names: MVP_WRITE_TOOL_NAMES })`.
- * When the MVP block is absent or disabled, `create` returns null and no tool is registered.
+ * Build the v2 tool factory for the governance write tools. Register it as
+ * `api.registerTool(createGovernanceWriteToolRegistration({ config }), { names: GOVERNANCE_WRITE_TOOL_NAMES })`.
+ * When the foundationDb block is absent or disabled, `create` returns null and no tool is registered.
  */
-export function createMvpWriteToolRegistration(options?: MvpWriteToolsOptions) {
-  const config = resolveMvpWriteConfig(options);
+export function createGovernanceWriteToolRegistration(options?: GovernanceWriteToolsOptions) {
+  const config = resolveGovernanceWriteConfig(options);
   return {
     contextVersion: 2 as const,
     create(ctx: any) {

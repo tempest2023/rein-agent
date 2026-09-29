@@ -1,4 +1,4 @@
-// Outbound reply guard for the MVP ballot tool (case 6).
+// Outbound reply guard for the ballot tool (case 6).
 //
 // Why this exists. A successful `rein_poll_vote` answers the caller with a structured object that
 // carries implementation vocabulary on purpose: the stored poll identifier, the recorded approval
@@ -13,7 +13,7 @@
 // member-facing wording itself from the verified figures and delivers it as that run's final reply.
 //
 // What it does, and what it deliberately leaves alone. Two host hooks, matched to the ballot tool, to
-// the round-read tool it may follow, to every other tool this MVP entry registers, and to the Tool
+// the round-read tool it may follow, to every other tool this governance entry registers, and to the Tool
 // Search dispatcher `tool_call`, all correlated by one `runId`:
 // - `after_tool_call` runs a small per-run state machine over the calls it observes. Case 6 asks a
 //   director to name a candidate by its spoken title, and the title-to-id mapping is only visible from
@@ -35,7 +35,7 @@
 //
 // One call, two channels. A live Gateway reports a single business call to `after_tool_call` twice:
 // once under the tool's own name and once inside the Tool Search `tool_call` envelope, both carrying the
-// same guest outcome (`runtime/openclaw/tmp/gateway-mvp.log:1469-1472` shows the pair for the sibling
+// same guest outcome (`runtime/openclaw/tmp/gateway.log:1469-1472` shows the pair for the sibling
 // collect tool). Counting those as two calls disqualified every live case-6 turn and let the model's own
 // prose reach the director, so an observation that arrives on the other channel from the last counted
 // one is recognized as that call reported again and is not counted - but only when the two agree on the
@@ -119,13 +119,13 @@ export const POLL_RESULT_READ_TOOL_NAME = 'rein_poll_result';
  */
 export const VOTE_REPLY_GUARD_PREPARATORY_TOOL_NAMES = Object.freeze([POLL_RESULT_READ_TOOL_NAME]);
 /**
- * Every other tool this MVP entry registers. One of these observed anywhere in the run makes the turn
+ * Every other tool this governance entry registers. One of these observed anywhere in the run makes the turn
  * one whose reply covers more than a single ballot, so the run is disqualified rather than rewritten
  * with single-ballot wording. Listing the sibling *read* tools as well as the writes is deliberate: the
  * boundary is "one provisional read and then the ballot, or the ballot alone", and a reply that also
  * reports a status, a funds snapshot or a candidate list is not a ballot confirmation. The entries
  * mirror the name lists the tool modules export, and a unit test keeps the two tied so the wiring cannot
- * drift. `rein_status` is registered in MVP mode too, so it is listed as well.
+ * drift. `rein_status` is registered in governance mode too, so it is listed as well.
  */
 export const VOTE_REPLY_GUARD_OTHER_TOOL_NAMES = Object.freeze([
   'rein_status',
@@ -162,7 +162,7 @@ export const VOTE_REPLY_GUARD_TTL_MS = 5 * 60 * 1000;
 export const VOTE_REPLY_GUARD_MAX_ENTRIES = 64;
 /**
  * Longest approval count this guard will print. It is the same 200-entry cap the ballot tool's own
- * `approvedProposalIds` schema enforces (`MAX_APPROVALS` in `mvp-write-tools.ts`), so a count the tool
+ * `approvedProposalIds` schema enforces (`MAX_APPROVALS` in `governance-write-tools.ts`), so a count the tool
  * accepted is never refused here, and a hostile answer cannot make the guard print a number the slice
  * could not have recorded. A unit test keeps this fence tied to the tool's own cap.
  */

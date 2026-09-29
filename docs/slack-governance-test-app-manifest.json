@@ -1,7 +1,7 @@
 {
   "display_information": {
-    "name": "Rein MVP Test (local OAuth)",
-    "description": "Local development app that mints user tokens for the five Rein MVP test identities. User scope only; no bot identity.",
+    "name": "Rein Governance Test (local OAuth)",
+    "description": "Local development app that mints user tokens for the five Rein governance test identities ahead of the v0.1 initial release. User scope only; no bot identity.",
     "background_color": "#1f2d3d"
   },
   "features": {},

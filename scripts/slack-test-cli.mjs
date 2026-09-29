@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Local Slack MVP test CLI.
+// Local Slack governance test CLI.
 //
 // Commands:
 //   whoami                     verify all five user tokens and print their identities
@@ -209,7 +209,7 @@ export async function runSend(
     );
   }
 
-  const baseText = providedText || `Rein Slack MVP test message for case ${caseKey}.`;
+  const baseText = providedText || `Rein Slack governance test message for case ${caseKey}.`;
   const text = hasMention(baseText) ? baseText : mentionText(baseText);
   const dedupeKey = idempotencyKey(caseKey, identity.id, channel.id);
   const clientMsgId = await clientMsgIdForKey(dedupeKey);

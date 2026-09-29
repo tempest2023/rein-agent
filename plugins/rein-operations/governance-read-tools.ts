@@ -1,4 +1,4 @@
-// MVP read-only Slack tools: a member's own identity status, the latest human-entered
+// Governance read-only Slack tools: a member's own identity status, the latest human-entered
 // available-funds snapshot, the eligible proposals of one configured vote type, and the resolution
 // of one spoken proposal-type phrase against the operator's own display names.
 //
@@ -48,40 +48,40 @@ import {
   normalizeVoteTypePhrase,
   parseVoteTypeLabelConfig,
   resolveVoteTypePhrase,
-} from './mvp-vote-type-resolve.ts';
-import type { VoteTypeLabelMap } from './mvp-vote-type-resolve.ts';
+} from './vote-type-resolve.ts';
+import type { VoteTypeLabelMap } from './vote-type-resolve.ts';
 
 /** Names the caller must declare in the manifest and pass to `registerTool(..., { names })`. */
-export const MVP_READ_TOOL_NAMES = Object.freeze([
+export const GOVERNANCE_READ_TOOL_NAMES = Object.freeze([
   'rein_member_status',
   'rein_funds',
   'rein_poll_candidates',
   'rein_vote_type_resolve',
 ]);
 
-export class MvpReadToolError extends Error {
+export class GovernanceReadToolError extends Error {
   readonly code: string;
   /** Extra facts a refusal may carry, such as the type names an operator did configure. */
   readonly details: Record<string, unknown>;
 
   constructor(code: string, message: string, details: Record<string, unknown> = {}) {
     super(message);
-    this.name = 'MvpReadToolError';
+    this.name = 'GovernanceReadToolError';
     this.code = code;
     this.details = details;
   }
 }
 
 /** The read-only methods these tools use, so a fake reader can stand in for the real one. */
-export interface MvpReadToolReader {
+export interface GovernanceReadToolReader {
   resolveSlackMember(slackUserId: string): Promise<SlackMemberResolution>;
   readAvailableFunds(currency: string): Promise<AvailableFunds>;
 }
 
 /** The two read-only writer methods the candidate listing and the resolver use. */
-export type MvpReadToolWriter = Pick<FoundationDbWriter, 'listVoteTypes' | 'listCandidateProposals'>;
+export type GovernanceReadToolWriter = Pick<FoundationDbWriter, 'listVoteTypes' | 'listCandidateProposals'>;
 
-export interface MvpReadToolsOptions {
+export interface GovernanceReadToolsOptions {
   /**
    * The `foundationDb` block of plugin config, read as untrusted input. Expected keys: `enabled`,
    * `platform` (`slack`), `slackTeamId`, `environment` (`dev` or `prod`), `proposalChannelIds`,
@@ -94,23 +94,23 @@ export interface MvpReadToolsOptions {
   /** Server environment holding the referenced values. Defaults to `process.env`. */
   env?: Record<string, string | undefined>;
   /** Injectable reader for tests and local rehearsal; skips the env-var lookups. */
-  reader?: MvpReadToolReader;
+  reader?: GovernanceReadToolReader;
   /** Injectable writer for tests and local rehearsal; skips the env-var lookups. */
-  writer?: MvpReadToolWriter;
+  writer?: GovernanceReadToolWriter;
 }
 
-interface ResolvedMvpReadConfig {
+interface ResolvedGovernanceReadConfig {
   platform: 'slack';
   proposalChannelIds: string[];
   boardChannelIds: string[];
   /** The operator's own display names and aliases, already validated; a phrase resolves only from these. */
   voteTypeLabels: VoteTypeLabelMap;
-  reader: MvpReadToolReader;
+  reader: GovernanceReadToolReader;
   /**
    * The read-only writer slice, or null when this process was given a reader but no writer and no
    * environment to build one from. A null writer is an unavailable source, reported as such.
    */
-  writer: MvpReadToolWriter | null;
+  writer: GovernanceReadToolWriter | null;
 }
 
 const SLACK_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -169,7 +169,7 @@ const POLICY_KEYS = Object.freeze([
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 function configError(message: string): never {
-  throw new MvpReadToolError('foundation_db_config_invalid', `foundationDb read tools: ${message}`);
+  throw new GovernanceReadToolError('foundation_db_config_invalid', `foundationDb read tools: ${message}`);
 }
 
 function readChannelIds(field: string, value: unknown): string[] {
@@ -219,7 +219,7 @@ function readVoteTypeLabels(value: unknown): VoteTypeLabelMap {
 function readEnvValue(env: Record<string, string | undefined>, name: string, field: string): string {
   const value = env?.[name];
   if (typeof value !== 'string' || !value.trim()) {
-    throw new MvpReadToolError(
+    throw new GovernanceReadToolError(
       'foundation_db_env_value_missing',
       `foundationDb read tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
     );
@@ -228,11 +228,11 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
 }
 
 /**
- * Validate the operator configuration. Returns null when the MVP block is absent or disabled so the
+ * Validate the operator configuration. Returns null when the foundationDb block is absent or disabled so the
  * caller registers no tools; throws on an enabled-but-incomplete block so a misconfiguration fails
  * loudly instead of silently exposing nothing.
  */
-function resolveMvpReadConfig(options: MvpReadToolsOptions | undefined): ResolvedMvpReadConfig | null {
+function resolveGovernanceReadConfig(options: GovernanceReadToolsOptions | undefined): ResolvedGovernanceReadConfig | null {
   const config = options?.config;
   if (!config || typeof config !== 'object' || config.enabled !== true) return null;
 
@@ -266,8 +266,8 @@ function resolveMvpReadConfig(options: MvpReadToolsOptions | undefined): Resolve
       ? readEnvReference(config.slackBotTokenEnvVar, 'slackBotTokenEnvVar')
       : null;
 
-  let reader: MvpReadToolReader | undefined = options?.reader;
-  let writer: MvpReadToolWriter | undefined = options?.writer;
+  let reader: GovernanceReadToolReader | undefined = options?.reader;
+  let writer: GovernanceReadToolWriter | undefined = options?.writer;
   if (!reader) {
     const env = options?.env ?? process.env;
     // With email matching on, the bot token variable must be named before any value is read, so a
@@ -326,7 +326,7 @@ function assertNoImpersonationArgs(args: unknown) {
   if (!args || typeof args !== 'object') return;
   for (const key of IMPERSONATION_KEYS) {
     if (Object.hasOwn(args, key)) {
-      throw new MvpReadToolError(
+      throw new GovernanceReadToolError(
         'actor_argument_rejected',
         `The "${key}" argument is not accepted; the acting account comes only from the host context.`,
       );
@@ -343,7 +343,7 @@ function assertNoPolicyArgs(args: unknown) {
   if (!args || typeof args !== 'object') return;
   for (const key of POLICY_KEYS) {
     if (Object.hasOwn(args, key)) {
-      throw new MvpReadToolError(
+      throw new GovernanceReadToolError(
         'policy_argument_rejected',
         `The "${key}" argument is not accepted; the stored vote type and the database decide it.`,
       );
@@ -379,9 +379,9 @@ function candidateListing(proposal: ProposalRecord) {
  * reader has no candidate source, and that is reported as unavailable rather than as an empty pool,
  * so the two can never be confused.
  */
-function requireWriter(writer: MvpReadToolWriter | null): MvpReadToolWriter {
+function requireWriter(writer: GovernanceReadToolWriter | null): GovernanceReadToolWriter {
   if (!writer || typeof writer.listCandidateProposals !== 'function' || typeof writer.listVoteTypes !== 'function') {
-    throw new MvpReadToolError(
+    throw new GovernanceReadToolError(
       'candidate_source_unavailable',
       'This installation has no candidate source configured, so no proposal list is available.',
     );
@@ -394,9 +394,9 @@ function requireWriter(writer: MvpReadToolWriter | null): MvpReadToolWriter {
  * injected only a reader has no stored type table, and that is reported as unavailable rather than
  * as "nothing is configured", so the two can never be confused.
  */
-function requireVoteTypeWriter(writer: MvpReadToolWriter | null): MvpReadToolWriter {
+function requireVoteTypeWriter(writer: GovernanceReadToolWriter | null): GovernanceReadToolWriter {
   if (!writer || typeof writer.listVoteTypes !== 'function') {
-    throw new MvpReadToolError(
+    throw new GovernanceReadToolError(
       'vote_type_source_unavailable',
       'This installation has no vote type source configured, so no configured type could be checked.',
     );
@@ -409,10 +409,10 @@ function requireVoteTypeWriter(writer: MvpReadToolWriter | null): MvpReadToolWri
  * unavailable rather than as "nothing is configured", so a caller never reads an outage as an empty
  * configuration. An empty table is its own answer: there is no type to choose at all.
  */
-async function readConfiguredVoteTypes(writer: MvpReadToolWriter): Promise<string[]> {
+async function readConfiguredVoteTypes(writer: GovernanceReadToolWriter): Promise<string[]> {
   const listed = await writer.listVoteTypes({ limit: MAX_CONFIGURED_VOTE_TYPES });
   if (!listed.ok || !listed.voteTypes) {
-    throw new MvpReadToolError(
+    throw new GovernanceReadToolError(
       'vote_type_configuration_unavailable',
       'The configured proposal types could not be read, so no type could be checked.',
     );
@@ -433,7 +433,7 @@ function errorResult(tool: string, error: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
 }
 
-function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
+function buildTools(config: ResolvedGovernanceReadConfig, ctx: any) {
   const { proposalChannelIds, boardChannelIds, voteTypeLabels, reader, writer } = config;
 
   const nativeChannelId = typeof ctx?.nativeChannelId === 'string' ? ctx.nativeChannelId.trim() : '';
@@ -443,13 +443,13 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
   // approved channels may call this tool; the acting user is never taken from arguments.
   const requester = (audience: string, scoped: string[]) => {
     if (ctx?.messageChannel !== 'slack') {
-      throw new MvpReadToolError('platform_out_of_scope', 'These tools answer Slack host context only.');
+      throw new GovernanceReadToolError('platform_out_of_scope', 'These tools answer Slack host context only.');
     }
     if (!senderId) {
-      throw new MvpReadToolError('trusted_requester_unavailable', 'The host did not supply a sender ID.');
+      throw new GovernanceReadToolError('trusted_requester_unavailable', 'The host did not supply a sender ID.');
     }
     if (!nativeChannelId || !scoped.includes(nativeChannelId)) {
-      throw new MvpReadToolError(
+      throw new GovernanceReadToolError(
         'channel_out_of_scope',
         `This tool is limited to its approved ${audience} channel.`,
       );
@@ -463,7 +463,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
    * unlinked or unauthorized account; no member status or role is disclosed either way.
    */
   const identityCheckUnavailable = (audience: string) =>
-    new MvpReadToolError(
+    new GovernanceReadToolError(
       'identity_check_unavailable',
       `The community record for your Slack account could not be read, so this ${audience} tool refuses instead of treating the failed lookup as an unlinked account.`,
     );
@@ -518,7 +518,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           const member = await requester('Board', boardChannelIds);
           if (member.status === 'unavailable') throw identityCheckUnavailable('Board');
           if (member.status !== 'resolved' || member.isDirector !== true) {
-            throw new MvpReadToolError(
+            throw new GovernanceReadToolError(
               'board_membership_required',
               'Reading available funds requires a currently verified director link for your Slack account.',
             );
@@ -594,7 +594,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           // that is not lower snake case is refused instead of being normalized into one.
           const voteType = asVoteType(args?.voteType);
           if (voteType === null) {
-            throw new MvpReadToolError(
+            throw new GovernanceReadToolError(
               'vote_type_invalid',
               'voteType must be one configured lower snake case proposal type such as event_single.',
             );
@@ -606,7 +606,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
                 ? args.limit
                 : Number.NaN;
           if (!Number.isInteger(limit) || limit < 1 || limit > MAX_CANDIDATE_PAGE) {
-            throw new MvpReadToolError(
+            throw new GovernanceReadToolError(
               'candidate_limit_invalid',
               `limit must be a whole number between 1 and ${MAX_CANDIDATE_PAGE}.`,
             );
@@ -615,7 +615,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           if (args?.submittedSince !== undefined && args?.submittedSince !== null) {
             submittedSince = asIsoInstant(args.submittedSince);
             if (submittedSince === null) {
-              throw new MvpReadToolError(
+              throw new GovernanceReadToolError(
                 'submitted_since_invalid',
                 'submittedSince must be one ISO instant such as 2026-09-01T00:00:00Z.',
               );
@@ -624,7 +624,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           let excludeProposalIds: string[] = [];
           if (args?.excludeProposalIds !== undefined && args?.excludeProposalIds !== null) {
             if (!Array.isArray(args.excludeProposalIds) || args.excludeProposalIds.length > MAX_EXCLUDED_PROPOSAL_IDS) {
-              throw new MvpReadToolError(
+              throw new GovernanceReadToolError(
                 'candidate_exclude_ids_invalid',
                 `excludeProposalIds must be an array of at most ${MAX_EXCLUDED_PROPOSAL_IDS} proposal identifiers.`,
               );
@@ -633,7 +633,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
               typeof value === 'string' && UUID_PATTERN.test(value) ? value : '',
             );
             if (excludeProposalIds.some(value => !value)) {
-              throw new MvpReadToolError(
+              throw new GovernanceReadToolError(
                 'candidate_exclude_ids_invalid',
                 'excludeProposalIds must contain proposal identifiers only.',
               );
@@ -644,7 +644,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
               ? false
               : args.includeRecentlyUnselected;
           if (typeof includeRecentlyUnselected !== 'boolean') {
-            throw new MvpReadToolError(
+            throw new GovernanceReadToolError(
               'candidate_buckets_invalid',
               'includeRecentlyUnselected must be true or false.',
             );
@@ -654,7 +654,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           const member = await requester('Board', boardChannelIds);
           if (member.status === 'unavailable') throw identityCheckUnavailable('Board');
           if (member.status !== 'resolved' || member.isDirector !== true) {
-            throw new MvpReadToolError(
+            throw new GovernanceReadToolError(
               'board_membership_required',
               'Listing the proposals a round may consider requires a currently verified director link for your Slack account.',
             );
@@ -664,7 +664,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           const candidateWriter = requireWriter(writer);
           const configured = await readConfiguredVoteTypes(candidateWriter);
           if (!configured.includes(voteType)) {
-            throw new MvpReadToolError(
+            throw new GovernanceReadToolError(
               'vote_type_not_configured',
               'That proposal type is not configured; the type and its limits are operator configuration.',
               {
@@ -684,7 +684,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           if (!listed.ok || !listed.proposals) {
             // A failed read carries no proposal and no count at all: an outage is never reported as
             // an empty pool, so a caller cannot mistake it for "nothing can be voted on".
-            throw new MvpReadToolError(
+            throw new GovernanceReadToolError(
               'candidate_pool_unavailable',
               'The eligible proposals of this type could not be read.',
             );
@@ -740,7 +740,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           // nothing about the approved channels or the operator's labels is disclosed to it.
           const phrase = typeof args?.phrase === 'string' ? args.phrase : null;
           if (phrase === null || phrase.length > MAX_RESOLVE_PHRASE_LENGTH || !normalizeVoteTypePhrase(phrase)) {
-            throw new MvpReadToolError(
+            throw new GovernanceReadToolError(
               'vote_type_phrase_invalid',
               `phrase must be one text phrase of at most ${MAX_RESOLVE_PHRASE_LENGTH} characters with at least one non-whitespace character.`,
             );
@@ -749,7 +749,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           // standing the caller must have. A channel approved for both audiences takes the stricter
           // Board requirement.
           const member = await requester('proposal or Board', [...proposalChannelIds, ...boardChannelIds]);
-          const linkRequired = new MvpReadToolError(
+          const linkRequired = new GovernanceReadToolError(
             'identity_link_required',
             'Resolving a proposal type requires a verified link between your Slack account and a community record.',
           );
@@ -757,7 +757,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
             if (member.status === 'unavailable') throw identityCheckUnavailable('Board');
             if (member.status !== 'resolved' || !member.contactId) throw linkRequired;
             if (member.isDirector !== true) {
-              throw new MvpReadToolError(
+              throw new GovernanceReadToolError(
                 'board_membership_required',
                 'Resolving a proposal type from the Board channel requires a currently verified director link for your Slack account.',
               );
@@ -766,7 +766,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
             if (member.status === 'unavailable') throw identityCheckUnavailable('proposal');
             if (member.status !== 'resolved' || !member.contactId) throw linkRequired;
             if (member.isActiveContributor !== true) {
-              throw new MvpReadToolError(
+              throw new GovernanceReadToolError(
                 'contributor_status_required',
                 'Resolving a proposal type before submitting requires a currently active Contributor record for your Slack account.',
               );
@@ -776,7 +776,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           // all, so the two candidates reach the caller as a question and never as a guess.
           const resolution = resolveVoteTypePhrase(phrase, voteTypeLabels);
           if (resolution.status === 'invalid') {
-            throw new MvpReadToolError(
+            throw new GovernanceReadToolError(
               'vote_type_phrase_invalid',
               'phrase must be one text phrase with at least one non-whitespace character.',
             );
@@ -826,7 +826,7 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
           // Exactly one operator label matched. It is handed back only when the stored type table
           // already has that code, so a stale label can never become a type the write tools reject.
           if (!configured.includes(resolution.voteType)) {
-            throw new MvpReadToolError(
+            throw new GovernanceReadToolError(
               'vote_type_alias_not_configured',
               'The configured name for that phrase points at a proposal type the operator has not stored, so no type is handed back.',
               {
@@ -859,12 +859,12 @@ function buildTools(config: ResolvedMvpReadConfig, ctx: any) {
 }
 
 /**
- * Build the v2 tool factory for the MVP read tools. Register it as
- * `api.registerTool(createMvpReadToolRegistration({ config }), { names: MVP_READ_TOOL_NAMES })`.
- * When the MVP block is absent or disabled, `create` returns null and no tool is registered.
+ * Build the v2 tool factory for the governance read tools. Register it as
+ * `api.registerTool(createGovernanceReadToolRegistration({ config }), { names: GOVERNANCE_READ_TOOL_NAMES })`.
+ * When the foundationDb block is absent or disabled, `create` returns null and no tool is registered.
  */
-export function createMvpReadToolRegistration(options?: MvpReadToolsOptions) {
-  const config = resolveMvpReadConfig(options);
+export function createGovernanceReadToolRegistration(options?: GovernanceReadToolsOptions) {
+  const config = resolveGovernanceReadConfig(options);
   return {
     contextVersion: 2 as const,
     create(ctx: any) {

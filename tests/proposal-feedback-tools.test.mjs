@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MVP_FEEDBACK_TOOL_NAMES,
-  createMvpFeedbackToolRegistration,
-} from '../plugins/rein-operations/mvp-feedback-tools.ts';
+  GOVERNANCE_FEEDBACK_TOOL_NAMES,
+  createProposalFeedbackToolRegistration,
+} from '../plugins/rein-operations/proposal-feedback-tools.ts';
 
 // Focused fake-reader and fake-writer tests for the three post-result feedback tools. No live
 // database or Slack call is made. The fakes record every argument, so each test also proves which
@@ -234,7 +234,7 @@ function build({ config = baseConfig, fakes = createFakes(), ctx: overrides = {}
     },
     ...overrides,
   };
-  const registration = createMvpFeedbackToolRegistration({
+  const registration = createProposalFeedbackToolRegistration({
     config,
     reader: fakes.reader,
     writer: fakes.writer,
@@ -258,11 +258,11 @@ function build({ config = baseConfig, fakes = createFakes(), ctx: overrides = {}
 test('no feedback tool registers without an explicit enabled block', () => {
   for (const config of [undefined, {}, { enabled: false }, { enabled: 'true' }]) {
     const fakes = createFakes();
-    const registration = createMvpFeedbackToolRegistration({ config, reader: fakes.reader, writer: fakes.writer });
+    const registration = createProposalFeedbackToolRegistration({ config, reader: fakes.reader, writer: fakes.writer });
     assert.equal(registration.create({ messageChannel: 'slack' }), null);
     assert.equal(registration.contextVersion, 2);
   }
-  assert.deepEqual([...MVP_FEEDBACK_TOOL_NAMES], [
+  assert.deepEqual([...GOVERNANCE_FEEDBACK_TOOL_NAMES], [
     'rein_proposal_comment_suggest',
     'rein_revision_approve',
     'rein_revision_apply',
@@ -280,7 +280,7 @@ test('the injected writer must implement every feedback method', () => {
     const fakes = createFakes();
     const partial = { ...fakes.writer, [missing]: undefined };
     assert.throws(
-      () => createMvpFeedbackToolRegistration({ config: baseConfig, reader: fakes.reader, writer: partial }),
+      () => createProposalFeedbackToolRegistration({ config: baseConfig, reader: fakes.reader, writer: partial }),
       /must implement getProposal, getRevision, recordProposalRevision, approveProposalRevision and applyProposalRevision/,
       missing,
     );
@@ -289,19 +289,19 @@ test('the injected writer must implement every feedback method', () => {
 
 test('the Supabase key is read from the server environment and never appears in the tools', () => {
   assert.throws(
-    () => createMvpFeedbackToolRegistration({ config: baseConfig, env: {} }),
+    () => createProposalFeedbackToolRegistration({ config: baseConfig, env: {} }),
     error => error.code === 'foundation_db_env_value_missing' && error.message.includes(URL_ENV),
   );
   assert.throws(
     () =>
-      createMvpFeedbackToolRegistration({
+      createProposalFeedbackToolRegistration({
         config: baseConfig,
         env: { [URL_ENV]: 'https://project-ref.supabase.co' },
       }),
     error => error.code === 'foundation_db_env_value_missing' && error.message.includes(KEY_ENV),
   );
 
-  const registration = createMvpFeedbackToolRegistration({
+  const registration = createProposalFeedbackToolRegistration({
     config: baseConfig,
     env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET },
   });
@@ -311,7 +311,7 @@ test('the Supabase key is read from the server environment and never appears in 
     requesterSenderId: SENDER,
     assertInvocationCurrent() {},
   });
-  assert.deepEqual(tools.map(tool => tool.name), [...MVP_FEEDBACK_TOOL_NAMES]);
+  assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_FEEDBACK_TOOL_NAMES]);
   assert.ok(!JSON.stringify(tools).includes(SECRET));
   assert.ok(!JSON.stringify(tools).includes('project-ref.supabase.co'));
 });
@@ -323,7 +323,7 @@ test('email identity matching is off by default and an injected reader needs no 
     { ...baseConfig, identityEmailMatch: 'enabled' },
   ]) {
     const fakes = createFakes();
-    const registration = createMvpFeedbackToolRegistration({
+    const registration = createProposalFeedbackToolRegistration({
       config,
       reader: fakes.reader,
       writer: fakes.writer,
@@ -334,7 +334,7 @@ test('email identity matching is off by default and an injected reader needs no 
       requesterSenderId: SENDER,
       assertInvocationCurrent() {},
     });
-    assert.deepEqual(tools.map(tool => tool.name), [...MVP_FEEDBACK_TOOL_NAMES]);
+    assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_FEEDBACK_TOOL_NAMES]);
   }
 });
 
@@ -343,7 +343,7 @@ test('an unknown identityEmailMatch value fails loudly instead of being ignored'
   for (const value of ['yes', 'true', 1]) {
     assert.throws(
       () =>
-        createMvpFeedbackToolRegistration({
+        createProposalFeedbackToolRegistration({
           config: { ...baseConfig, identityEmailMatch: value },
           reader: fakes.reader,
           writer: fakes.writer,
@@ -357,7 +357,7 @@ test('enabled email matching names the bot token variable and never echoes its v
   const fakes = createFakes();
   const enabled = { ...baseConfig, identityEmailMatch: 'enabled' };
   const resolve = (config, env) =>
-    createMvpFeedbackToolRegistration({ config, writer: fakes.writer, env });
+    createProposalFeedbackToolRegistration({ config, writer: fakes.writer, env });
 
   assert.throws(
     () => resolve(enabled, {}),
@@ -384,7 +384,7 @@ test('enabled email matching names the bot token variable and never echoes its v
     requesterSenderId: SENDER,
     assertInvocationCurrent() {},
   });
-  assert.deepEqual(tools.map(tool => tool.name), [...MVP_FEEDBACK_TOOL_NAMES]);
+  assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_FEEDBACK_TOOL_NAMES]);
   assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN), 'the bot token never appears in a tool');
   assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN_ENV), 'the variable name never appears in a tool');
 });
@@ -404,7 +404,7 @@ test('enabled email matching builds one lookup in this slice and presents the to
   };
   try {
     const fakes = createFakes();
-    const registration = createMvpFeedbackToolRegistration({
+    const registration = createProposalFeedbackToolRegistration({
       config: { ...baseConfig, identityEmailMatch: 'enabled', slackBotTokenEnvVar: BOT_TOKEN_ENV },
       writer: fakes.writer,
       env: {
@@ -439,12 +439,12 @@ test('an enabled-but-incomplete block fails loudly instead of registering part o
   const fakes = createFakes();
   const incomplete = { ...baseConfig, boardChannelIds: [] };
   assert.throws(
-    () => createMvpFeedbackToolRegistration({ config: incomplete, reader: fakes.reader, writer: fakes.writer }),
+    () => createProposalFeedbackToolRegistration({ config: incomplete, reader: fakes.reader, writer: fakes.writer }),
     /boardChannelIds must list at least one/,
   );
   assert.throws(
     () =>
-      createMvpFeedbackToolRegistration({
+      createProposalFeedbackToolRegistration({
         config: { ...baseConfig, platform: 'discord' },
         reader: fakes.reader,
         writer: fakes.writer,

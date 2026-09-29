@@ -1,4 +1,4 @@
-// Outbound reply guard for the MVP proposal field-collection tool (case 3).
+// Outbound reply guard for the v0.1 proposal field-collection tool (case 3).
 //
 // Why this exists. `rein_proposal_collect` answers the model with a structured object that
 // carries implementation words on purpose: the configured vote type code (for example

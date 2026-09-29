@@ -1,8 +1,8 @@
-// MVP end-to-end rehearsals: the Slack P0 vertical slice (docs/decisions.md steps 1 to 4, D04, D06,
+// End-to-end governance rehearsals: the Slack P0 vertical slice (docs/decisions.md steps 1 to 4, D04, D06,
 // D08, D09) driven through the real v2 tool factories over one stateful in-memory store.
 //
-// What these rehearsals add over `mvp-read-tools.test.mjs`, `mvp-write-tools.test.mjs` and
-// `mvp-vote-tally.test.mjs`: those tests script one canned writer answer per scenario, so they prove
+// What these rehearsals add over `governance-read-tools.test.mjs`, `governance-write-tools.test.mjs` and
+// `vote-tally.test.mjs`: those tests script one canned writer answer per scenario, so they prove
 // a single tool's behaviour. These drive every turn through the same store across separate
 // `create(ctx)` contexts and therefore exercise what no unit test does — that an identifier minted in
 // one turn is what the next turn's poll freezes, that the assembled candidate pool is the pool the
@@ -19,19 +19,19 @@
 // stored deadline rather than from anything a caller sends.
 //
 // Host retry deduplication is *not* simulated across turns: every `create(ctx)` is a fresh turn,
-// exactly as `mvp-write-tools.ts` documents for its per-context identifier map. It *is* exercised
+// exactly as `governance-write-tools.ts` documents for its per-context identifier map. It *is* exercised
 // inside one turn, where a repeated tool call id has to meet the record it already wrote.
 //
 // The actor of every turn comes from `ctx.requesterSenderId` alone. Where a rehearsal needs to show
 // that a role is not granted by an argument, the model-supplied argument carries an impersonation or
 // policy key and is refused; no rehearsal ever passes an actor or a role into a tool.
 //
-// Run: node --test tests/mvp-rehearsal.test.mjs
+// Run: node --test tests/governance-rehearsal.test.mjs
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createMvpReadToolRegistration } from '../plugins/rein-operations/mvp-read-tools.ts';
-import { createMvpWriteToolRegistration } from '../plugins/rein-operations/mvp-write-tools.ts';
+import { createGovernanceReadToolRegistration } from '../plugins/rein-operations/governance-read-tools.ts';
+import { createGovernanceWriteToolRegistration } from '../plugins/rein-operations/governance-write-tools.ts';
 
 const TEAM = 'T0REHEARSAL';
 const PROPOSAL_CHANNEL = 'C_PROPOSAL';
@@ -255,8 +255,8 @@ function createWorld({ funds = null, records = [], rules = {} } = {}) {
       const tools = name => {
         const registration =
           name === 'read'
-            ? createMvpReadToolRegistration({ config: baseConfig, reader })
-            : createMvpWriteToolRegistration({
+            ? createGovernanceReadToolRegistration({ config: baseConfig, reader })
+            : createGovernanceWriteToolRegistration({
                 config: baseConfig,
                 reader,
                 writer: store,
@@ -1210,11 +1210,11 @@ test('a rehearsal assembles a capped pool, re-offers a proposal that lost and ho
 // supplies an actor, a cap or a label, and a refused turn writes nothing at all.
 // ---------------------------------------------------------------------------------------------
 
-test('no rehearsal turn writes when the MVP block is absent, the channel is unapproved or the sender is missing', async () => {
+test('no rehearsal turn writes when the foundationDb block is absent, the channel is unapproved or the sender is missing', async () => {
   const world = createWorld({ records: [CONTRIBUTOR, DIRECTOR_A] });
 
-  // No enabled MVP block: no tool is registered, so there is no actor resolution at all.
-  const disabled = createMvpWriteToolRegistration({
+  // No enabled foundationDb block: no tool is registered, so there is no actor resolution at all.
+  const disabled = createGovernanceWriteToolRegistration({
     config: { enabled: false },
     reader: world,
     writer: world,
@@ -1225,7 +1225,7 @@ test('no rehearsal turn writes when the MVP block is absent, the channel is unap
   });
   assert.equal(disabled, null);
   assert.equal(
-    createMvpReadToolRegistration({ config: undefined, reader: world }).create({ messageChannel: 'slack' }),
+    createGovernanceReadToolRegistration({ config: undefined, reader: world }).create({ messageChannel: 'slack' }),
     null,
   );
 

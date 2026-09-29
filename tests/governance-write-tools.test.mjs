@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MVP_WRITE_TOOL_NAMES,
-  createMvpWriteToolRegistration,
-} from '../plugins/rein-operations/mvp-write-tools.ts';
+  GOVERNANCE_WRITE_TOOL_NAMES,
+  createGovernanceWriteToolRegistration,
+} from '../plugins/rein-operations/governance-write-tools.ts';
 import {
   MAX_CONFIRMATION_DOCUMENT_BYTES,
   MAX_CONFIRMATION_TOKEN_LENGTH,
   maxDocumentBytesForToken,
   issueProposalConfirmation,
   verifyProposalConfirmation,
-} from '../plugins/rein-operations/mvp-proposal-confirmation.ts';
+} from '../plugins/rein-operations/proposal-confirmation.ts';
 
 // Focused fake-reader and fake-writer tests for the two wiring paths this slice implements:
 // `rein_governance_proposal_submit` and `rein_poll_open`. No live database or Slack call is made. The
@@ -290,7 +290,7 @@ function build({
     },
     ...overrides,
   };
-  const registration = createMvpWriteToolRegistration({
+  const registration = createGovernanceWriteToolRegistration({
     config,
     reader: fakes.reader,
     writer: fakes.writer,
@@ -348,14 +348,14 @@ async function submitProposal(buildTurn, toolCallId, args, now) {
   return await confirmProposal(confirmed.tool('rein_governance_proposal_submit'), toolCallId, args, token);
 }
 
-test('no MVP write tool registers without an explicit enabled block', () => {
+test('no v0.1 write tool registers without an explicit enabled block', () => {
   for (const config of [undefined, {}, { enabled: false }, { enabled: 'true' }]) {
     const fakes = createFakes();
-    const registration = createMvpWriteToolRegistration({ config, reader: fakes.reader, writer: fakes.writer });
+    const registration = createGovernanceWriteToolRegistration({ config, reader: fakes.reader, writer: fakes.writer });
     assert.equal(registration.create({ messageChannel: 'slack' }), null);
     assert.equal(registration.contextVersion, 2);
   }
-  assert.deepEqual([...MVP_WRITE_TOOL_NAMES], [
+  assert.deepEqual([...GOVERNANCE_WRITE_TOOL_NAMES], [
     'rein_governance_proposal_submit',
     'rein_poll_open',
     'rein_poll_vote',
@@ -363,7 +363,7 @@ test('no MVP write tool registers without an explicit enabled block', () => {
   ]);
 });
 
-test('an enabled but incomplete MVP block fails loudly instead of registering silently', () => {
+test('an enabled but incomplete foundationDb block fails loudly instead of registering silently', () => {
   const fakes = createFakes();
   const cases = [
     [{ ...baseConfig, platform: 'discord' }, /platform must be "slack"/],
@@ -377,7 +377,7 @@ test('an enabled but incomplete MVP block fails loudly instead of registering si
   for (const [config, expected] of cases) {
     assert.throws(
       () =>
-        createMvpWriteToolRegistration({
+        createGovernanceWriteToolRegistration({
           config,
           reader: fakes.reader,
           writer: fakes.writer,
@@ -400,7 +400,7 @@ test('an enabled but incomplete MVP block fails loudly instead of registering si
     const partial = { ...fakes.writer, [missing]: undefined };
     assert.throws(
       () =>
-        createMvpWriteToolRegistration({
+        createGovernanceWriteToolRegistration({
           config: baseConfig,
           reader: fakes.reader,
           writer: partial,
@@ -414,11 +414,11 @@ test('an enabled but incomplete MVP block fails loudly instead of registering si
 
 test('the Supabase key is read from the server environment and never appears in the tools', () => {
   assert.throws(
-    () => createMvpWriteToolRegistration({ config: baseConfig, env: {} }),
+    () => createGovernanceWriteToolRegistration({ config: baseConfig, env: {} }),
     error => error.code === 'foundation_db_env_value_missing' && error.message.includes(URL_ENV),
   );
   assert.throws(
-    () => createMvpWriteToolRegistration({ config: baseConfig, env: { [URL_ENV]: 'https://project-ref.supabase.co' } }),
+    () => createGovernanceWriteToolRegistration({ config: baseConfig, env: { [URL_ENV]: 'https://project-ref.supabase.co' } }),
     error => error.code === 'foundation_db_env_value_missing' && error.message.includes(KEY_ENV),
   );
   // The confirmation signing key is a third server-only secret, read the same way and named only by
@@ -426,14 +426,14 @@ test('the Supabase key is read from the server environment and never appears in 
   // accidental default.
   assert.throws(
     () =>
-      createMvpWriteToolRegistration({
+      createGovernanceWriteToolRegistration({
         config: baseConfig,
         env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET },
       }),
     error => error.code === 'foundation_db_env_value_missing' && error.message.includes(CONFIRM_ENV),
   );
 
-  const registration = createMvpWriteToolRegistration({
+  const registration = createGovernanceWriteToolRegistration({
     config: baseConfig,
     env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET, [CONFIRM_ENV]: CONFIRM_KEY },
   });
@@ -443,7 +443,7 @@ test('the Supabase key is read from the server environment and never appears in 
     requesterSenderId: SENDER,
     assertInvocationCurrent() {},
   });
-  assert.deepEqual(tools.map(tool => tool.name), [...MVP_WRITE_TOOL_NAMES]);
+  assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_WRITE_TOOL_NAMES]);
   assert.ok(!JSON.stringify(tools).includes(SECRET));
   assert.ok(!JSON.stringify(tools).includes(CONFIRM_KEY), 'the confirmation key never appears in a tool');
   assert.ok(!JSON.stringify(tools).includes('project-ref.supabase.co'));
@@ -456,7 +456,7 @@ test('email identity matching is off by default and an injected reader needs no 
     { ...baseConfig, identityEmailMatch: 'enabled' },
   ]) {
     const fakes = createFakes();
-    const registration = createMvpWriteToolRegistration({
+    const registration = createGovernanceWriteToolRegistration({
       config,
       reader: fakes.reader,
       writer: fakes.writer,
@@ -468,7 +468,7 @@ test('email identity matching is off by default and an injected reader needs no 
       requesterSenderId: SENDER,
       assertInvocationCurrent() {},
     });
-    assert.deepEqual(tools.map(tool => tool.name), [...MVP_WRITE_TOOL_NAMES]);
+    assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_WRITE_TOOL_NAMES]);
   }
 });
 
@@ -477,7 +477,7 @@ test('an unknown identityEmailMatch value fails loudly instead of being ignored'
   for (const value of ['yes', 'true', 1]) {
     assert.throws(
       () =>
-        createMvpWriteToolRegistration({
+        createGovernanceWriteToolRegistration({
           config: { ...baseConfig, identityEmailMatch: value },
           reader: fakes.reader,
           writer: fakes.writer,
@@ -492,7 +492,7 @@ test('enabled email matching names the bot token variable and never echoes its v
   const fakes = createFakes();
   const enabled = { ...baseConfig, identityEmailMatch: 'enabled' };
   const resolve = (config, env) =>
-    createMvpWriteToolRegistration({ config, writer: fakes.writer, confirmationSigningKey: CONFIRM_KEY, env });
+    createGovernanceWriteToolRegistration({ config, writer: fakes.writer, confirmationSigningKey: CONFIRM_KEY, env });
 
   assert.throws(
     () => resolve(enabled, {}),
@@ -519,7 +519,7 @@ test('enabled email matching names the bot token variable and never echoes its v
     requesterSenderId: SENDER,
     assertInvocationCurrent() {},
   });
-  assert.deepEqual(tools.map(tool => tool.name), [...MVP_WRITE_TOOL_NAMES]);
+  assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_WRITE_TOOL_NAMES]);
   assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN), 'the bot token never appears in a tool');
   assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN_ENV), 'the variable name never appears in a tool');
 });
@@ -539,7 +539,7 @@ test('enabled email matching builds one lookup in this slice and presents the to
   };
   try {
     const fakes = createFakes();
-    const registration = createMvpWriteToolRegistration({
+    const registration = createGovernanceWriteToolRegistration({
       config: { ...baseConfig, identityEmailMatch: 'enabled', slackBotTokenEnvVar: BOT_TOKEN_ENV },
       writer: fakes.writer,
       confirmationSigningKey: CONFIRM_KEY,
@@ -2717,7 +2717,7 @@ test('every write tool refuses an impersonation or role argument before any data
 });
 
 test('every write tool refuses a non-Slack context or a missing trusted sender', async () => {
-  for (const name of MVP_WRITE_TOOL_NAMES) {
+  for (const name of GOVERNANCE_WRITE_TOOL_NAMES) {
     for (const [overrides, code] of [
       [{ messageChannel: 'discord' }, 'platform_out_of_scope'],
       [{ requesterSenderId: '   ' }, 'trusted_requester_unavailable'],

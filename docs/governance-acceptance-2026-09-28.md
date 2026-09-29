@@ -1,7 +1,7 @@
-# MVP Slack acceptance record (2026-09-28)
+# v0.1 governance acceptance record (2026-09-28)
 
 This is the final state of the ten synthetic Slack rehearsal cases in
-[the ten MVP rehearsals](agent-test-cases-zh.md), reviewed against the local evidence reports under
+[the ten v0.1 rehearsals](agent-test-cases-zh.md), reviewed against the local evidence reports under
 the gitignored `runtime/` directory.
 
 **Cases 2-10 are accepted on synthetic development evidence. Case 1 was skipped by the owner and is
@@ -25,16 +25,17 @@ observable behavior only.
   business write. No migration was pushed to the production environment, no deployment was made, and
   no payment or funds provider was called.
 - The live evidence was collected on the **pre-rename build**, where the tools, config block and
-  tables still carried the historical `rein_mvp_*` names. The current PR head renames the tool
+  tables still carried their original stage-prefixed names. The current PR head renames the tool
   interfaces, the config block, the tables and the RPCs to their long-term names. That head has unit
   and loader-level validation (the test suite, the manifest tool contract and `verify:plugin`) but
   **no live Slack retest after the rename**.
 - Two base migrations are applied to the linked schema and define both the `dev_*` and `prod_*`
   objects. The later ballot-clock migration and the rename migration are committed in the sibling
-  Foundation repository and are now **applied** as well (verified read-only 2026-09-28: both
-  versions listed, ten new physical tables, ten old-name compatibility views and four RPC wrappers
-  present). Applied schema is not Agent use: this record's live evidence still predates the rename,
-  and no live Slack run has exercised the new names.
+  Foundation repository and are now **applied** as well (verified read-only 2026-09-28). The rename
+  migration's transition compatibility views and RPC wrappers were removed by the later applied
+  `20260929045543_remove_stage_compatibility_objects.sql`, so only the long-term names remain.
+  Applied schema is not Agent use: this record's live evidence still predates the rename, and no live
+  Slack run has exercised the new names.
 - The verdicts below are the synthetic dev, case-document rubric outcome. They are not a release
   approval, and several cases keep explicit limitations.
 
@@ -55,12 +56,10 @@ observable behavior only.
 
 ## Release gates that remain
 
-- Apply the rename migration before enabling agent code that calls the long-term table and RPC names;
-  the deployed database still answers on the historical names.
-- Apply the pending migrations in order to the production environment as its own approved decision;
-  production data writes are not covered by this acceptance.
 - Re-run the cases against a live workspace on the post-rename build; this head has only unit and
   loader-level validation for the renamed interfaces.
+- Apply the pending migrations in order to the production environment as its own approved decision;
+  production data writes are not covered by this acceptance.
 - Install and configure the `users:read` / `users:read.email` bot scopes and enable the opt-in email
   identity match before claiming case 1.
 - Decide the remaining product questions: the highest-count tie rule, whether an active Contributor
@@ -69,10 +68,8 @@ observable behavior only.
 
 ## Evidence handling
 
-The conclusions above are grounded in the gitignored reports under `runtime/`: the audit matrix
-`runtime/ten-case-evidence-audit.md`, the final acceptance record `runtime/mvp-acceptance-complete-2026-09-28.md`
-(it replaces the earlier `runtime/mvp-acceptance-handoff-2026-09-27.md`, which no longer exists),
-the per-case evidence files, and the run log `runtime/mvp-test-log.md`. Those files retain the raw
-identifiers, timings and fixture data and stay out of the repository; this record is the sanitized
-public summary. Failed and partial historical runs listed in those reports are not erased by the
-acceptance verdicts.
+The conclusions above are grounded in the gitignored reports under `runtime/`: the ten-case audit
+matrix, the final acceptance record, the per-case evidence files, and the run log. Those files retain
+the raw identifiers, timings and fixture data and stay out of the repository; this record is the
+sanitized public summary. Failed and partial historical runs listed in those reports are not erased
+by the acceptance verdicts.

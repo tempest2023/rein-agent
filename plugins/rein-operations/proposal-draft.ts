@@ -1,9 +1,9 @@
-// Sealed multi-turn draft for the MVP proposal field-collection tool (case 3).
+// Sealed multi-turn draft for the v0.1 proposal field-collection tool (case 3).
 //
 // The proposal table has no draft status and no draft column, so a draft cannot be a stored row.
 // Instead one short-lived token carries the fields the proposer has said so far, so a later turn can
 // continue from them without the model retyping, and without the server keeping state. The token is
-// the same sealed-binding shape as the author confirmation in `mvp-proposal-confirmation.ts`, but it
+// the same sealed-binding shape as the author confirmation in `proposal-confirmation.ts`, but it
 // belongs to its own purpose and its own domain.
 //
 // Domain separation. Two things keep a draft token from being mistaken for a submit confirmation, or
@@ -36,7 +36,7 @@ import {
 import {
   MAX_CONFIRMATION_TOKEN_LENGTH,
   maxDocumentBytesForToken,
-} from './mvp-proposal-confirmation.ts';
+} from './proposal-confirmation.ts';
 
 export const DRAFT_TOKEN_VERSION = 'rpd1';
 export const DRAFT_TOKEN_PREFIX = 'rein_proposal_draft';

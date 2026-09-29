@@ -1,4 +1,4 @@
-// Local Slack MVP test harness library: five required test identities plus one optional `guest`
+// Local Slack governance test harness library: five required test identities plus one optional `guest`
 // identity, user OAuth tokens only.
 //
 // Dependency-free and credential-safe. It reads per-account user tokens from a gitignored local

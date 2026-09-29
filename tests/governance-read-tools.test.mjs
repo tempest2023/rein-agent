@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MVP_READ_TOOL_NAMES,
-  createMvpReadToolRegistration,
-} from '../plugins/rein-operations/mvp-read-tools.ts';
+  GOVERNANCE_READ_TOOL_NAMES,
+  createGovernanceReadToolRegistration,
+} from '../plugins/rein-operations/governance-read-tools.ts';
 import {
   normalizeVoteTypePhrase,
   parseVoteTypeLabelConfig,
   resolveVoteTypePhrase,
-} from '../plugins/rein-operations/mvp-vote-type-resolve.ts';
+} from '../plugins/rein-operations/vote-type-resolve.ts';
 
-// Fake-reader tests for the MVP read tools. No live database or Slack call is made: the reader is a
+// Fake-reader tests for the governance read tools. No live database or Slack call is made: the reader is a
 // stub that records the arguments it received, so every test also proves which calls a refusal
 // avoided.
 
@@ -131,19 +131,19 @@ function build({ config = baseConfig, reader, writer, ctx: overrides = {}, env }
     },
     ...overrides,
   };
-  const registration = createMvpReadToolRegistration({ config, reader, writer, env });
+  const registration = createGovernanceReadToolRegistration({ config, reader, writer, env });
   const tools = registration.create(ctx);
   return { registration, tools, guard, ctx, tool: name => tools.find(item => item.name === name) };
 }
 
-test('no MVP read tool registers without an explicit enabled block', () => {
+test('no v0.1 read tool registers without an explicit enabled block', () => {
   for (const config of [undefined, {}, { enabled: false }, { enabled: 'true' }]) {
     const { reader } = createFakeReader();
-    const registration = createMvpReadToolRegistration({ config, reader });
+    const registration = createGovernanceReadToolRegistration({ config, reader });
     assert.equal(registration.create({ messageChannel: 'slack' }), null);
     assert.equal(registration.contextVersion, 2);
   }
-  assert.deepEqual([...MVP_READ_TOOL_NAMES], [
+  assert.deepEqual([...GOVERNANCE_READ_TOOL_NAMES], [
     'rein_member_status',
     'rein_funds',
     'rein_poll_candidates',
@@ -151,7 +151,7 @@ test('no MVP read tool registers without an explicit enabled block', () => {
   ]);
 });
 
-test('an enabled but incomplete MVP block fails loudly instead of registering silently', () => {
+test('an enabled but incomplete foundationDb block fails loudly instead of registering silently', () => {
   const { reader } = createFakeReader();
   const cases = [
     [{ ...baseConfig, platform: 'discord' }, /platform must be "slack"/],
@@ -165,22 +165,22 @@ test('an enabled but incomplete MVP block fails loudly instead of registering si
     [{ ...baseConfig, supabaseServiceKeyEnvVar: 'NOT A NAME' }, /supabaseServiceKeyEnvVar must name a server environment variable/],
   ];
   for (const [config, expected] of cases) {
-    assert.throws(() => createMvpReadToolRegistration({ config, reader }), expected);
+    assert.throws(() => createGovernanceReadToolRegistration({ config, reader }), expected);
   }
 });
 
 test('the Supabase key is read from the server environment and never appears in the failure or the tools', () => {
   const missing = {};
   assert.throws(
-    () => createMvpReadToolRegistration({ config: baseConfig, env: missing }),
+    () => createGovernanceReadToolRegistration({ config: baseConfig, env: missing }),
     error => error.code === 'foundation_db_env_value_missing' && error.message.includes(URL_ENV),
   );
   assert.throws(
-    () => createMvpReadToolRegistration({ config: baseConfig, env: { [URL_ENV]: 'https://project-ref.supabase.co' } }),
+    () => createGovernanceReadToolRegistration({ config: baseConfig, env: { [URL_ENV]: 'https://project-ref.supabase.co' } }),
     error => error.code === 'foundation_db_env_value_missing' && error.message.includes(KEY_ENV),
   );
 
-  const registration = createMvpReadToolRegistration({
+  const registration = createGovernanceReadToolRegistration({
     config: baseConfig,
     env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET },
   });
@@ -190,7 +190,7 @@ test('the Supabase key is read from the server environment and never appears in 
     requesterSenderId: SENDER,
     assertInvocationCurrent() {},
   });
-  assert.deepEqual(tools.map(tool => tool.name), [...MVP_READ_TOOL_NAMES]);
+  assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_READ_TOOL_NAMES]);
   assert.ok(!JSON.stringify(tools).includes(SECRET));
   assert.ok(!JSON.stringify(tools).includes(URL_ENV));
 });
@@ -198,14 +198,14 @@ test('the Supabase key is read from the server environment and never appears in 
 test('email identity matching is off by default and needs no Slack bot token', () => {
   for (const config of [baseConfig, { ...baseConfig, identityEmailMatch: 'disabled' }]) {
     const { reader } = createFakeReader();
-    const registration = createMvpReadToolRegistration({ config, reader });
+    const registration = createGovernanceReadToolRegistration({ config, reader });
     const tools = registration.create({
       messageChannel: 'slack',
       nativeChannelId: BOARD_CHANNEL,
       requesterSenderId: SENDER,
       assertInvocationCurrent() {},
     });
-    assert.deepEqual(tools.map(tool => tool.name), [...MVP_READ_TOOL_NAMES]);
+    assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_READ_TOOL_NAMES]);
   }
 });
 
@@ -213,7 +213,7 @@ test('an unknown identityEmailMatch value fails loudly instead of being ignored'
   const { reader } = createFakeReader();
   for (const value of ['yes', 'true', 1]) {
     assert.throws(
-      () => createMvpReadToolRegistration({ config: { ...baseConfig, identityEmailMatch: value }, reader }),
+      () => createGovernanceReadToolRegistration({ config: { ...baseConfig, identityEmailMatch: value }, reader }),
       /identityEmailMatch must be "enabled" or "disabled"/,
     );
   }
@@ -221,7 +221,7 @@ test('an unknown identityEmailMatch value fails loudly instead of being ignored'
 
 test('an injected reader needs no bot token even with email identity matching enabled', () => {
   const { reader, calls } = createFakeReader();
-  const registration = createMvpReadToolRegistration({
+  const registration = createGovernanceReadToolRegistration({
     config: { ...baseConfig, identityEmailMatch: 'enabled' },
     reader,
   });
@@ -231,7 +231,7 @@ test('an injected reader needs no bot token even with email identity matching en
     requesterSenderId: SENDER,
     assertInvocationCurrent() {},
   });
-  assert.deepEqual(tools.map(tool => tool.name), [...MVP_READ_TOOL_NAMES]);
+  assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_READ_TOOL_NAMES]);
   assert.equal(calls.member.length, 0);
 });
 
@@ -239,13 +239,13 @@ test('email identity matching names the bot token variable and never echoes its 
   const enabled = { ...baseConfig, identityEmailMatch: 'enabled' };
   // No variable name at all: enabling the option without it is an operator error.
   assert.throws(
-    () => createMvpReadToolRegistration({ config: enabled, env: {} }),
+    () => createGovernanceReadToolRegistration({ config: enabled, env: {} }),
     /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
   );
   // A name that is present but malformed fails the same way, without quoting the value.
   assert.throws(
     () =>
-      createMvpReadToolRegistration({ config: { ...enabled, slackBotTokenEnvVar: 'NOT A NAME' }, env: {} }),
+      createGovernanceReadToolRegistration({ config: { ...enabled, slackBotTokenEnvVar: 'NOT A NAME' }, env: {} }),
     /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
   );
   // The name is valid but the server environment holds no value: the failure names the variable,
@@ -253,14 +253,14 @@ test('email identity matching names the bot token variable and never echoes its 
   const named = { ...enabled, slackBotTokenEnvVar: BOT_TOKEN_ENV };
   assert.throws(
     () =>
-      createMvpReadToolRegistration({
+      createGovernanceReadToolRegistration({
         config: named,
         env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET },
       }),
     error => error.code === 'foundation_db_env_value_missing' && error.message.includes(BOT_TOKEN_ENV),
   );
 
-  const registration = createMvpReadToolRegistration({
+  const registration = createGovernanceReadToolRegistration({
     config: named,
     env: {
       [URL_ENV]: 'https://project-ref.supabase.co',
@@ -274,7 +274,7 @@ test('email identity matching names the bot token variable and never echoes its 
     requesterSenderId: SENDER,
     assertInvocationCurrent() {},
   });
-  assert.deepEqual(tools.map(tool => tool.name), [...MVP_READ_TOOL_NAMES]);
+  assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_READ_TOOL_NAMES]);
   assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN), 'the bot token never appears in a tool');
   assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN_ENV), 'the variable name never appears in a tool');
 });
@@ -295,7 +295,7 @@ test('enabled email matching builds one lookup that presents the bot token only 
     return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
   };
   try {
-    const registration = createMvpReadToolRegistration({
+    const registration = createGovernanceReadToolRegistration({
       config: { ...baseConfig, identityEmailMatch: 'enabled', slackBotTokenEnvVar: BOT_TOKEN_ENV },
       env: {
         [URL_ENV]: 'https://project-ref.supabase.co',
@@ -1131,14 +1131,14 @@ test('an enabled block with a malformed voteTypeAliases map fails loudly at regi
     [{ event_single: { displayName: 'Single event', aliases: Array.from({ length: 33 }, (_, i) => `a${i}`) } }, /event_single\.aliases must list at most 32 names/],
   ]) {
     assert.throws(
-      () => createMvpReadToolRegistration({ config: labelConfig(labels), reader: labelReader() }),
+      () => createGovernanceReadToolRegistration({ config: labelConfig(labels), reader: labelReader() }),
       error => error.code === 'foundation_db_config_invalid' && expected.test(error.message),
       `expected a loud config failure for ${JSON.stringify(labels)}`,
     );
   }
   // An absent or explicitly null block is not an error: it simply resolves nothing.
   for (const labels of [undefined, null]) {
-    const registration = createMvpReadToolRegistration({
+    const registration = createGovernanceReadToolRegistration({
       config: labels === undefined ? baseConfig : { ...baseConfig, voteTypeAliases: labels },
       reader: labelReader(),
     });
@@ -1147,7 +1147,7 @@ test('an enabled block with a malformed voteTypeAliases map fails loudly at regi
       nativeChannelId: BOARD_CHANNEL,
       requesterSenderId: SENDER,
       assertInvocationCurrent() {},
-    }).map(tool => tool.name), [...MVP_READ_TOOL_NAMES]);
+    }).map(tool => tool.name), [...GOVERNANCE_READ_TOOL_NAMES]);
   }
 });
 
@@ -1166,7 +1166,7 @@ test('an injected writer needs no environment and never reaches a database on it
 
 test('an injected writer that is missing a read method fails the configuration loudly', () => {
   assert.throws(
-    () => createMvpReadToolRegistration({
+    () => createGovernanceReadToolRegistration({
       config: baseConfig,
       reader: createFakeReader().reader,
       writer: { listVoteTypes: async () => ({ ok: true, status: 'found', reason: 'vote_types', voteTypes: [], httpStatus: 200 }) },

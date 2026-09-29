@@ -1,7 +1,7 @@
 # Slack test app: local OAuth setup (separate from the governance app)
 
-This guide covers one local, separate Slack app that mints **user** OAuth tokens for the five Rein MVP
-test identities, so the harness can post as a real human. It is development scaffolding, not the
+This guide covers one local, separate Slack app that mints **user** OAuth tokens for the five Rein
+governance test identities, so the harness can post as a real human. It is development scaffolding, not the
 governance app.
 
 Current state: the app exists in the test workspace as **`A0C5L0X22DN`**, created blank with **PKCE
@@ -18,7 +18,7 @@ governance app and keep them out of this test app.
 
 ## What the app is
 
-[slack-mvp-test-app-manifest.json](slack-mvp-test-app-manifest.json) is the reviewable record of the
+[slack-governance-test-app-manifest.json](slack-governance-test-app-manifest.json) is the reviewable record of the
 intended configuration:
 
 | Item | Value |
@@ -37,7 +37,7 @@ also non-secret, and the app has **no client secret** in this flow.
 
 ## What this app is not: the identity email lookup
 
-Slack sender identity for the MVP is resolved on the **governance bot app**, not here (D13 in
+Slack sender identity for the governance slice is resolved on the **governance bot app**, not here (D13 in
 [decisions.md](decisions.md)). That bot calls `users.info` with the bot scopes `users:read` and
 `users:read.email`, normalizes the sender's profile email, and requires an exact match to exactly one
 `<env>_contact_identities` row. The resolver exists in local code (`slack-email-lookup.ts`) with
@@ -157,7 +157,7 @@ token file so this is visible rather than surprising.
 
 ### Five sandbox test accounts
 
-Five sandbox Slack identities back the local MVP Slack test harness. They are **test** accounts in the
+Five sandbox Slack identities back the local governance Slack test harness. They are **test** accounts in the
 dedicated test workspace `T0C4GRL55HB`, not real members and not operations accounts. Each holds a
 user OAuth token (`xoxp-`, user scope `chat:write` only) minted by the local test app described above.
 The harness verifies every token with `auth.test` and refuses any workspace or identity mismatch.
@@ -261,11 +261,11 @@ Prefer a sourced `.env` or `--file .env` over `export` on the command line, and 
 ### What these tokens can and cannot prove
 
 - User tokens are for **message injection**: the harness posts as a real human in the two test
-  channels, which is what the MVP scenarios need for authentic-looking traffic.
+  channels, which is what the governance scenarios need for authentic-looking traffic.
 - They are **not** bot app credentials. The harness has no bot scopes and refuses any token that
   resolves to a bot identity, so a passing run says nothing about the governance bot app.
 - A passing `tokens`/`whoami`/`send` run proves identity, workspace membership and posting only. Full
-  scenario acceptance still requires the governed end-to-end flow against the configured MVP tools and
+  scenario acceptance still requires the governed end-to-end flow against the configured governance tools and
   local storage; treat the CLI as injecting the input, not as the acceptance result.
 
 ## Where tokens live

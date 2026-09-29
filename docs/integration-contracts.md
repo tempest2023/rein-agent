@@ -1,8 +1,8 @@
-# MVP integration contracts: Slack, database, and money boundary
+# v0.1 integration contracts: Slack, database, and money boundary
 
-The MVP vertical slice is Slack identity, a Contributor proposal, a Board approval vote with a
-result, and a read-only funds snapshot. This file lists what each boundary must supply, and what the
-MVP deliberately does not do. Broader provider work for activities, publishing and oversight is
+The v0.1 vertical slice is Slack identity, a Contributor proposal, a Board approval vote with a
+result, and a read-only funds snapshot. This file lists what each boundary must supply, and what
+v0.1 deliberately does not do. Broader provider work for activities, publishing and oversight is
 deferred; see [decisions](decisions.md).
 
 ## Slack (official OpenClaw `slack` plugin)
@@ -19,7 +19,7 @@ deferred; see [decisions](decisions.md).
 | Unresolved sender | A missing or hidden profile email, an email that matches no row or more than one row, or a matched row with no usable contact fails closed: the sender may ask questions but cannot submit, vote or act, and no governance record is written. |
 | Channels | Explicitly approved proposal and Board channel IDs, in native Slack form. A call from any other channel is refused before any database access. |
 | Missing team ID | The trusted tool context carries the platform, the channel and the sender, but no Slack team or workspace ID. The team is fixed operator configuration, so pointing one installation at several workspaces would resolve senders against the wrong community records. |
-| Outbound messages | The MVP tools return results to the calling turn and do not post to Slack on their own. The result tool in particular only returns the result; nothing auto-posts it back to the channel. Any future posting must persist intent plus an idempotency key before delivery. |
+| Outbound messages | The v0.1 tools return results to the calling turn and do not post to Slack on their own. The result tool in particular only returns the result; nothing auto-posts it back to the channel. Any future posting must persist intent plus an idempotency key before delivery. |
 
 ## Database (organization's own Supabase project)
 
@@ -29,17 +29,15 @@ project with isolated `dev_*` and `prod_*` table sets; the environment selector 
 default.
 
 The slice's migrations live in the sibling Foundation repository `tempest2023/ReinProtocolFoundation`,
-which carries them on branch `tempest/agent-mvp-schema-and-welcome-email` (PR #13, open). The
-committed branch head is `2dc244aac6cfaf318a90d51c3c25876d0224c740` ("Recover Remote-Only Case 7
-Same-Day Fixture Migration", 2026-09-28); the rename commit
+which carries them on its PR #13 branch (PR #13, open). The current PR head is `78281fa`
+("Recover Remote-Only Case 7 Same-Day Fixture Migration", 2026-09-28); the rename commit
 `08542ad09932a4cefb62f230a9bdcf9fd4d32dfe` ("Complete Rein governance catalog rename through
 triggers, constraints, and indexes", 2026-09-28) and the clock commit
 `32977bfb6cd6ae73b81aa4b396f9ae1cb67d2ac8` ("Make the database clock authoritative for ballot
 `cast_at`", 2026-09-27) are its ancestors, and the two schema files were first authored
-at `4bd5ce8` ("Add the Rein Agent MVP Slack identity, fund snapshot, and governance schema",
-2026-09-26). The sibling repo holds pgTAP coverage in
-`supabase/tests/rein_mvp_governance.sql`, `supabase/tests/rls.sql` and
-`supabase/tests/environment_parity.sql`, at a local plan count of 187 assertions (187/187, run
+at `4bd5ce8` ("Add the Rein Agent Slack identity, fund snapshot, and governance schema",
+2026-09-26). The sibling repo holds pgTAP coverage (its governance suite, `supabase/tests/rls.sql`
+and `supabase/tests/environment_parity.sql`), at a local plan count of 187 assertions (187/187, run
 twice in an isolated container at the current sibling head). The two **applied** migrations are
 verified read-only on 2026-09-27 with `supabase migration list --linked` against project ref
 `ksgyfyysnojqrwfuyqwe` (project name `BeneficenceProtocol`), which lists both as remote:
@@ -47,7 +45,7 @@ verified read-only on 2026-09-27 with `supabase migration list --linked` against
 | Migration | Adds |
 | --- | --- |
 | `20260924094436_rein_slack_identity_and_fund_snapshots.sql` | `rein_slack_links` and append-only `rein_fund_snapshots`, in both table sets |
-| `20260924095705_rein_mvp_proposals_polls_ballots.sql` | proposals, polls and ballots (originally `rein_mvp_proposals`, `rein_mvp_polls` and `rein_mvp_ballots`), in both table sets |
+| `20260924095705_rein_mvp_proposals_polls_ballots.sql` | proposals, polls and ballots, in both table sets |
 
 The third sibling migration, `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`, was committed at
 `32977bfb` and is present at the current sibling head. It is now **applied** to the linked remote
@@ -57,19 +55,19 @@ ballot's `cast_at` is therefore in effect in the linked project's schema, though
 been cast there to exercise it (see "What the applied migrations do not prove").
 
 A fourth sibling migration, `20260927110000_rein_governance_names.sql`, is committed in PR #13 and
-ordered after `20260927103000`. It renames the five physical tables from `<env>_rein_mvp_*` to their
-long-term names and renames the two RPCs, then keeps the old table and RPC names reachable as
-read/write compatibility views and RPC wrappers for the transition. It is **applied** to the linked
-project as of 2026-09-28: the linked remote lists the version, and the ten renamed physical tables,
-ten old-name compatibility views and four old-name RPC wrappers are all present, so old-name clients
-and new-name clients both resolve.
+ordered after `20260927103000`. It renames the five physical tables to their long-term names and
+renames the two RPCs. It is **applied** to the linked project as of 2026-09-28: the linked remote
+lists the version, and the ten renamed physical tables are present. The transition compatibility
+views and RPC wrappers it created were removed by the later applied
+`20260929045543_remove_stage_compatibility_objects.sql`, so only the long-term names remain.
 
 **Applied order and compatibility.** They apply in filename order after the earlier community
 migrations (the `202608120001` and `202608130001` families, which already provide
 `<env>_contact_identities`): `20260924094436` first, then `20260924095705`. The second migration is
 additive to the first and defines the phase-2 shapes this slice uses (vote types, the approve-only
 ballot, the frozen candidate list, the `<env>_rein_finalize_poll` and
-`<env>_rein_approve_revision` RPCs, created at that time under the old `mvp` names), so the two are forward-compatible when applied in that order.
+`<env>_rein_approve_revision` RPCs, created at that time under their original stage-prefixed names),
+so the two are forward-compatible when applied in that order.
 Each migration creates the `dev_*` and `prod_*` objects in the same transaction (the first defines
 both table families explicitly, the second loops over `array['dev_', 'prod_']`), and `supabase
 migration list --linked` is project-level, so the applied schema covers both prefixes. The local
@@ -77,16 +75,16 @@ app's `DATABASE_ENVIRONMENT=dev` is only a client-side default for which prefix 
 is not evidence that only the `dev_*` schema exists.
 
 **Migration order.** The sibling migrations apply in filename order after the `202608120001` /
-`202608130001` families: `20260924094436`, `20260924095705`, `20260927103000`, then
-`20260927110000`. All four are now applied to the linked project (the first two verified read-only
-2026-09-27, the second two verified read-only 2026-09-28), each by a human-run `supabase db push` or
-an equivalent reviewed step in that order. The clock migration's `dev_*` and `prod_*` guards both
-assign `NEW.cast_at := now()` before the window check, because the sibling migration loops over both
-prefixes. The rename migration is applied, so the linked schema answers on the new
-`<env>_rein_*` names; the old `<env>_rein_mvp_*` names still resolve through the compatibility views
-and wrappers, and their later removal is a separate reviewed migration (see "Compatibility
-retirement"). Applying a migration is a schema step, not evidence that the Agent uses the schema:
-code live end-to-end verification is still absent.
+`202608130001` families: `20260924094436`, `20260924095705`, `20260927103000`,
+`20260927110000`, then `20260929045543_remove_stage_compatibility_objects.sql`. All five are applied
+to the linked project (the first two verified read-only 2026-09-27, the later three verified
+read-only 2026-09-28), each by a human-run `supabase db push` or an equivalent reviewed step in that
+order. The clock migration's `dev_*` and `prod_*` guards both assign `NEW.cast_at := now()` before
+the window check, because the sibling migration loops over both prefixes. The rename migration is
+applied, so the linked schema answers on the `<env>_rein_*` names, and the cleanup migration removed
+the transition compatibility views and RPC wrappers, so the earlier stage-prefixed names no longer
+resolve. Applying a migration is a schema step, not evidence that the Agent uses the schema: code
+live end-to-end verification is still absent.
 
 **What the applied migrations do not prove.** Applying a migration is not the same as the Agent
 using it, and schema registration is not proof of any row. No Slack workspace is connected, the
@@ -98,7 +96,7 @@ tool result in this PR is from local modules and synthetic tests.
 Required contract properties:
 
 - One `<env>_contact_identities` row maps one normalized email to one community contact, and the
-  Slack MVP resolves a sender by a single exact email match against that table, deriving the contact
+  Slack v0.1 slice resolves a sender by a single exact email match against that table, deriving the contact
   and its current role at request time. Display names never establish identity, and one person with
   several Slack accounts that share one email resolves to one canonical contact. A retained link row
   is a veto rather than a grant: `revoked` blocks the sender, and `verified` with a conflicting
@@ -148,14 +146,15 @@ unapproved operator configuration.
 
 ## Naming and the rename migration
 
-A pre-launch review asked for the `mvp` naming to be removed across tools, tables, config and skills.
-The names below are the current, stable interfaces. The plugin and its configuration use them today;
-the database reaches them through the forward migration `20260927110000_rein_governance_names.sql`,
-which is committed in PR #13 and **applied** to the linked project as of 2026-09-28. The migration
-renames the physical tables and RPCs and keeps the earlier `<env>_rein_mvp_*` table and RPC names
-reachable as read/write compatibility views and RPC wrappers during the transition, so both the new
-and the old names resolve in the linked schema today. The rename gate is closed at the schema level;
-what remains is the live code path (see "What the applied migrations do not prove").
+A pre-launch review asked for the stage-based naming to be removed across tools, tables, config and
+skills. The names below are the current, stable v0.1 interfaces. The plugin and its configuration
+use them today; the database reaches them through the forward migration
+`20260927110000_rein_governance_names.sql`, which is committed in PR #13 and **applied** to the
+linked project as of 2026-09-28. The transition compatibility views and RPC wrappers that briefly
+kept the earlier stage-prefixed names reachable were removed by the later applied
+`20260929045543_remove_stage_compatibility_objects.sql`, so only the stable names resolve in the
+linked schema today. The rename gate is closed at the schema level; what remains is the live code
+path (see "What the applied migrations do not prove").
 
 | Interface | Current names |
 | --- | --- |
@@ -165,39 +164,36 @@ what remains is the live code path (see "What the applied migrations do not prov
 | `rein_status` flags | `foundationDbReadToolsEnabled`, `foundationDbWriteToolsEnabled`, `foundationDbCollectToolsEnabled`, `foundationDbFeedbackToolsEnabled` |
 | Tables | `<env>_rein_proposals`, `<env>_rein_polls`, `<env>_rein_ballots`, `<env>_rein_vote_types`, `<env>_rein_proposal_revisions` |
 | RPCs | `<env>_rein_finalize_poll`, `<env>_rein_approve_revision` |
-| Compatibility names | `<env>_rein_mvp_*` tables and RPCs, kept alive by the rename migration's views and wrappers until callers move over |
 
 The plugin's own names for tools, config, refusal codes and status flags are adopted in the code and
 need no migration. The tables and RPCs are the part that lags, because the two base `20260924*`
-migrations were applied under the old `mvp` names, so renaming them in place would edit applied
-history; the forward migration `20260927110000_rein_governance_names.sql` does the rename instead.
+migrations were applied under their original stage-prefixed names, so renaming them in place would
+edit applied history; the forward migration `20260927110000_rein_governance_names.sql` does the
+rename instead.
 
 The migration was a release gate, not a wording edit: the base tables and RPCs were already applied
 to the linked dev project, so the rename needed its own reviewed forward migration. That forward
 migration is now applied, so the new table and RPC names exist in the linked schema; no document here
 claims the Agent has used them live.
 
-PR #13 is still open, and the `20260927110000` migration now includes the rename work it needs to
-stand on its own: in each environment it renames the ten helper and trigger functions alongside the
-five tables and two RPCs, rewrites the bodies to the new physical table, helper and GUC names, and
-renames the dependent triggers, constraints and indexes. The rename therefore no longer leans on the
-old names it is replacing, and the migration keeps exactly ten old-name views and four old-name RPC
-wrappers for compatibility. Because the migration is now **applied** to the linked project, it has
-become part of applied history and is no longer editable; the two base `20260924*` migrations stay
-applied and keep their historical filenames unchanged. Any further change to the naming layer must be
-a new forward migration, which is why the removal of the compatibility views and wrappers is tracked
-separately below.
+PR #13 is still open, and the `20260927110000` migration includes the rename work it needs to stand
+on its own: in each environment it renames the ten helper and trigger functions alongside the five
+tables and two RPCs, rewrites the bodies to the new physical table, helper and GUC names, and renames
+the dependent triggers, constraints and indexes. The rename therefore no longer leans on the old
+names it replaced. Because the migration is now **applied** to the linked project, it has become
+part of applied history and is no longer editable; the two base `20260924*` migrations stay applied
+and keep their historical filenames unchanged. Any further change to the naming layer must be a new
+forward migration.
 
-**Compatibility retirement.** The `<env>_rein_mvp_*` views and RPC wrappers are a transition
-mechanism, not the long-term contract. They stay in place while any runtime client still calls the
-old names, because dropping a view or wrapper while an old client is active would break that client
-with no replacement. The criterion for retirement is that the old-name clients have been replaced
-and verified on the new `<env>_rein_*` names. Until that verification exists, the migration that
-removes the views and wrappers is deferred and must never be merged or applied ahead of it.
+**Compatibility removal.** The rename migration briefly created ten old-name views and four old-name
+RPC wrappers for callers that had not moved over. The later applied
+`20260929045543_remove_stage_compatibility_objects.sql` removed all of them, so the earlier
+stage-prefixed names no longer resolve in the linked schema and the stable `<env>_rein_*` names are
+the only interface.
 
 ## Money boundary
 
-The MVP has no payment path. A passed vote is a decision record: it does not reserve, approve,
+v0.1 has no payment path. A passed vote is a decision record: it does not reserve, approve,
 disburse or reconcile money, and it does not alter a funds snapshot. Payment, reimbursement and
 settlement stay with authorized people outside the Agent, and the finance state machine in the
 broader PRD is deferred.

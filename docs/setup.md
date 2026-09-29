@@ -2,7 +2,7 @@
 
 This is the local bootstrap for the vendored OpenClaw runtime and the `rein-operations` plugin. It
 configures no chat platform or model provider and activates no governance policy. Its proposal and
-vote tools default to synthetic simulation; the database-backed MVP Slack tools described at the end
+vote tools default to synthetic simulation; the database-backed v0.1 Slack tools described at the end
 of this file register only when an operator explicitly enables them.
 
 ## Prerequisites
@@ -196,7 +196,7 @@ local work does not touch a global `~/.openclaw` profile.
 - No chat platform, model provider or credential is connected.
 - `config/operations.example.json` is a design input, not native OpenClaw configuration, and
   nothing loads it.
-- The MVP slice exists as code but is not wired to anything: no Slack workspace and no live database
+- The v0.1 slice exists as code but is not wired to anything: no Slack workspace and no live database
   connection. Two base migrations are applied to the linked `BeneficenceProtocol` project (the
   `20260924094436` identity/funds migration and the `20260924095705` proposals/polls/ballots
   migration, in filename order); the `20260927103000` clock migration and the `20260927110000`
@@ -206,7 +206,7 @@ local work does not touch a global `~/.openclaw` profile.
 - The opt-in Slack identity email match is implemented and locally tested but disabled by default;
   the governance app's `users:read` and `users:read.email` bot scopes and its bot token are not
   installed or configured, so senders still resolve through the retained link table.
-- Budget, outcome, publishing and oversight behaviour does not exist in the MVP. Weighted voting,
+- Budget, outcome, publishing and oversight behaviour does not exist in v0.1. Weighted voting,
   quorum, recusal and competing-budget allocation are deferred.
 - Governance parameters, storage, hosting and website contracts remain unresolved; see
   [decisions](decisions.md).
@@ -220,12 +220,10 @@ names in this guide are the stable ones: the plugin now calls the tables and RPC
 `<env>_rein_proposal_revisions`, `<env>_rein_finalize_poll` and `<env>_rein_approve_revision`. Those
 names arrive through the forward migration `20260927110000_rein_governance_names.sql`, ordered after
 the committed `20260927103000`; both are **applied** to the linked project as of 2026-09-28, so the
-new names resolve there. The migration keeps the old `<env>_rein_mvp_*` names reachable as
-compatibility views and wrappers, so old-name callers still work during the transition. Applying the
-migration is not Agent use: the live code path has no end-to-end result.
-Those aliases are a transition aid, not the long-term contract: they can be retired once every
-old-name client has been replaced and verified on the new `<env>_rein_*` names, and the migration
-that drops them must not be applied before that.
+new names resolve there. The compatibility views and wrappers that once kept the earlier
+stage-prefixed names reachable were removed by the later applied migration
+`20260929045543_remove_stage_compatibility_objects.sql`, so only the stable `<env>_rein_*` names
+remain. Applying the migration is not Agent use: the live code path has no end-to-end result.
 The plugin config names server environment variables rather than carrying credentials:
 
 ```json
@@ -299,7 +297,7 @@ another team is refused.
 
 ### Proposal author confirmation
 
-A stored proposal must be the version its author confirmed (PRD §2.3 step 2). Because the MVP
+A stored proposal must be the version its author confirmed (PRD §2.3 step 2). Because the
 proposal table has no draft status or confirmation column, the registered
 `rein_governance_proposal_submit` tool enforces this in two steps instead of storing a draft row:
 

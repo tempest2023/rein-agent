@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import plugin from '../plugins/rein-operations/index.ts';
-import { MVP_WRITE_TOOL_NAMES } from '../plugins/rein-operations/mvp-write-tools.ts';
-import { MVP_FEEDBACK_TOOL_NAMES } from '../plugins/rein-operations/mvp-feedback-tools.ts';
-import { COLLECT_REPLY_GUARD_TOOL_NAMES } from '../plugins/rein-operations/mvp-collect-reply-guard.ts';
+import { GOVERNANCE_WRITE_TOOL_NAMES } from '../plugins/rein-operations/governance-write-tools.ts';
+import { GOVERNANCE_FEEDBACK_TOOL_NAMES } from '../plugins/rein-operations/proposal-feedback-tools.ts';
+import { COLLECT_REPLY_GUARD_TOOL_NAMES } from '../plugins/rein-operations/proposal-collect-reply-guard.ts';
 import {
   MAX_POLL_NOTE_LENGTH,
   POLL_GUARD_CHANNEL,
@@ -18,7 +18,7 @@ import {
   POLL_RESULT_GUARD_TOOL_NAME,
   TOOL_SEARCH_DISPATCHER_TOOL_NAME,
   createPollReplyGuard,
-} from '../plugins/rein-operations/mvp-poll-reply-guard.ts';
+} from '../plugins/rein-operations/poll-reply-guard.ts';
 
 // Focused tests for the case-7 outbound guard. They drive the guard's own hooks with plain objects, so
 // no host, gateway, Slack API or database is involved, and each test asserts on the exact payload
@@ -27,7 +27,7 @@ import {
 // fragments are still literally in that tool's source, so a fixture cannot drift away from the tool.
 
 const writeToolsSource = readFileSync(
-  fileURLToPath(new URL('../plugins/rein-operations/mvp-write-tools.ts', import.meta.url)),
+  fileURLToPath(new URL('../plugins/rein-operations/governance-write-tools.ts', import.meta.url)),
   'utf8',
 );
 
@@ -255,7 +255,7 @@ const unsafeFinalPayload = () => ({
 });
 
 /** A store key no other guard in this file shares, for tests that want one instance in isolation. */
-const isolatedStoreKey = () => Symbol('rein-mvp-poll-guard-test-instance');
+const isolatedStoreKey = () => Symbol('rein-governance-poll-guard-test-instance');
 
 const buildGuard = (options = {}) =>
   createPollReplyGuard({ now: () => 0, stateKey: isolatedStoreKey(), ...options });
@@ -369,9 +369,9 @@ test('the guard names one result tool, one surface, one dispatch kind and one bo
     ...POLL_REPLY_GUARD_WRITE_TOOL_NAMES,
     TOOL_SEARCH_DISPATCHER_TOOL_NAME,
   ]);
-  // The closing list is exactly the write tools this MVP block registers, minus the result tool: a
+  // The closing list is exactly the write tools this foundationDb block registers, minus the result tool: a
   // missing write could rewrite a reply that is about that write, so the two lists stay tied.
-  const registeredWrites = [...MVP_WRITE_TOOL_NAMES, ...MVP_FEEDBACK_TOOL_NAMES].filter(
+  const registeredWrites = [...GOVERNANCE_WRITE_TOOL_NAMES, ...GOVERNANCE_FEEDBACK_TOOL_NAMES].filter(
     name => name !== POLL_RESULT_GUARD_TOOL_NAME,
   );
   assert.deepEqual([...POLL_REPLY_GUARD_WRITE_TOOL_NAMES].sort(), registeredWrites.sort());
@@ -1207,10 +1207,10 @@ test('the real entry registers the poll guard hooks, matched to the result tool 
   );
   assert.ok(pollArm, 'the entry must register the poll-result after_tool_call hook');
   assert.deepEqual(pollArm.options, { matcher: [...POLL_REPLY_GUARD_TOOL_NAMES] });
-  // Every MVP reply guard registers a reply hook, the collect guard's first and the poll guard's last,
+  // Every reply guard registers a reply hook, the collect guard's first and the poll guard's last,
   // so the last one is this guard's own handler.
   const replyHooks = hooks.filter(hook => hook.hookName === 'reply_payload_sending');
-  assert.equal(replyHooks.length, 3, 'every MVP reply guard must register its reply hook');
+  assert.equal(replyHooks.length, 3, 'every reply guard must register its reply hook');
   const pollReply = replyHooks[replyHooks.length - 1].handler;
 
   // A direct call round-trips through the registered handlers.

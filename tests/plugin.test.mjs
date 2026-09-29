@@ -119,12 +119,12 @@ test('proposal simulation identifies missing information and never authorizes ap
   assert.equal(complete.details.route.reason, 'zero_budget_policy_not_authorized');
 });
 
-test('mvp mode registers the database-backed read tools instead of the simulators and legacy proposal tools', async () => {
+test('governance mode registers the database-backed read tools instead of the simulators and legacy proposal tools', async () => {
   const manifest = JSON.parse(readFileSync(new URL('../plugins/rein-operations/openclaw.plugin.json', import.meta.url)));
-  const dir = mkdtempSync(join(tmpdir(), 'rein-plugin-mvp-'));
-  process.env.REIN_TEST_MVP_SUPABASE_URL = 'https://project-ref.supabase.co';
-  process.env.REIN_TEST_MVP_SUPABASE_SERVICE_KEY = 'sb_secret_plugin_test_0000000000000000';
-  process.env.REIN_TEST_MVP_CONFIRMATION_KEY = 'plugin-test-proposal-confirmation-key-0001';
+  const dir = mkdtempSync(join(tmpdir(), 'rein-plugin-governance-'));
+  process.env.REIN_TEST_GOVERNANCE_SUPABASE_URL = 'https://project-ref.supabase.co';
+  process.env.REIN_TEST_GOVERNANCE_SUPABASE_SERVICE_KEY = 'sb_secret_plugin_test_0000000000000000';
+  process.env.REIN_TEST_GOVERNANCE_CONFIRMATION_KEY = 'plugin-test-proposal-confirmation-key-0001';
   try {
     const registrations = [];
     plugin.register({
@@ -137,11 +137,11 @@ test('mvp mode registers the database-backed read tools instead of the simulator
           environment: 'dev',
           proposalChannelIds: ['C_PROPOSAL'],
           boardChannelIds: ['C_BOARD'],
-          supabaseUrlEnvVar: 'REIN_TEST_MVP_SUPABASE_URL',
-          supabaseServiceKeyEnvVar: 'REIN_TEST_MVP_SUPABASE_SERVICE_KEY',
-          proposalConfirmationKeyEnvVar: 'REIN_TEST_MVP_CONFIRMATION_KEY',
+          supabaseUrlEnvVar: 'REIN_TEST_GOVERNANCE_SUPABASE_URL',
+          supabaseServiceKeyEnvVar: 'REIN_TEST_GOVERNANCE_SUPABASE_SERVICE_KEY',
+          proposalConfirmationKeyEnvVar: 'REIN_TEST_GOVERNANCE_CONFIRMATION_KEY',
         },
-        // Configured but superseded: MVP mode exposes the real read slice, not local rehearsals.
+        // Configured but superseded: governance mode exposes the real read slice, not local rehearsals.
         proposalTools: { enabled: true, platform: 'slack', allowedNativeChannelIds: ['C_PROPOSAL'], statePath: join(dir, 'state.json') },
       },
       registerTool(tool, options) { registrations.push({ tool, options }); },
@@ -154,18 +154,18 @@ test('mvp mode registers the database-backed read tools instead of the simulator
       'rein_proposal_comment_suggest,rein_revision_approve,rein_revision_apply',
       'rein_status',
     ]);
-    const mvp = registrations.find(entry => entry.options?.names?.includes('rein_member_status'));
-    assert.equal(mvp.tool.contextVersion, 2);
-    assert.deepEqual(mvp.tool.create({
+    const governance = registrations.find(entry => entry.options?.names?.includes('rein_member_status'));
+    assert.equal(governance.tool.contextVersion, 2);
+    assert.deepEqual(governance.tool.create({
       messageChannel: 'slack',
       nativeChannelId: 'C_BOARD',
       requesterSenderId: 'U0123456ABC',
       assertInvocationCurrent() {},
     }).map(tool => tool.name), ['rein_member_status', 'rein_funds', 'rein_poll_candidates', 'rein_vote_type_resolve']);
-    assert.deepEqual(mvp.options.names, manifest.contracts.tools.slice(7, 11));
+    assert.deepEqual(governance.options.names, manifest.contracts.tools.slice(7, 11));
 
     const writes = registrations.find(entry => entry.options?.names?.includes('rein_poll_open'));
-    assert.ok(writes, 'MVP mode must register the write tools');
+    assert.ok(writes, 'governance mode must register the write tools');
     assert.equal(writes.tool.contextVersion, 2);
     assert.deepEqual(writes.options.names, manifest.contracts.tools.slice(11, 15));
     assert.deepEqual(writes.tool.create({
@@ -177,7 +177,7 @@ test('mvp mode registers the database-backed read tools instead of the simulator
 
     // Multi-turn field collection registers from the same explicit block and is read-only.
     const collect = registrations.find(entry => entry.options?.names?.includes('rein_proposal_collect'));
-    assert.ok(collect, 'MVP mode must register the field-collection tool');
+    assert.ok(collect, 'governance mode must register the field-collection tool');
     assert.equal(collect.tool.contextVersion, 2);
     assert.deepEqual(collect.tool.create({
       messageChannel: 'slack',
@@ -189,7 +189,7 @@ test('mvp mode registers the database-backed read tools instead of the simulator
 
     // Post-result feedback registers from the same explicit block, with its own v2 factory.
     const feedback = registrations.find(entry => entry.options?.names?.includes('rein_revision_apply'));
-    assert.ok(feedback, 'MVP mode must register the post-result feedback tools');
+    assert.ok(feedback, 'governance mode must register the post-result feedback tools');
     assert.equal(feedback.tool.contextVersion, 2);
     assert.deepEqual(feedback.options.names, manifest.contracts.tools.slice(16));
     assert.deepEqual(feedback.tool.create({
@@ -219,15 +219,15 @@ test('mvp mode registers the database-backed read tools instead of the simulator
     assert.equal(result.details.integrations.memberRegistry, 'database-read-only');
     assert.equal(result.details.integrations.finance, 'snapshot-read-only');
     assert.ok(!result.content[0].text.includes('sb_secret_plugin_test'));
-    assert.ok(!result.content[0].text.includes('REIN_TEST_MVP_SUPABASE'));
+    assert.ok(!result.content[0].text.includes('REIN_TEST_GOVERNANCE_SUPABASE'));
   } finally {
-    delete process.env.REIN_TEST_MVP_SUPABASE_URL;
-    delete process.env.REIN_TEST_MVP_SUPABASE_SERVICE_KEY;
+    delete process.env.REIN_TEST_GOVERNANCE_SUPABASE_URL;
+    delete process.env.REIN_TEST_GOVERNANCE_SUPABASE_SERVICE_KEY;
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('mvp mode refuses to load with an incomplete block or an unset referenced variable', () => {
+test('governance mode refuses to load with an incomplete block or an unset referenced variable', () => {
   const registerTool = () => {};
   const base = {
     enabled: true,

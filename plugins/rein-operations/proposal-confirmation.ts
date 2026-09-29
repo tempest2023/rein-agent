@@ -1,7 +1,7 @@
-// Verifiable author confirmation for the MVP proposal write path.
+// Verifiable author confirmation for the proposal write path.
 //
 // PRD §2.3 step 2 and `workspace/AGENTS.md` require that a stored proposal is the version its
-// author confirmed. The MVP proposal table has no draft status or confirmation column, so the
+// author confirmed. The proposal table has no draft status or confirmation column, so the
 // confirmation cannot be a stored draft row. Instead the prepare step mints a short-lived token
 // that binds one proposer to one exact payload, and the submit step refuses to write until it
 // receives that token back together with an explicit confirmation statement.
@@ -46,7 +46,7 @@ import {
 
 export const CONFIRMATION_TOKEN_VERSION = 'rpc2';
 // The token guards a long-lived write interface, so its prefix names the proposal confirmation
-// itself rather than the MVP stage that first introduced it.
+// itself rather than the v0.1 stage that first introduced it.
 export const CONFIRMATION_TOKEN_PREFIX = 'rein_proposal_confirm';
 
 /** How long a prepared proposal stays confirmable, in milliseconds. */

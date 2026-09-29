@@ -1,12 +1,12 @@
-# Rein Agent MVP 十个 Slack 演练案例
+# Rein Agent v0.1 十个 Slack 演练案例
 
-这些案例对应**已确认的 MVP 纵向切片**：Slack 身份解析（邮箱匹配） → Contributor 提案 → Board 只投赞成票的批准投票与结果 → 只读资金快照。范围与延后项见[决策登记册](decisions.md)，逐项证据见 [AC01–AC20 验收矩阵](p0-acceptance-matrix.md)。
+这些案例对应**已确认的 v0.1 纵向切片**：Slack 身份解析（邮箱匹配） → Contributor 提案 → Board 只投赞成票的批准投票与结果 → 只读资金快照。范围与延后项见[决策登记册](decisions.md)，逐项证据见 [AC01–AC20 验收矩阵](p0-acceptance-matrix.md)。
 
 **本轮最终结论（2026-09-28）：** 案例 2–10 按合成开发证据通过，案例 1 由负责人决定跳过、**未通过**。
 全部证据来自改名前的构建；当前 PR head 只有单元与加载器级验证，改名后尚未在真实 Slack 重跑，`prod_*`
-业务表未被写入，生产迁移与发布门槛仍在。逐案裁定见 [MVP Slack 验收记录（2026-09-28）](mvp-acceptance-2026-09-28.md)。
+业务表未被写入，生产迁移与发布门槛仍在。逐案裁定见 [v0.1 治理验收记录（2026-09-28）](governance-acceptance-2026-09-28.md)。
 
-**当前一律为合成演练，不是上线验收。** 所有帐号、频道、提案、金额与投票都是虚构数据，但演练确实在真实的提供方上跑过：合成测试身份在**真实测试 Slack 工作区**里收发消息，工具也**读写过**已链接项目的 `dev_*` 表集（行均为合成 fixture）。不构成生产验收的部分是：未接入真实成员名册，未写入任何 `prod_*` 业务表，未做生产迁移与部署，也未调用资金／支付提供方。两个 MVP 迁移已在姊妹仓库 `tempest2023/ReinProtocolFoundation` 的分支 `tempest/agent-mvp-schema-and-welcome-email`（PR #13）提交并应用到已链接的 `BeneficenceProtocol` 项目，两套 `dev_*` 与 `prod_*` 对象都在同一事务里建成（2026-09-27 以 `supabase migration list --linked` 只读核对）；姊妹仓库另有第三个迁移 `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`（选票 `cast_at` 改由数据库时钟决定）与第四个改名迁移 `20260927110000_rein_governance_names.sql`，两者**均已应用到已链接项目**（2026-09-28 只读核对：两个版本都已列出，十张新物理表、十个旧名兼容视图与四个 RPC 包装均在）。**已应用不等于已投产、也不等于代码已实机验证**：`prod_*` 表集只有 schema、业务行始终为 0，代码在真实环境上的端到端验证仍然缺位；逐案证据见 [MVP Slack 验收记录（2026-09-28）](mvp-acceptance-2026-09-28.md)。每条案例里的「用户可见」回复仍属**期望行为**（工具只把结果返回调用轮，见下），其中尚未实现的对话引导已在各案例与[验收缺口](#验收缺口)标出。
+**当前一律为合成演练，不是上线验收。** 所有帐号、频道、提案、金额与投票都是虚构数据，但演练确实在真实的提供方上跑过：合成测试身份在**真实测试 Slack 工作区**里收发消息，工具也**读写过**已链接项目的 `dev_*` 表集（行均为合成 fixture）。不构成生产验收的部分是：未接入真实成员名册，未写入任何 `prod_*` 业务表，未做生产迁移与部署，也未调用资金／支付提供方。两个基础迁移已在姊妹仓库 `tempest2023/ReinProtocolFoundation` 的 PR #13 分支（PR #13，当前 head `78281fa`）提交并应用到已链接的 `BeneficenceProtocol` 项目，两套 `dev_*` 与 `prod_*` 对象都在同一事务里建成（2026-09-27 以 `supabase migration list --linked` 只读核对）；姊妹仓库另有第三个迁移 `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`（选票 `cast_at` 改由数据库时钟决定）与第四个改名迁移 `20260927110000_rein_governance_names.sql`，两者**均已应用到已链接项目**（2026-09-28 只读核对：两个版本都已列出，十张新物理表均在）。改名迁移的过渡兼容视图与 RPC 包装已由后续已应用迁移 `20260929045543_remove_stage_compatibility_objects.sql` 删除。**已应用不等于已投产、也不等于代码已实机验证**：`prod_*` 表集只有 schema、业务行始终为 0，代码在真实环境上的端到端验证仍然缺位；逐案证据见 [v0.1 治理验收记录（2026-09-28）](governance-acceptance-2026-09-28.md)。每条案例里的「用户可见」回复仍属**期望行为**（工具只把结果返回调用轮，见下），其中尚未实现的对话引导已在各案例与[验收缺口](#验收缺口)标出。
 
 **工具只把结果返回到调用它的那一轮，不自动回帖。** 每个案例的「工具 / 数据库」断言才是当前**已实现能力**，可以在合成演练里逐项复核；「用户可见」一栏描述 Agent 应如何用自然语言回应，属于验收目标而不是既成事实。
 
@@ -58,7 +58,7 @@
 - **工具 / 数据库**：
   - 在 `title`、`voteType` 且 `requestedMinor`+`currency` 成对出现之前，**不调用** `rein_governance_proposal_submit`，`<env>_rein_proposals` 不新增行。
   - 字段齐全后才提交；金额与币种必须同时为空或同时存在（见案例 4）。
-- **缺口**：MVP 没有多轮草稿工具，也没有确定性的「缺字段 / 需补充信息」流程；workspace 已加入持久原则引导，但案例 3 的追问仍由 Agent 临场完成，且未经真实对话验证，属目标验收缺口，见[验收缺口](#验收缺口)。
+- **缺口**：v0.1 没有多轮草稿工具，也没有确定性的「缺字段 / 需补充信息」流程；workspace 已加入持久原则引导，但案例 3 的追问仍由 Agent 临场完成，且未经真实对话验证，属目标验收缺口，见[验收缺口](#验收缺口)。
 
 ## 4. 有效 Contributor 补齐并提交，拿到标识与下一步（AC02）
 
@@ -160,19 +160,19 @@
 - **用户可见**：给出人工下一步——付款与记账由有权限的人在 Agent 之外完成；不承诺已付款或已预留。
 - **工具 / 数据库**：
   - `rein_poll_result` 返回的是投票结果（`outcome`、`winner`）而不是资助决定，且只把结果返回当前调用。
-  - 不改变 `rein_fund_snapshots`，不产生任何财务记录；整套 MVP 工具中没有可支付或预留的路径。
-  - 预算竞争与分配金额属于延后项，MVP 不实现。
+  - 不改变 `rein_fund_snapshots`，不产生任何财务记录；整套 v0.1 工具中没有可支付或预留的路径。
+  - 预算竞争与分配金额属于延后项，v0.1 不实现。
 
 ## 补充回归测试
 
 以下边界是**实现层角落**，不属于上面十个主案例；它们由模块级自动测试覆盖，演练时只需引用测试结果，不必重演对话。
 
-- **最高票并列与全员弃权**：`tests/mvp-vote-tally.test.mjs` 覆盖 `no_winner`、`winner = null`、`tiedProposalIds`、`reasons = ['tie_at_highest_count']`，并区分「平票」与「全员弃权、每人 0 票」。平票口径**尚未确认**，当前按「无赢家」落库，不得私自打破平局。
-- **迟到票**：`tests/mvp-write-tools.test.mjs`、`tests/mvp-rehearsal.test.mjs` 覆盖截止后投票返回 `poll_closed`、不写选票行。
-- **截止由库决定、候选与上限冻结**：`tests/mvp-write-tools.test.mjs`、`tests/mvp-rehearsal.test.mjs` 覆盖冻结候选名单、`maxApprovalsPerVoter` 上限与开票后窗口不可改。
-- **重复与重放**：`tests/mvp-vote-tally.test.mjs`、`tests/proposal-store.test.mjs`、`tests/foundation-db-writer.test.mjs` 覆盖同一轮内 exact duplicate、相同 `approvedProposalIds` 重放视为同一记录、改动后的批准集合被拒（`replaced = false`）；跨轮**不主张** exactly-once。
-- **单候选人轮同样有效、弃权计参与不计票**：`tests/mvp-vote-tally.test.mjs`、`tests/mvp-rehearsal.test.mjs`。
-- **结果反馈与修订**：`tests/mvp-feedback-tools.test.mjs`（工程记录为 34/34）、`tests/mvp-proposal-feedback.test.mjs` 覆盖普通修订由 Agent 接受生效、重大修订在记录到现任董事批准前以 `revision_not_approved` 拒绝、评论不改版本。
+- **最高票并列与全员弃权**：`tests/vote-tally.test.mjs` 覆盖 `no_winner`、`winner = null`、`tiedProposalIds`、`reasons = ['tie_at_highest_count']`，并区分「平票」与「全员弃权、每人 0 票」。平票口径**尚未确认**，当前按「无赢家」落库，不得私自打破平局。
+- **迟到票**：`tests/governance-write-tools.test.mjs`、`tests/governance-rehearsal.test.mjs` 覆盖截止后投票返回 `poll_closed`、不写选票行。
+- **截止由库决定、候选与上限冻结**：`tests/governance-write-tools.test.mjs`、`tests/governance-rehearsal.test.mjs` 覆盖冻结候选名单、`maxApprovalsPerVoter` 上限与开票后窗口不可改。
+- **重复与重放**：`tests/vote-tally.test.mjs`、`tests/proposal-store.test.mjs`、`tests/foundation-db-writer.test.mjs` 覆盖同一轮内 exact duplicate、相同 `approvedProposalIds` 重放视为同一记录、改动后的批准集合被拒（`replaced = false`）；跨轮**不主张** exactly-once。
+- **单候选人轮同样有效、弃权计参与不计票**：`tests/vote-tally.test.mjs`、`tests/governance-rehearsal.test.mjs`。
+- **结果反馈与修订**：`tests/proposal-feedback-tools.test.mjs`（工程记录为 34/34）、`tests/proposal-revision-rules.test.mjs` 覆盖普通修订由 Agent 接受生效、重大修订在记录到现任董事批准前以 `revision_not_approved` 拒绝、评论不改版本。
 - **频道与角色边界**：`tests/request-context.test.mjs`、`tests/foundation-db-reader.test.mjs` 覆盖未批准频道、缺失可信发送者、董事身份解析。
 
 ## 验收缺口
@@ -190,7 +190,7 @@
 - **平票口径未确认**：当前按「无赢家」落库，不得对外宣布为组织正式规则。
 - **Slack 邮箱身份解析已在本地实现，但默认关闭（案例 1）**：D13 规定的 `users.info` 资料邮箱匹配与 `<env>_contact_identities` 唯一行匹配已落在 `slack-email-lookup.ts` 与读取器的邮箱优先路径中，并有本地测试；`users:read`／`users:read.email` 两个 Bot scope 与 Bot token 尚未安装／未配置，`foundationDb.identityEmailMatch` 默认 `disabled`，未启用时读取器仍按 `rein_slack_links` 关联表解析。因此案例 1 的「邮箱对不上或缺失即失败关闭」在本地测试中已有覆盖，但尚未经真实工作区验收。
 - **没有生产端到端验收**：以上全部为合成演练。真实 Slack 提供方与真实 Supabase 提供方确实参与了演练（测试工作区 + 已链接的 `dev_*` 表集、行为合成数据），但真实成员名册、`prod_*` 业务写入、生产部署与资金／支付提供方都没有接入；当前 PR head 改名后也尚未在真实 Slack 重跑。
-- **命名与改名迁移（新增）**：审查要求移除工具、表、配置与 skill 中的 `mvp` 命名。插件与配置现已改用长期名称（`rein_member_status`、`rein_funds`、`rein_governance_proposal_submit`、`rein_poll_open`、`rein_poll_vote`、`rein_poll_result`、`rein_proposal_comment_suggest`、`rein_revision_approve`、`rein_revision_apply` 与 `foundationDb` 配置块）；数据库侧的改名由向前迁移 `20260927110000_rein_governance_names.sql` 完成，它排在已提交的 `20260927103000` 之后，重命名物理表与两个 RPC 并保留旧名兼容视图与包装。该迁移**已在 PR #13 提交并已应用到已链接项目**（2026-09-28 只读核对：版本已列出，十张新物理表、十个旧名兼容视图与四个 RPC 包装均在），因此新名称在已链接 schema 中已可用，旧名也仍经兼容视图与包装可用。**已应用不等于代码已实机验证**：仍不得声称 Agent 已使用新名称跑通端到端。接口见[服务方接口契约](integration-contracts.md#naming-and-the-rename-migration)。
+- **命名与改名迁移（新增）**：审查要求移除工具、表、配置与 skill 中带阶段前缀的命名。插件与配置现已改用 v0.1 稳定名称（`rein_member_status`、`rein_funds`、`rein_governance_proposal_submit`、`rein_poll_open`、`rein_poll_vote`、`rein_poll_result`、`rein_proposal_comment_suggest`、`rein_revision_approve`、`rein_revision_apply` 与 `foundationDb` 配置块）；数据库侧的改名由向前迁移 `20260927110000_rein_governance_names.sql` 完成，它排在已提交的 `20260927103000` 之后，重命名物理表与两个 RPC。该迁移**已在 PR #13 提交并已应用到已链接项目**（2026-09-28 只读核对：版本已列出，十张新物理表均在），因此新名称在已链接 schema 中已可用。改名迁移的过渡兼容视图与 RPC 包装已由后续已应用迁移 `20260929045543_remove_stage_compatibility_objects.sql` 删除，旧名不再可用。**已应用不等于代码已实机验证**：仍不得声称 Agent 已使用新名称跑通端到端。接口见[服务方接口契约](integration-contracts.md#naming-and-the-rename-migration)。
 
 ## 附录 A：运维与技术前提
 
@@ -198,7 +198,7 @@
 
 - **一个部署只服务一个 Slack 工作区。** 使用 Socket Mode 与官方 OpenClaw `slack` 插件；v2 工具上下文不携带团队 ID，因此 `slackTeamId` 必须正好是被服务的那个工作区。
 - **只放服务端环境变量引用。** Supabase 地址与密钥只从 `supabaseUrlEnvVar`、`supabaseServiceKeyEnvVar` 指向的服务端环境变量读取，绝不写入配置或结果。
-  - **迁移由人执行。** 前两个迁移已在姊妹仓库分支 `tempest/agent-mvp-schema-and-welcome-email`（PR #13，当前提交 `2dc244a`，原提交 `4bd5ce8`）提交，并按文件名顺序应用到已链接的 `BeneficenceProtocol` 项目：`20260924094436_rein_slack_identity_and_fund_snapshots.sql`（身份关联表与只追加的可用资金快照表）与 `20260924095705_rein_mvp_proposals_polls_ballots.sql`（提案、投票、选票三张表，投票类型表、修订记录表与 `effective_revision_id` 列，以及冻结候选名单、按当前董事校验选票、`rein_finalize_poll` 计票与 `rein_approve_revision` 重大修订批准）。两个迁移都在同一事务里定义 `dev_*` 与 `prod_*` 两套对象，`supabase migration list --linked` 又是项目级，因此两套 schema 都已建成；2026-09-27 只读核对时两个版本都显示为已应用。第三个迁移 `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`（选票 `cast_at` 改由数据库时钟决定）**已在 `32977bfb` 提交，并已应用到已链接项目**（2026-09-28 只读核对：版本已列出，两个时钟函数均在），因此该时钟规则在已链接 schema 中已生效；但尚无真实选票在真实库上被投出，所以只能说 schema 层已生效，不能说端到端已验证。**已应用但只被演练使用**：工具确实读写过 `dev_*` 表集（合成 fixture），`prod_*` 业务行始终为 0，**不得据此声称已投产或 `prod_*` 已被端到端验证**。按类型的具体名额与批准额度需由人写入 `rein_vote_types`。
+  - **迁移由人执行。** 前两个迁移已在姊妹仓库的 PR #13 分支（PR #13，当前 head `78281fa`，原提交 `4bd5ce8`）提交，并按文件名顺序应用到已链接的 `BeneficenceProtocol` 项目：`20260924094436_rein_slack_identity_and_fund_snapshots.sql`（身份关联表与只追加的可用资金快照表）与 `20260924095705_rein_mvp_proposals_polls_ballots.sql`（提案、投票、选票三张表，投票类型表、修订记录表与 `effective_revision_id` 列，以及冻结候选名单、按当前董事校验选票、`rein_finalize_poll` 计票与 `rein_approve_revision` 重大修订批准）。两个迁移都在同一事务里定义 `dev_*` 与 `prod_*` 两套对象，`supabase migration list --linked` 又是项目级，因此两套 schema 都已建成；2026-09-27 只读核对时两个版本都显示为已应用。第三个迁移 `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`（选票 `cast_at` 改由数据库时钟决定）**已在 `32977bfb` 提交，并已应用到已链接项目**（2026-09-28 只读核对：版本已列出，两个时钟函数均在），因此该时钟规则在已链接 schema 中已生效；但尚无真实选票在真实库上被投出，所以只能说 schema 层已生效，不能说端到端已验证。**已应用但只被演练使用**：工具确实读写过 `dev_*` 表集（合成 fixture），`prod_*` 业务行始终为 0，**不得据此声称已投产或 `prod_*` 已被端到端验证**。按类型的具体名额与批准额度需由人写入 `rein_vote_types`。
 - **播种由人完成。** 邮箱到联系人的对应关系（`<env>_contact_identities`，每行一个规范化邮箱与一个唯一联系人）、Contributor 的 `active` 状态、董事的 `person_type`、第一条可用资金快照，以及每个提案类型在 `rein_vote_types` 中的 `max_candidates` 与 `max_approvals_per_voter` 都由人直接写库或走已复核的管理路径；Agent 不创建这些记录，也不提供注册工具。
 - **身份邮箱解析需要 Bot scope（尚未安装）。** D13 的邮箱匹配要求治理 Bot 应用装 `users:read` 与 `users:read.email` 两个 Bot scope；目前**未安装**，治理 Bot 的 token 也未配置，且 `foundationDb.identityEmailMatch` 默认 `disabled`，未启用时读取器仍按关联表解析（rehearsal 中 5 个合成身份全部走关联表解析），因此该路径尚未在真实工作区启用。测试传输用的用户应用保持只用 `chat:write`，不加 scope。
 - **显式启用 `foundationDb` 配置块。** 启用后注册 12 个数据库工具（4 读、4 写、1 个只读字段采集、3 个结果反馈），并隐藏合成模拟器与旧提案工具；未设置 `enabled: true` 时一个都不注册。
@@ -222,4 +222,4 @@
 
 ## 尚未覆盖的部分
 
-活动空间与提醒、成果与官网文章、监督与周报、加权投票与法定人数、回避、预算竞争、付款与结算，以及任何链上或 DAO 迁移都不在本轮案例内。它们的本地模块继续不注册，也不应被描述成 MVP 的一部分。
+活动空间与提醒、成果与官网文章、监督与周报、加权投票与法定人数、回避、预算竞争、付款与结算，以及任何链上或 DAO 迁移都不在本轮案例内。它们的本地模块继续不注册，也不应被描述成 v0.1 的一部分。

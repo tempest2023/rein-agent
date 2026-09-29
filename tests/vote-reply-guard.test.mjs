@@ -3,18 +3,18 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import plugin from '../plugins/rein-operations/index.ts';
-import { MVP_READ_TOOL_NAMES } from '../plugins/rein-operations/mvp-read-tools.ts';
-import { MVP_WRITE_TOOL_NAMES } from '../plugins/rein-operations/mvp-write-tools.ts';
-import { MVP_COLLECT_TOOL_NAMES } from '../plugins/rein-operations/mvp-collect-tools.ts';
-import { MVP_FEEDBACK_TOOL_NAMES } from '../plugins/rein-operations/mvp-feedback-tools.ts';
-import { COLLECT_REPLY_GUARD_TOOL_NAMES } from '../plugins/rein-operations/mvp-collect-reply-guard.ts';
+import { GOVERNANCE_READ_TOOL_NAMES } from '../plugins/rein-operations/governance-read-tools.ts';
+import { GOVERNANCE_WRITE_TOOL_NAMES } from '../plugins/rein-operations/governance-write-tools.ts';
+import { GOVERNANCE_COLLECT_TOOL_NAMES } from '../plugins/rein-operations/proposal-collect-tools.ts';
+import { GOVERNANCE_FEEDBACK_TOOL_NAMES } from '../plugins/rein-operations/proposal-feedback-tools.ts';
+import { COLLECT_REPLY_GUARD_TOOL_NAMES } from '../plugins/rein-operations/proposal-collect-reply-guard.ts';
 import {
   POLL_GUARD_CHANNEL,
   POLL_GUARD_FINAL_KIND,
   POLL_REPLY_GUARD_TOOL_NAMES,
   POLL_RESULT_GUARD_TOOL_NAME,
   createPollReplyGuard,
-} from '../plugins/rein-operations/mvp-poll-reply-guard.ts';
+} from '../plugins/rein-operations/poll-reply-guard.ts';
 import {
   MAX_VOTE_APPROVAL_COUNT,
   POLL_RESULT_READ_TOOL_NAME,
@@ -32,14 +32,14 @@ import {
   VOTE_REPLY_GUARD_TTL_MS,
   VOTE_REPLY_NO_FUNDS_SENTENCE,
   createVoteReplyGuard,
-} from '../plugins/rein-operations/mvp-vote-reply-guard.ts';
+} from '../plugins/rein-operations/vote-reply-guard.ts';
 
 // Focused tests for the case-6 outbound guard. They drive the guard's own hooks with plain objects, so
 // no host, gateway, Slack API or database is involved, and each test asserts on the exact payload
 // handed back, which is the only thing the guard is allowed to change.
 
 const writeToolsSource = readFileSync(
-  fileURLToPath(new URL('../plugins/rein-operations/mvp-write-tools.ts', import.meta.url)),
+  fileURLToPath(new URL('../plugins/rein-operations/governance-write-tools.ts', import.meta.url)),
   'utf8',
 );
 
@@ -70,7 +70,7 @@ const PROVISIONAL_NOTE = '本轮还没有结束，所以还没有结果：现在
 const HOST_FAILED_ERROR = 'failed';
 
 /**
- * One `rein_poll_vote` answer, shaped as the tool returns it (`mvp-write-tools.ts` builds
+ * One `rein_poll_vote` answer, shaped as the tool returns it (`governance-write-tools.ts` builds
  * `{ tool, ok, status, reason, pollId, approvalCount, abstained, recorded, replaced,
  * authorizesSpending }`, plus `error` on a refusal). `overrides` replace only the listed fields.
  */
@@ -162,7 +162,7 @@ const unsafeFinalPayload = () => ({
 });
 
 /** A store key no other guard in this file shares, for tests that want one instance in isolation. */
-const isolatedStoreKey = () => Symbol('rein-mvp-vote-guard-test-instance');
+const isolatedStoreKey = () => Symbol('rein-governance-vote-guard-test-instance');
 
 const buildGuard = (options = {}) =>
   createVoteReplyGuard({ now: () => 0, stateKey: isolatedStoreKey(), ...options });
@@ -286,14 +286,14 @@ test('the guard names one ballot tool, one surface, one kind and one bounded fen
   assert.deepEqual([...VOTE_REPLY_GUARD_PREPARATORY_TOOL_NAMES], [POLL_RESULT_READ_TOOL_NAME]);
   assert.equal(POLL_RESULT_READ_TOOL_NAME, POLL_RESULT_GUARD_TOOL_NAME);
   assert.ok(!VOTE_REPLY_GUARD_OTHER_TOOL_NAMES.includes(POLL_RESULT_READ_TOOL_NAME));
-  // The preparatory and disqualifying lists together cover every other tool this MVP entry registers: a
+  // The preparatory and disqualifying lists together cover every other tool this governance entry registers: a
   // missing name could let a multi-step turn be rewritten as a single ballot confirmation.
   const registeredOthers = [
     'rein_status',
-    ...MVP_READ_TOOL_NAMES,
-    ...MVP_WRITE_TOOL_NAMES,
-    ...MVP_COLLECT_TOOL_NAMES,
-    ...MVP_FEEDBACK_TOOL_NAMES,
+    ...GOVERNANCE_READ_TOOL_NAMES,
+    ...GOVERNANCE_WRITE_TOOL_NAMES,
+    ...GOVERNANCE_COLLECT_TOOL_NAMES,
+    ...GOVERNANCE_FEEDBACK_TOOL_NAMES,
   ].filter(name => name !== VOTE_GUARD_TOOL_NAME);
   assert.deepEqual(
     [...VOTE_REPLY_GUARD_PREPARATORY_TOOL_NAMES, ...VOTE_REPLY_GUARD_OTHER_TOOL_NAMES].sort(),
@@ -719,7 +719,7 @@ test('the poll guard clears its own clarification on the ballot, so the chain ke
 // --- One call on two channels ---------------------------------------------------------------------
 // A live Gateway reports a single business call to `after_tool_call` twice: once under the tool's own
 // name and once inside the Tool Search `tool_call` envelope, both carrying the same guest outcome
-// (`runtime/openclaw/tmp/gateway-mvp.log:1469-1472` shows the pair for the sibling collect tool).
+// (`runtime/openclaw/tmp/gateway.log:1469-1472` shows the pair for the sibling collect tool).
 // Counting the pair as two calls disqualified every live case-6 turn, so the two channels' adjacent
 // reports of one call count once. What tells the pair from two genuine calls is the verified answer the
 // two channels agree on, never a tool-call identifier the host passes.
@@ -1063,7 +1063,7 @@ test('the real entry registers the vote guard hooks, matched to the ballot and t
   // Three reply hooks are registered in this order: the collect guard's, this guard's, and the poll
   // guard's last, so a run that also read the round keeps the poll guard's narration as the final word.
   const replyHooks = hooks.filter(hook => hook.hookName === 'reply_payload_sending');
-  assert.equal(replyHooks.length, 3, 'every MVP reply guard must register its reply hook');
+  assert.equal(replyHooks.length, 3, 'every reply guard must register its reply hook');
   const voteReply = replyHooks[1].handler;
 
   // A direct call round-trips through the registered handlers.

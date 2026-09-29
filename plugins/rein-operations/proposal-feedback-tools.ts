@@ -1,4 +1,4 @@
-// MVP feedback tools: post-result comments and suggested revisions, the Board approval of a
+// proposal feedback tools: post-result comments and suggested revisions, the Board approval of a
 // material revision, and the one guarded step that makes a revision the effective version.
 //
 // Scope: PRD C15 with decision D10: after a result, feedback may still change a proposal that
@@ -19,10 +19,10 @@
 // turn rather than on an unattributed request.
 //
 // This module registers only under the explicit `foundationDb` config block, exactly like
-// `mvp-read-tools.ts` and `mvp-write-tools.ts`, and every wired path reaches only the writer methods
+// `governance-read-tools.ts` and `governance-write-tools.ts`, and every wired path reaches only the writer methods
 // `foundation-db-writer.ts` exposes.
 //
-// Trust boundary, matching the other MVP slices:
+// Trust boundary, matching the other governance slices:
 // - The acting account comes only from `ctx.requesterSenderId`, the approved channel only from
 //   `ctx.nativeChannelId`. No tool argument is ever read as an actor, an author or a role, and the
 //   known impersonation and policy arguments are refused before any database call.
@@ -50,28 +50,28 @@ import type {
 import type { SlackMemberResolution } from './foundation-db-reader.ts';
 
 /** Names the caller must declare in the manifest and pass to `registerTool(..., { names })`. */
-export const MVP_FEEDBACK_TOOL_NAMES = Object.freeze([
+export const GOVERNANCE_FEEDBACK_TOOL_NAMES = Object.freeze([
   'rein_proposal_comment_suggest',
   'rein_revision_approve',
   'rein_revision_apply',
 ]);
 
-export class MvpFeedbackToolError extends Error {
+export class ProposalFeedbackToolError extends Error {
   readonly code: string;
 
   constructor(code: string, message: string) {
     super(message);
-    this.name = 'MvpFeedbackToolError';
+    this.name = 'ProposalFeedbackToolError';
     this.code = code;
   }
 }
 
 /** The one reader method this slice uses: resolve a trusted Slack sender to a community record. */
-export interface MvpFeedbackToolReader {
+export interface ProposalFeedbackToolReader {
   resolveSlackMember(slackUserId: string): Promise<SlackMemberResolution>;
 }
 
-export type MvpFeedbackToolWriter = Pick<
+export type ProposalFeedbackToolWriter = Pick<
   FoundationDbWriter,
   | 'getProposal'
   | 'getRevision'
@@ -80,26 +80,26 @@ export type MvpFeedbackToolWriter = Pick<
   | 'applyProposalRevision'
 >;
 
-export interface MvpFeedbackToolsOptions {
+export interface ProposalFeedbackToolsOptions {
   /**
-   * The `mvp` block of plugin config, read as untrusted input. The keys are the ones
-   * `mvp-read-tools.ts` and `mvp-write-tools.ts` already validate, so one block configures all
+   * The `foundationDb` block of plugin config, read as untrusted input. The keys are the ones
+   * `governance-read-tools.ts` and `governance-write-tools.ts` already validate, so one block configures all
    * three slices. Absent or `enabled: false` registers no tools.
    */
   config?: Record<string, unknown>;
   /** Server environment holding the referenced values. Defaults to `process.env`. */
   env?: Record<string, string | undefined>;
   /** Injectable reader for tests and local rehearsal; skips the env-var lookups. */
-  reader?: MvpFeedbackToolReader;
+  reader?: ProposalFeedbackToolReader;
   /** Injectable writer for tests and local rehearsal; skips the env-var lookups. */
-  writer?: MvpFeedbackToolWriter;
+  writer?: ProposalFeedbackToolWriter;
 }
 
-interface ResolvedMvpFeedbackConfig {
+interface ResolvedProposalFeedbackConfig {
   platform: 'slack';
   boardChannelIds: string[];
-  reader: MvpFeedbackToolReader;
-  writer: MvpFeedbackToolWriter;
+  reader: ProposalFeedbackToolReader;
+  writer: ProposalFeedbackToolWriter;
 }
 
 const SLACK_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -195,7 +195,7 @@ const asUuid = (value: unknown): string | null =>
   typeof value === 'string' && UUID_PATTERN.test(value) ? value : null;
 
 function configError(message: string): never {
-  throw new MvpFeedbackToolError('foundation_db_config_invalid', `foundationDb feedback tools: ${message}`);
+  throw new ProposalFeedbackToolError('foundation_db_config_invalid', `foundationDb feedback tools: ${message}`);
 }
 
 function readChannelIds(field: string, value: unknown): string[] {
@@ -232,7 +232,7 @@ function readIdentityEmailMatch(value: unknown): 'enabled' | 'disabled' {
 function readEnvValue(env: Record<string, string | undefined>, name: string, field: string): string {
   const value = env?.[name];
   if (typeof value !== 'string' || !value.trim()) {
-    throw new MvpFeedbackToolError(
+    throw new ProposalFeedbackToolError(
       'foundation_db_env_value_missing',
       `foundationDb feedback tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
     );
@@ -242,10 +242,10 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
 
 /**
  * Validate the operator configuration exactly as the two sibling slices do, so one block enables all
- * three. Returns null when the MVP block is absent or disabled; throws on an enabled-but-incomplete
+ * three. Returns null when the foundationDb block is absent or disabled; throws on an enabled-but-incomplete
  * block so a misconfiguration fails loudly.
  */
-function resolveMvpFeedbackConfig(options?: MvpFeedbackToolsOptions): ResolvedMvpFeedbackConfig | null {
+function resolveProposalFeedbackConfig(options?: ProposalFeedbackToolsOptions): ResolvedProposalFeedbackConfig | null {
   const config = options?.config;
   if (!config || typeof config !== 'object' || config.enabled !== true) return null;
 
@@ -257,7 +257,7 @@ function resolveMvpFeedbackConfig(options?: MvpFeedbackToolsOptions): ResolvedMv
   if (!SLACK_ID_PATTERN.test(slackTeamId)) {
     configError('foundationDb.slackTeamId must be one Slack team ID such as T01234567 (one workspace per installation)');
   }
-  // The proposal channel is validated because one block configures every MVP slice, but it is not
+  // The proposal channel is validated because one block configures every v0.1 slice, but it is not
   // the feedback scope: C15 feedback comes from the voters, who act in the Board channel.
   readChannelIds('proposalChannelIds', config.proposalChannelIds);
   const boardChannelIds = readChannelIds('boardChannelIds', config.boardChannelIds);
@@ -281,8 +281,8 @@ function resolveMvpFeedbackConfig(options?: MvpFeedbackToolsOptions): ResolvedMv
       ? readEnvReference(config.slackBotTokenEnvVar, 'slackBotTokenEnvVar')
       : null;
 
-  let reader: MvpFeedbackToolReader | undefined = options?.reader;
-  let writer: MvpFeedbackToolWriter | undefined = options?.writer;
+  let reader: ProposalFeedbackToolReader | undefined = options?.reader;
+  let writer: ProposalFeedbackToolWriter | undefined = options?.writer;
   if (!reader || !writer) {
     const env = options?.env ?? process.env;
     // With email matching on and no injected reader, the bot token variable must be named before
@@ -347,7 +347,7 @@ function assertNoImpersonationArgs(args: unknown) {
   if (!args || typeof args !== 'object') return;
   for (const key of IMPERSONATION_KEYS) {
     if (Object.hasOwn(args, key)) {
-      throw new MvpFeedbackToolError(
+      throw new ProposalFeedbackToolError(
         'actor_argument_rejected',
         `The "${key}" argument is not accepted; the acting account comes only from the host context.`,
       );
@@ -359,7 +359,7 @@ function assertNoPolicyArgs(args: unknown) {
   if (!args || typeof args !== 'object') return;
   for (const key of POLICY_KEYS) {
     if (Object.hasOwn(args, key)) {
-      throw new MvpFeedbackToolError(
+      throw new ProposalFeedbackToolError(
         'policy_argument_rejected',
         `The "${key}" argument is not accepted; the recorded fields and the database decide the gate.`,
       );
@@ -376,7 +376,7 @@ function errorResult(tool: string, error: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
 }
 
-function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
+function buildTools(config: ResolvedProposalFeedbackConfig, ctx: any) {
   const { boardChannelIds, reader, writer } = config;
 
   const nativeChannelId = typeof ctx?.nativeChannelId === 'string' ? ctx.nativeChannelId.trim() : '';
@@ -386,13 +386,13 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
   // taken from arguments.
   const requester = (audience: string, scoped: string[]) => {
     if (ctx?.messageChannel !== 'slack') {
-      throw new MvpFeedbackToolError('platform_out_of_scope', 'These tools act on Slack host context only.');
+      throw new ProposalFeedbackToolError('platform_out_of_scope', 'These tools act on Slack host context only.');
     }
     if (!senderId) {
-      throw new MvpFeedbackToolError('trusted_requester_unavailable', 'The host did not supply a sender ID.');
+      throw new ProposalFeedbackToolError('trusted_requester_unavailable', 'The host did not supply a sender ID.');
     }
     if (!nativeChannelId || !scoped.includes(nativeChannelId)) {
-      throw new MvpFeedbackToolError(
+      throw new ProposalFeedbackToolError(
         'channel_out_of_scope',
         `This tool is limited to its approved ${audience} channel.`,
       );
@@ -401,7 +401,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
   };
 
   const linkRequired = (audience: string) =>
-    new MvpFeedbackToolError(
+    new ProposalFeedbackToolError(
       'identity_link_required',
       `This ${audience} tool requires a verified link between your Slack account and a community record.`,
     );
@@ -416,7 +416,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
     const member = await requester('Board', boardChannelIds);
     if (member.status !== 'resolved' || !member.contactId) throw linkRequired('Board');
     if (member.isDirector !== true) {
-      throw new MvpFeedbackToolError(
+      throw new ProposalFeedbackToolError(
         'board_membership_required',
         'Feedback on a proposal is limited to current directors, who are the voters.',
       );
@@ -428,13 +428,13 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
   const resolveChangedFields = (value: unknown): string[] => {
     if (value === undefined || value === null) return [];
     if (!Array.isArray(value)) {
-      throw new MvpFeedbackToolError(
+      throw new ProposalFeedbackToolError(
         'changed_fields_invalid',
         `changedFields must be an array of field names from ${REVISION_FIELDS.join(', ')}.`,
       );
     }
     if (value.length > REVISION_FIELDS.length) {
-      throw new MvpFeedbackToolError(
+      throw new ProposalFeedbackToolError(
         'changed_fields_invalid',
         `changedFields accepts at most ${REVISION_FIELDS.length} entries.`,
       );
@@ -442,13 +442,13 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
     const fields: string[] = [];
     for (const entry of value as unknown[]) {
       if (typeof entry !== 'string' || !REVISION_FIELDS.includes(entry as (typeof REVISION_FIELDS)[number])) {
-        throw new MvpFeedbackToolError(
+        throw new ProposalFeedbackToolError(
           'changed_fields_invalid',
           `Every changed field must be one of ${REVISION_FIELDS.join(', ')}.`,
         );
       }
       if (fields.includes(entry)) {
-        throw new MvpFeedbackToolError(
+        throw new ProposalFeedbackToolError(
           'changed_fields_invalid',
           'Every changed field must be named once, without repeats.',
         );
@@ -474,7 +474,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
     const present = raw !== undefined && raw !== null && !(typeof raw === 'string' && raw.trim() === '');
     if (!present) {
       if (named) {
-        throw new MvpFeedbackToolError(
+        throw new ProposalFeedbackToolError(
           'revision_field_value_required',
           `changedFields names "${field}", so ${key} must carry its new value.`,
         );
@@ -482,13 +482,13 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
       return null;
     }
     if (typeof raw !== 'string' || raw.length > maxLength) {
-      throw new MvpFeedbackToolError(
+      throw new ProposalFeedbackToolError(
         'revision_field_value_invalid',
         `${key} must be text of at most ${maxLength} characters.`,
       );
     }
     if (!named) {
-      throw new MvpFeedbackToolError(
+      throw new ProposalFeedbackToolError(
         'revision_field_value_unexpected',
         `A value for "${field}" is only accepted when changedFields names "${field}".`,
       );
@@ -510,14 +510,14 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
     let currency: string | null = null;
     if (named.has('budget')) {
       if (typeof amountRaw !== 'number' || !Number.isInteger(amountRaw) || amountRaw < 0) {
-        throw new MvpFeedbackToolError(
+        throw new ProposalFeedbackToolError(
           'revision_budget_invalid',
           'A budget revision records requestedMinor as a whole number of minor units, zero or more.',
         );
       }
       const code = typeof currencyRaw === 'string' ? currencyRaw.trim().toUpperCase() : '';
       if (!CURRENCY_PATTERN.test(code)) {
-        throw new MvpFeedbackToolError(
+        throw new ProposalFeedbackToolError(
           'revision_budget_invalid',
           'A budget revision records its amount together with one ISO 4217 code such as USD.',
         );
@@ -525,7 +525,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
       requestedMinor = amountRaw;
       currency = code;
     } else if (budgetSupplied) {
-      throw new MvpFeedbackToolError(
+      throw new ProposalFeedbackToolError(
         'revision_budget_unexpected',
         'requestedMinor and currency are only accepted when changedFields names "budget".',
       );
@@ -552,7 +552,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
   const mintedIds = new Map<string, string>();
   const recordId = (toolCallId: unknown): string => {
     if (typeof toolCallId !== 'string' || !toolCallId.trim()) {
-      throw new MvpFeedbackToolError(
+      throw new ProposalFeedbackToolError(
         'tool_call_id_required',
         'The host must supply the tool call id; it is what makes a retry the same record.',
       );
@@ -573,9 +573,9 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
     const result = await writer.getProposal(proposalId);
     if (!result.ok || !result.proposal) {
       if (result.reason === 'proposal_not_found') {
-        throw new MvpFeedbackToolError('proposal_not_found', 'No stored proposal has that identifier.');
+        throw new ProposalFeedbackToolError('proposal_not_found', 'No stored proposal has that identifier.');
       }
-      throw new MvpFeedbackToolError('proposal_lookup_unavailable', 'The stored proposal could not be read.');
+      throw new ProposalFeedbackToolError('proposal_lookup_unavailable', 'The stored proposal could not be read.');
     }
     return result.proposal;
   };
@@ -585,9 +585,9 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
     const result = await writer.getRevision(revisionId);
     if (!result.ok || !result.revision) {
       if (result.reason === 'revision_not_found') {
-        throw new MvpFeedbackToolError('revision_not_found', 'No recorded revision has that identifier.');
+        throw new ProposalFeedbackToolError('revision_not_found', 'No recorded revision has that identifier.');
       }
-      throw new MvpFeedbackToolError('revision_lookup_unavailable', 'The recorded revision could not be read.');
+      throw new ProposalFeedbackToolError('revision_lookup_unavailable', 'The recorded revision could not be read.');
     }
     return result.revision;
   };
@@ -603,7 +603,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
     const revision = await readRevision(revisionId);
     const proposal = await readProposal(revision.proposalId);
     if (proposal.status !== 'selected') {
-      throw new MvpFeedbackToolError(
+      throw new ProposalFeedbackToolError(
         'proposal_not_selected',
         'Feedback applies to a proposal that passed; this proposal is not in its effective accepted state.',
       );
@@ -679,7 +679,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           assertNoPolicyArgs(args);
           const proposalId = asUuid(args?.proposalId);
           if (proposalId === null) {
-            throw new MvpFeedbackToolError(
+            throw new ProposalFeedbackToolError(
               'proposal_id_invalid',
               'proposalId must be one stored proposal identifier.',
             );
@@ -693,7 +693,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           // the same invariant plus the foreign key.
           const proposal = await readProposal(proposalId);
           if (proposal.status !== 'selected') {
-            throw new MvpFeedbackToolError(
+            throw new ProposalFeedbackToolError(
               'proposal_not_selected',
               'Feedback applies to a proposal that passed; this proposal is not in its effective accepted state.',
             );
@@ -761,7 +761,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           assertNoPolicyArgs(args);
           const revisionId = asUuid(args?.revisionId);
           if (revisionId === null) {
-            throw new MvpFeedbackToolError(
+            throw new ProposalFeedbackToolError(
               'revision_id_invalid',
               'revisionId must be one recorded revision identifier.',
             );
@@ -771,13 +771,13 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           // revision or an unknown one is refused by name instead of through a provider error.
           const { revision } = await readFeedbackTarget(revisionId);
           if (revision.changedFields.length === 0) {
-            throw new MvpFeedbackToolError(
+            throw new ProposalFeedbackToolError(
               'revision_is_comment',
               'This record is a comment, so it carries nothing to approve.',
             );
           }
           if (revision.version !== null) {
-            throw new MvpFeedbackToolError(
+            throw new ProposalFeedbackToolError(
               'revision_already_applied',
               'This revision is already the effective version, so no further approval is recorded.',
             );
@@ -789,7 +789,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
             approverContactId: member.contactId,
           });
           if (!written.ok || !written.revision) {
-            throw new MvpFeedbackToolError(
+            throw new ProposalFeedbackToolError(
               written.reason || 'revision_approval_failed',
               'The approval could not be recorded.',
             );
@@ -836,7 +836,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           assertNoPolicyArgs(args);
           const revisionId = asUuid(args?.revisionId);
           if (revisionId === null) {
-            throw new MvpFeedbackToolError(
+            throw new ProposalFeedbackToolError(
               'revision_id_invalid',
               'revisionId must be one recorded revision identifier.',
             );
@@ -847,13 +847,13 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           // so this refusal reproduces the two stored states it refuses by name instead of deciding
           // them here.
           if (revision.changedFields.length === 0) {
-            throw new MvpFeedbackToolError(
+            throw new ProposalFeedbackToolError(
               'revision_is_comment',
               'This record is a comment, so it carries nothing to make effective.',
             );
           }
           if (revision.version !== null) {
-            throw new MvpFeedbackToolError(
+            throw new ProposalFeedbackToolError(
               'revision_already_applied',
               'This revision is already the effective version, so there is nothing to apply.',
             );
@@ -885,7 +885,7 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
           assertCurrentInvocation(ctx);
           const written = await writer.applyProposalRevision({ revisionId });
           if (!written.ok || !written.version) {
-            throw new MvpFeedbackToolError(
+            throw new ProposalFeedbackToolError(
               written.reason || 'revision_apply_failed',
               'The revision could not be applied.',
             );
@@ -936,12 +936,12 @@ function buildTools(config: ResolvedMvpFeedbackConfig, ctx: any) {
 }
 
 /**
- * Build the v2 tool factory for the MVP feedback tools. Register it as
- * `api.registerTool(createMvpFeedbackToolRegistration({ config }), { names: MVP_FEEDBACK_TOOL_NAMES })`.
- * When the MVP block is absent or disabled, `create` returns null and no tool is registered.
+ * Build the v2 tool factory for the proposal feedback tools. Register it as
+ * `api.registerTool(createProposalFeedbackToolRegistration({ config }), { names: GOVERNANCE_FEEDBACK_TOOL_NAMES })`.
+ * When the foundationDb block is absent or disabled, `create` returns null and no tool is registered.
  */
-export function createMvpFeedbackToolRegistration(options?: MvpFeedbackToolsOptions) {
-  const config = resolveMvpFeedbackConfig(options);
+export function createProposalFeedbackToolRegistration(options?: ProposalFeedbackToolsOptions) {
+  const config = resolveProposalFeedbackConfig(options);
   return {
     contextVersion: 2 as const,
     create(ctx: any) {

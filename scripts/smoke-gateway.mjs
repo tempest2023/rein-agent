@@ -11,28 +11,28 @@ assert.equal(typeof config.gateway.auth.token, 'string');
 // hardcoding one mode. The register entry mirrors plugins/rein-operations/index.ts exactly.
 const register = config.plugins?.entries?.['rein-operations'];
 const pluginConfig = register?.config ?? {};
-const mvpEnabled = Boolean(pluginConfig.foundationDb && typeof pluginConfig.foundationDb === 'object' && pluginConfig.foundationDb.enabled === true);
+const governanceToolsEnabled = Boolean(pluginConfig.foundationDb && typeof pluginConfig.foundationDb === 'object' && pluginConfig.foundationDb.enabled === true);
 const proposalEnabled = Boolean(
   pluginConfig.proposalTools &&
     typeof pluginConfig.proposalTools === 'object' &&
     pluginConfig.proposalTools.enabled === true,
 );
-const MVP_READ_TOOL_NAMES = [
+const GOVERNANCE_READ_TOOL_NAMES = [
   'rein_member_status',
   'rein_funds',
   'rein_poll_candidates',
   'rein_vote_type_resolve',
 ];
-const MVP_WRITE_TOOL_NAMES = [
+const GOVERNANCE_WRITE_TOOL_NAMES = [
   'rein_governance_proposal_submit',
   'rein_poll_open',
   'rein_poll_vote',
   'rein_poll_result',
 ];
-const MVP_COLLECT_TOOL_NAMES = [
+const GOVERNANCE_COLLECT_TOOL_NAMES = [
   'rein_proposal_collect',
 ];
-const MVP_FEEDBACK_TOOL_NAMES = [
+const GOVERNANCE_FEEDBACK_TOOL_NAMES = [
   'rein_proposal_comment_suggest',
   'rein_revision_approve',
   'rein_revision_apply',
@@ -43,8 +43,8 @@ const PROPOSAL_TOOL_NAMES = [
   'rein_proposal_confirm',
   'rein_proposal_submit',
 ];
-const expectedImplemented = mvpEnabled
-  ? ['rein_status', ...MVP_READ_TOOL_NAMES, ...MVP_WRITE_TOOL_NAMES, ...MVP_COLLECT_TOOL_NAMES, ...MVP_FEEDBACK_TOOL_NAMES]
+const expectedImplemented = governanceToolsEnabled
+  ? ['rein_status', ...GOVERNANCE_READ_TOOL_NAMES, ...GOVERNANCE_WRITE_TOOL_NAMES, ...GOVERNANCE_COLLECT_TOOL_NAMES, ...GOVERNANCE_FEEDBACK_TOOL_NAMES]
   : ['rein_status', 'rein_simulate_vote', 'rein_simulate_proposal', ...(proposalEnabled ? PROPOSAL_TOOL_NAMES : [])];
 
 const response = await fetch(`http://127.0.0.1:${config.gateway.port}/tools/invoke`, {
@@ -60,17 +60,17 @@ assert.equal(body.result.details.automationEnabled, false);
 assert.deepEqual(
   body.result.details.implemented,
   expectedImplemented,
-  `rein_status must report the ${mvpEnabled ? 'MVP' : proposalEnabled ? 'proposal' : 'default legacy'} tool surface`,
+  `rein_status must report the ${governanceToolsEnabled ? 'v0.1' : proposalEnabled ? 'proposal' : 'default legacy'} tool surface`,
 );
-// Mode-specific invariants keep the tool surface unambiguous: MVP hides the simulators and the
-// legacy proposal tools, and the default entry keeps them while reporting MVP features off.
-assert.equal(body.result.details.foundationDbReadToolsEnabled, mvpEnabled);
-assert.equal(body.result.details.foundationDbWriteToolsEnabled, mvpEnabled);
-assert.equal(body.result.details.foundationDbCollectToolsEnabled, mvpEnabled);
-assert.equal(body.result.details.foundationDbFeedbackToolsEnabled, mvpEnabled);
-assert.equal(body.result.details.proposalToolsEnabled, proposalEnabled && !mvpEnabled);
+// Mode-specific invariants keep the tool surface unambiguous: v0.1 hides the simulators and the
+// legacy proposal tools, and the default entry keeps them while reporting governance features off.
+assert.equal(body.result.details.foundationDbReadToolsEnabled, governanceToolsEnabled);
+assert.equal(body.result.details.foundationDbWriteToolsEnabled, governanceToolsEnabled);
+assert.equal(body.result.details.foundationDbCollectToolsEnabled, governanceToolsEnabled);
+assert.equal(body.result.details.foundationDbFeedbackToolsEnabled, governanceToolsEnabled);
+assert.equal(body.result.details.proposalToolsEnabled, proposalEnabled && !governanceToolsEnabled);
 assert.equal(body.result.details.formalProposalActionsEnabled, false);
-const surface = mvpEnabled ? 'MVP' : proposalEnabled ? 'legacy proposal' : 'default legacy/simulation';
+const surface = governanceToolsEnabled ? 'v0.1' : proposalEnabled ? 'legacy proposal' : 'default legacy/simulation';
 console.log(
   `Live gateway verified (${surface} surface): authenticated rein_status invocation succeeded; ${body.result.details.implemented.length} tools reported; no business automation enabled.`,
 );

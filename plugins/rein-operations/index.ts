@@ -5,14 +5,14 @@ import { createRound, castBallot, tallyRound } from "./governance.ts";
 import { checkCompleteness, validateSchedule, routeProcessingPath } from "./proposals.ts";
 import { createProposalStore } from "./proposal-store.ts";
 import { createProposalToolRegistration, PROPOSAL_TOOL_NAMES } from "./proposal-tool-bridge.ts";
-import { createMvpReadToolRegistration, MVP_READ_TOOL_NAMES } from "./mvp-read-tools.ts";
-import { createMvpWriteToolRegistration, MVP_WRITE_TOOL_NAMES } from "./mvp-write-tools.ts";
-import { createMvpFeedbackToolRegistration, MVP_FEEDBACK_TOOL_NAMES } from "./mvp-feedback-tools.ts";
-import { createMvpCollectToolRegistration, MVP_COLLECT_TOOL_NAMES } from "./mvp-collect-tools.ts";
-import { COLLECT_REPLY_GUARD_TOOL_NAMES, createCollectReplyGuard } from "./mvp-collect-reply-guard.ts";
-import type { GuardDiagnosticSink } from "./mvp-collect-reply-guard.ts";
-import { POLL_REPLY_GUARD_TOOL_NAMES, createPollReplyGuard } from "./mvp-poll-reply-guard.ts";
-import { VOTE_REPLY_GUARD_TOOL_NAMES, createVoteReplyGuard } from "./mvp-vote-reply-guard.ts";
+import { createGovernanceReadToolRegistration, GOVERNANCE_READ_TOOL_NAMES } from "./governance-read-tools.ts";
+import { createGovernanceWriteToolRegistration, GOVERNANCE_WRITE_TOOL_NAMES } from "./governance-write-tools.ts";
+import { createProposalFeedbackToolRegistration, GOVERNANCE_FEEDBACK_TOOL_NAMES } from "./proposal-feedback-tools.ts";
+import { createProposalCollectToolRegistration, GOVERNANCE_COLLECT_TOOL_NAMES } from "./proposal-collect-tools.ts";
+import { COLLECT_REPLY_GUARD_TOOL_NAMES, createCollectReplyGuard } from "./proposal-collect-reply-guard.ts";
+import type { GuardDiagnosticSink } from "./proposal-collect-reply-guard.ts";
+import { POLL_REPLY_GUARD_TOOL_NAMES, createPollReplyGuard } from "./poll-reply-guard.ts";
+import { VOTE_REPLY_GUARD_TOOL_NAMES, createVoteReplyGuard } from "./vote-reply-guard.ts";
 
 // This first tool proves the external-plugin boundary without enabling business actions.
 export default definePluginEntry({
@@ -22,9 +22,9 @@ export default definePluginEntry({
   register(api) {
     const proposalConfig = api.pluginConfig?.proposalTools;
     const proposalEnabled = Boolean(proposalConfig && typeof proposalConfig === 'object' && (proposalConfig as Record<string, unknown>).enabled === true);
-    const mvpConfig = api.pluginConfig?.foundationDb;
-    const mvpEnabled = Boolean(mvpConfig && typeof mvpConfig === 'object' && (mvpConfig as Record<string, unknown>).enabled === true);
-    if (mvpEnabled) {
+    const foundationDbConfig = api.pluginConfig?.foundationDb;
+    const governanceToolsEnabled = Boolean(foundationDbConfig && typeof foundationDbConfig === 'object' && (foundationDbConfig as Record<string, unknown>).enabled === true);
+    if (governanceToolsEnabled) {
       // Field collection answers the model with structured detail that names internal vocabulary
       // (the configured vote type code, missing-field names, the sealed draft token). Prompt text
       // alone did not stop that vocabulary reaching the member, so the member-facing boundary is
@@ -79,27 +79,27 @@ export default definePluginEntry({
         api.on('after_tool_call', pollReplyGuard.afterToolCall, { matcher: [...POLL_REPLY_GUARD_TOOL_NAMES] });
         api.on('reply_payload_sending', pollReplyGuard.replyPayloadSending);
       }
-      // MVP mode exposes the database-backed read and write tools instead of the synthetic
+      // governance mode exposes the database-backed read and write tools instead of the synthetic
       // simulators and the legacy local-ledger proposal tools. Configuration is validated here so
       // an enabled but incomplete block fails loudly; the Supabase key is read from the server
       // environment and never stored in plugin config.
-      api.registerTool(createMvpReadToolRegistration({ config: mvpConfig as Record<string, unknown> }), {
-        names: [...MVP_READ_TOOL_NAMES],
+      api.registerTool(createGovernanceReadToolRegistration({ config: foundationDbConfig as Record<string, unknown> }), {
+        names: [...GOVERNANCE_READ_TOOL_NAMES],
       });
-      api.registerTool(createMvpWriteToolRegistration({ config: mvpConfig as Record<string, unknown> }), {
-        names: [...MVP_WRITE_TOOL_NAMES],
+      api.registerTool(createGovernanceWriteToolRegistration({ config: foundationDbConfig as Record<string, unknown> }), {
+        names: [...GOVERNANCE_WRITE_TOOL_NAMES],
       });
       // Multi-turn field collection registers with the same explicit block and is read-only: it
       // states which fields a submit still needs and returns a short prompt, but stores nothing and
       // never submits even once every required field is present (case 3, PRD §2.3 step 2).
-      api.registerTool(createMvpCollectToolRegistration({ config: mvpConfig as Record<string, unknown> }), {
-        names: [...MVP_COLLECT_TOOL_NAMES],
+      api.registerTool(createProposalCollectToolRegistration({ config: foundationDbConfig as Record<string, unknown> }), {
+        names: [...GOVERNANCE_COLLECT_TOOL_NAMES],
       });
       // Post-result feedback registers with the same explicit block: a comment or suggested
       // revision, a director's approval of a material revision, and the guarded apply step. The
       // database refuses a material revision until a current director's approval is recorded.
-      api.registerTool(createMvpFeedbackToolRegistration({ config: mvpConfig as Record<string, unknown> }), {
-        names: [...MVP_FEEDBACK_TOOL_NAMES],
+      api.registerTool(createProposalFeedbackToolRegistration({ config: foundationDbConfig as Record<string, unknown> }), {
+        names: [...GOVERNANCE_FEEDBACK_TOOL_NAMES],
       });
     } else if (proposalEnabled) {
       const configured = proposalConfig as Record<string, unknown>;
@@ -124,24 +124,24 @@ export default definePluginEntry({
       async execute() {
         const details = {
           stage: "development",
-          implemented: mvpEnabled
-            ? ["rein_status", ...MVP_READ_TOOL_NAMES, ...MVP_WRITE_TOOL_NAMES, ...MVP_COLLECT_TOOL_NAMES, ...MVP_FEEDBACK_TOOL_NAMES]
+          implemented: governanceToolsEnabled
+            ? ["rein_status", ...GOVERNANCE_READ_TOOL_NAMES, ...GOVERNANCE_WRITE_TOOL_NAMES, ...GOVERNANCE_COLLECT_TOOL_NAMES, ...GOVERNANCE_FEEDBACK_TOOL_NAMES]
             : ["rein_status", "rein_simulate_vote", "rein_simulate_proposal", ...(proposalEnabled ? [...PROPOSAL_TOOL_NAMES] : [])],
           automationEnabled: false,
-          foundationDbReadToolsEnabled: mvpEnabled,
-          foundationDbWriteToolsEnabled: mvpEnabled,
+          foundationDbReadToolsEnabled: governanceToolsEnabled,
+          foundationDbWriteToolsEnabled: governanceToolsEnabled,
           // The field-collection tool is its own read-only surface inside foundationDb mode.
-          foundationDbCollectToolsEnabled: mvpEnabled,
-          foundationDbFeedbackToolsEnabled: mvpEnabled,
-          proposalToolsEnabled: proposalEnabled && !mvpEnabled,
+          foundationDbCollectToolsEnabled: governanceToolsEnabled,
+          foundationDbFeedbackToolsEnabled: governanceToolsEnabled,
+          proposalToolsEnabled: proposalEnabled && !governanceToolsEnabled,
           formalProposalActionsEnabled: false,
           integrations: {
-            chat: mvpEnabled ? "host-context-only" : proposalEnabled ? "host-context-only" : "not-connected",
-            memberRegistry: mvpEnabled ? "database-read-only" : "not-connected",
+            chat: governanceToolsEnabled ? "host-context-only" : proposalEnabled ? "host-context-only" : "not-connected",
+            memberRegistry: governanceToolsEnabled ? "database-read-only" : "not-connected",
             website: "not-connected",
-            finance: mvpEnabled ? "snapshot-read-only" : "not-connected",
+            finance: governanceToolsEnabled ? "snapshot-read-only" : "not-connected",
           },
-          pending: mvpEnabled
+          pending: governanceToolsEnabled
             ? ["production-slack-app", "ballot-audit-export", "activity-follow-up-adapter", "website-publishing-adapter"]
             : ["authoritative-member-registry-adapter", "live-voting-adapter", "activity-follow-up-adapter", "website-publishing-adapter"],
         };
@@ -151,9 +151,9 @@ export default definePluginEntry({
         };
       },
     });
-    // The synthetic simulators stay in the default development entry only. MVP mode hides them
+    // The synthetic simulators stay in the default development entry only. governance mode hides them
     // because a rehearsal of invented rules is not part of the real identity/funds slice.
-    if (mvpEnabled) return;
+    if (governanceToolsEnabled) return;
     api.registerTool({
       name: "rein_simulate_vote",
       description: "Simulate a synthetic governance round with explicitly supplied rules and ballots. Advisory rehearsal only; does not verify identities, record votes, reserve money or announce an official result.",

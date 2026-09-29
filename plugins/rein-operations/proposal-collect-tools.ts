@@ -1,4 +1,4 @@
-// Multi-turn proposal field collection for the MVP proposal path (case 3).
+// Multi-turn proposal field collection for the proposal path (case 3).
 //
 // PRD §2.3 step 2 and `workspace/AGENTS.md` require a proposal to be written only once the required
 // fields are present and their author has confirmed the exact version. Between the first vague
@@ -12,7 +12,7 @@
 // Scope: PRD R04-R08 with D06 (only a currently active Contributor proposes) and the fail-closed
 // posture of AC01/AC02/AC06.
 //
-// Trust boundary, shared with `mvp-write-tools.ts`:
+// Trust boundary, shared with `governance-write-tools.ts`:
 // - The acting account comes only from `ctx.requesterSenderId` and the approved channel only from
 //   `ctx.nativeChannelId`. No argument is read as an actor, and known impersonation arguments are
 //   refused.
@@ -25,7 +25,7 @@
 //   private contact id reaches a result.
 //
 // Confidentiality. The token this tool mints is the same sealed-binding shape the prepare step of
-// `rein_governance_proposal_submit` uses, but under its own purpose: `mvp-proposal-draft.ts` derives one
+// `rein_governance_proposal_submit` uses, but under its own purpose: `proposal-draft.ts` derives one
 // AES-256-GCM key from the same server-only secret with different HKDF salt and label, and its own
 // token prefix and version. The plaintext carries the proposer's own words and the private contact
 // identifier, so no readable part of the token names the proposer or repeats the text, and the
@@ -50,37 +50,37 @@ import {
   draftPreview,
   issueProposalDraft,
   verifyProposalDraft,
-} from './mvp-proposal-draft.ts';
+} from './proposal-draft.ts';
 import { assertCurrentInvocation } from './request-context.ts';
-import type { DraftPayload, DraftTokenFailure } from './mvp-proposal-draft.ts';
+import type { DraftPayload, DraftTokenFailure } from './proposal-draft.ts';
 import type { FoundationDbWriter } from './foundation-db-writer.ts';
 import type { SlackMemberResolution } from './foundation-db-reader.ts';
 
 /** Names the caller must declare in the manifest and pass to `registerTool(..., { names })`. */
-export const MVP_COLLECT_TOOL_NAMES = Object.freeze(['rein_proposal_collect']);
+export const GOVERNANCE_COLLECT_TOOL_NAMES = Object.freeze(['rein_proposal_collect']);
 
-export class MvpCollectToolError extends Error {
+export class ProposalCollectToolError extends Error {
   readonly code: string;
   /** Extra facts a refusal may carry, such as which fields are still missing. */
   readonly details: Record<string, unknown>;
 
   constructor(code: string, message: string, details: Record<string, unknown> = {}) {
     super(message);
-    this.name = 'MvpCollectToolError';
+    this.name = 'ProposalCollectToolError';
     this.code = code;
     this.details = details;
   }
 }
 
 /** The one reader method this tool uses: resolve a trusted Slack sender to a community record. */
-export interface MvpCollectToolReader {
+export interface ProposalCollectToolReader {
   resolveSlackMember(slackUserId: string): Promise<SlackMemberResolution>;
 }
 
 /** The two read-only writer methods this tool uses: the configured type names and one proposal read. */
-export type MvpCollectToolWriter = Pick<FoundationDbWriter, 'listVoteTypes' | 'getProposal'>;
+export type ProposalCollectToolWriter = Pick<FoundationDbWriter, 'listVoteTypes' | 'getProposal'>;
 
-export interface MvpCollectToolsOptions {
+export interface ProposalCollectToolsOptions {
   /**
    * The `foundationDb` block of plugin config, read as untrusted input. Same keys as the read and write
    * slices: `enabled`, `platform` (`slack`), `slackTeamId`, `environment` (`dev` or `prod`),
@@ -92,9 +92,9 @@ export interface MvpCollectToolsOptions {
   /** Server environment holding the referenced values. Defaults to `process.env`. */
   env?: Record<string, string | undefined>;
   /** Injectable reader for tests and local rehearsal; skips the env-var lookups. */
-  reader?: MvpCollectToolReader;
+  reader?: ProposalCollectToolReader;
   /** Injectable read-only writer for tests and local rehearsal; skips the env-var lookups. */
-  writer?: MvpCollectToolWriter;
+  writer?: ProposalCollectToolWriter;
   /**
    * Injectable signing key for the draft token. When omitted, the key is read from the server
    * environment variable named by `foundationDb.proposalConfirmationKeyEnvVar`, the same server-only secret
@@ -105,11 +105,11 @@ export interface MvpCollectToolsOptions {
   now?: () => Date;
 }
 
-interface ResolvedMvpCollectConfig {
+interface ResolvedProposalCollectConfig {
   platform: 'slack';
   proposalChannelIds: string[];
-  reader: MvpCollectToolReader;
-  writer: MvpCollectToolWriter | null;
+  reader: ProposalCollectToolReader;
+  writer: ProposalCollectToolWriter | null;
   /** Server-only key that seals one draft token. Never leaves the process. */
   signingKey: string;
   now: () => Date;
@@ -177,7 +177,7 @@ const asVoteType = (value: unknown): string | null =>
   typeof value === 'string' && VOTE_TYPE_PATTERN.test(value) ? value : null;
 
 function configError(message: string): never {
-  throw new MvpCollectToolError('foundation_db_config_invalid', `foundationDb proposal collect tool: ${message}`);
+  throw new ProposalCollectToolError('foundation_db_config_invalid', `foundationDb proposal collect tool: ${message}`);
 }
 
 function readChannelIds(field: string, value: unknown): string[] {
@@ -209,7 +209,7 @@ function readIdentityEmailMatch(value: unknown): 'enabled' | 'disabled' {
 function readEnvValue(env: Record<string, string | undefined>, name: string, field: string): string {
   const value = env?.[name];
   if (typeof value !== 'string' || !value.trim()) {
-    throw new MvpCollectToolError(
+    throw new ProposalCollectToolError(
       'foundation_db_env_value_missing',
       `foundationDb proposal collect tool: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
     );
@@ -221,7 +221,7 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
  * Validate the operator configuration, mirroring the read and write slices. Returns null when the
  * block is absent or disabled; throws on an enabled-but-incomplete block.
  */
-function resolveMvpCollectConfig(options?: MvpCollectToolsOptions): ResolvedMvpCollectConfig | null {
+function resolveProposalCollectConfig(options?: ProposalCollectToolsOptions): ResolvedProposalCollectConfig | null {
   const config = options?.config;
   if (!config || typeof config !== 'object' || config.enabled !== true) return null;
 
@@ -255,8 +255,8 @@ function resolveMvpCollectConfig(options?: MvpCollectToolsOptions): ResolvedMvpC
       : readEnvReference(config.slackBotTokenEnvVar, 'slackBotTokenEnvVar');
 
   const env = options?.env ?? process.env;
-  let reader: MvpCollectToolReader | undefined = options?.reader;
-  let writer: MvpCollectToolWriter | undefined = options?.writer;
+  let reader: ProposalCollectToolReader | undefined = options?.reader;
+  let writer: ProposalCollectToolWriter | undefined = options?.writer;
   let signingKey =
     typeof options?.signingKey === 'string' && options.signingKey.trim()
       ? options.signingKey.trim()
@@ -303,7 +303,7 @@ function assertNoImpersonationArgs(args: unknown) {
   if (!args || typeof args !== 'object') return;
   for (const key of IMPERSONATION_KEYS) {
     if (Object.hasOwn(args, key)) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'actor_argument_rejected',
         `The "${key}" argument is not accepted; the acting account comes only from the host context.`,
       );
@@ -315,7 +315,7 @@ function assertNoPolicyArgs(args: unknown) {
   if (!args || typeof args !== 'object') return;
   for (const key of POLICY_KEYS) {
     if (Object.hasOwn(args, key)) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'policy_argument_rejected',
         `The "${key}" argument is not accepted; the stored vote type and the database decide it.`,
       );
@@ -336,7 +336,7 @@ function errorResult(tool: string, error: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(details) }], details };
 }
 
-function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
+function buildTools(config: ResolvedProposalCollectConfig, ctx: any) {
   const { proposalChannelIds, reader, writer, signingKey, now } = config;
 
   const nativeChannelId = typeof ctx?.nativeChannelId === 'string' ? ctx.nativeChannelId.trim() : '';
@@ -344,13 +344,13 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
 
   const requester = (): Promise<SlackMemberResolution> => {
     if (ctx?.messageChannel !== 'slack') {
-      throw new MvpCollectToolError('platform_out_of_scope', 'This tool acts on Slack host context only.');
+      throw new ProposalCollectToolError('platform_out_of_scope', 'This tool acts on Slack host context only.');
     }
     if (!senderId) {
-      throw new MvpCollectToolError('trusted_requester_unavailable', 'The host did not supply a sender ID.');
+      throw new ProposalCollectToolError('trusted_requester_unavailable', 'The host did not supply a sender ID.');
     }
     if (!nativeChannelId || !proposalChannelIds.includes(nativeChannelId)) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'channel_out_of_scope',
         'This tool is limited to its approved proposal channel.',
       );
@@ -366,19 +366,19 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
   const collectRequester = async (): Promise<SlackMemberResolution & { contactId: string }> => {
     const member = await requester();
     if (member.status === 'unavailable') {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'identity_check_unavailable',
         'The community record for your Slack account could not be read, so this tool refuses instead of treating the failed lookup as an unlinked account.',
       );
     }
     if (member.status !== 'resolved' || !member.contactId) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'identity_link_required',
         'This tool requires a verified link between your Slack account and a community record.',
       );
     }
     if (member.isActiveContributor !== true) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'contributor_status_required',
         'Collecting proposal fields requires a currently active Contributor record for your Slack account.',
       );
@@ -393,10 +393,10 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
       const value: unknown = now();
       iso = value instanceof Date ? value.toISOString() : new Date(value as string).toISOString();
     } catch (error) {
-      throw new MvpCollectToolError('clock_invalid', `The configured clock failed: ${describe(error)}`);
+      throw new ProposalCollectToolError('clock_invalid', `The configured clock failed: ${describe(error)}`);
     }
     if (!ISO_INSTANT_PATTERN.test(iso)) {
-      throw new MvpCollectToolError('clock_invalid', 'The configured clock did not return a valid instant.');
+      throw new ProposalCollectToolError('clock_invalid', 'The configured clock did not return a valid instant.');
     }
     return iso;
   };
@@ -404,14 +404,14 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
   /** Read the configured type names so a supplied type is checked against the operator's own table. */
   const readConfiguredVoteTypes = async (): Promise<string[]> => {
     if (!writer) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'vote_type_configuration_unavailable',
         'The configured proposal types could not be read, so no type could be checked.',
       );
     }
     const result = await writer.listVoteTypes({ limit: MAX_CONFIGURED_VOTE_TYPES });
     if (!result.ok || !result.voteTypes) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'vote_type_configuration_unavailable',
         'The configured proposal types could not be read, so no type could be checked.',
       );
@@ -423,7 +423,7 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
   const resolveTitle = (value: unknown): string => {
     const title = typeof value === 'string' ? value.trim() : '';
     if (title.length < 1 || title.length > MAX_TITLE_LENGTH) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'title_invalid',
         `title must be ${MAX_TITLE_LENGTH} characters or fewer and not empty.`,
       );
@@ -435,7 +435,7 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
   const resolveSummary = (value: unknown): string | null => {
     if (value === undefined || value === null) return null;
     if (typeof value !== 'string' || value.length > MAX_SUMMARY_LENGTH) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'summary_invalid',
         `summary must be text of at most ${MAX_SUMMARY_LENGTH} characters.`,
       );
@@ -456,7 +456,7 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
     const hasCurrency = currencyValue !== undefined && currencyValue !== null;
     if (!hasAmount && !hasCurrency) return { requestedMinor: null, currency: null };
     if (hasAmount !== hasCurrency) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'proposal_request_incomplete',
         'A requested amount and its currency are recorded together or not at all.',
       );
@@ -466,14 +466,14 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
       !Number.isInteger(requestedMinorValue) ||
       requestedMinorValue < 0
     ) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'proposal_requested_minor_invalid',
         'requestedMinor must be a whole number of minor units, zero or more.',
       );
     }
     const currency = typeof currencyValue === 'string' ? currencyValue.trim().toUpperCase() : '';
     if (!CURRENCY_PATTERN.test(currency)) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'proposal_currency_invalid',
         'currency must be one ISO 4217 code such as USD.',
       );
@@ -485,7 +485,7 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
   const resolveVoteType = (value: unknown, configured: readonly string[]): string => {
     const voteType = asVoteType(value);
     if (voteType === null) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'vote_type_invalid',
         configured.length === 0
           ? 'voteType must be one configured lower snake case proposal type; no type is configured yet.'
@@ -493,7 +493,7 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
       );
     }
     if (!configured.includes(voteType)) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'vote_type_not_configured',
         'That proposal type is not configured; the type and its limits are operator configuration.',
         {
@@ -514,7 +514,7 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
   const resolveApproximateWhen = (value: unknown): string | null => {
     if (value === undefined || value === null) return null;
     if (typeof value !== 'string' || value.length > MAX_LABEL_LENGTH) {
-      throw new MvpCollectToolError(
+      throw new ProposalCollectToolError(
         'approximate_when_invalid',
         `approximateWhen must be the proposer's own wording of roughly when, at most ${MAX_LABEL_LENGTH} characters.`,
       );
@@ -623,7 +623,7 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
               // The token is an AES-256-GCM ciphertext of the canonical draft document, so it is
               // larger than the text it carries. The cap is the measured worst case for the longest
               // legal draft, counting characters rather than bytes: one code point can be several
-              // UTF-8 bytes. `mvp-proposal-draft.ts` refuses to mint a token longer than this.
+              // UTF-8 bytes. `proposal-draft.ts` refuses to mint a token longer than this.
               maxLength: MAX_COLLECT_TOKEN_LENGTH,
               description:
                 'Token returned by an earlier collect call; echo it unchanged to resume the same draft',
@@ -644,7 +644,7 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
             const verification = verifyProposalDraft(args.draftToken, member.contactId, signingKey, new Date(at));
             if (!verification.ok) {
               const reason: DraftTokenFailure = verification.reason;
-              throw new MvpCollectToolError(
+              throw new ProposalCollectToolError(
                 reason,
                 reason === 'draft_token_expired'
                   ? 'The draft token has expired; start the draft again and re-read the fields back.'
@@ -712,7 +712,7 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
 
           const issued = issueProposalDraft(payload, proposalId, signingKey, new Date(at));
           if (!issued.ok) {
-            throw new MvpCollectToolError(
+            throw new ProposalCollectToolError(
               issued.reason,
               `The collected fields are too long to seal into one draft token (${issued.documentBytes} bytes); shorten the summary and try again.`,
             );
@@ -760,12 +760,12 @@ function buildTools(config: ResolvedMvpCollectConfig, ctx: any) {
 }
 
 /**
- * Build the v2 tool factory for the MVP proposal-collection tool. Register it as
- * `api.registerTool(createMvpCollectToolRegistration({ config }), { names: MVP_COLLECT_TOOL_NAMES })`.
- * When the MVP block is absent or disabled, `create` returns null and no tool is registered.
+ * Build the v2 tool factory for the proposal collection tool. Register it as
+ * `api.registerTool(createProposalCollectToolRegistration({ config }), { names: GOVERNANCE_COLLECT_TOOL_NAMES })`.
+ * When the foundationDb block is absent or disabled, `create` returns null and no tool is registered.
  */
-export function createMvpCollectToolRegistration(options?: MvpCollectToolsOptions) {
-  const config = resolveMvpCollectConfig(options);
+export function createProposalCollectToolRegistration(options?: ProposalCollectToolsOptions) {
+  const config = resolveProposalCollectConfig(options);
   return {
     contextVersion: 2 as const,
     create(ctx: any) {

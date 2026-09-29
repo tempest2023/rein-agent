@@ -1,8 +1,8 @@
-// Server-side writer for the Rein MVP governance tables: proposal intake, approval-only polls and
+// Server-side writer for the Rein governance tables: proposal intake, approval-only polls and
 // ballots, as the sibling phase-2 migration
-// `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql` defines them. A later
-// sibling migration gives them the stable `<env>_rein_*` names used below, keeping the old
-// `<env>_rein_mvp_*` names as compatibility aliases.
+// `supabase/migrations/20260924095705_rein_mvp_proposals_polls_ballots.sql` first defined them. A
+// later sibling migration gives them the stable `<env>_rein_*` names used below; the original
+// stage-prefixed names were only transition compatibility aliases and have since been removed.
 //
 // Table contract, read-only from here:
 //

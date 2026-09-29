@@ -1,4 +1,4 @@
-// Outbound reply guard for the MVP poll-result tool (case 7).
+// Outbound reply guard for the poll-result tool (case 7).
 //
 // Why this exists. `rein_poll_result` answers the caller with a structured object that carries
 // implementation vocabulary on purpose: the stored poll identifier, the recorded outcome, the
@@ -15,7 +15,7 @@
 // rehearsal delivered the model's own prose instead of the member-facing wording.
 //
 // What it does, and what it deliberately leaves alone. Two host hooks, matched to the result tool
-// (`rein_poll_result`), to the MVP write tools that close a run, and to the Tool Search
+// (`rein_poll_result`), to the governance write tools that close a run, and to the Tool Search
 // dispatcher `tool_call`, all correlated by one `runId`:
 // - `after_tool_call` notices exactly one recognized `rein_poll_result` answer carrying a
 //   *validated* `narration.note`, and remembers that sentence, keyed by the run that produced it. A
@@ -109,12 +109,12 @@ export const POLL_RESULT_GUARD_TOOL_NAME = 'rein_poll_result';
  */
 export const TOOL_SEARCH_DISPATCHER_TOOL_NAME = 'tool_call';
 /**
- * The MVP tools that close a run once they are observed in it. A run that read a round result and
+ * The governance tools that close a run once they are observed in it. A run that read a round result and
  * then wrote through one of these is delivering that write's outcome, so its remembered sentence is
  * dropped before the outcome is read and its reply is never rewritten. This is deliberately the
  * broad side of the boundary: clearing too much only delivers the model's own prose, which is the
  * behaviour without this guard, while clearing too little could rewrite a reply that is about a
- * write. A unit test keeps the list tied to the write tools the MVP block actually registers.
+ * write. A unit test keeps the list tied to the write tools the foundationDb block actually registers.
  */
 export const POLL_REPLY_GUARD_WRITE_TOOL_NAMES = Object.freeze([
   'rein_governance_proposal_submit',
@@ -223,7 +223,7 @@ const MAX_PROVISIONAL_CANDIDATES = 50;
  * The count clause of a winner sentence, as a fixed regular expression. The tool prints the winner's
  * *approval* count as N approvals ("赞成 N 票"), not as a ballot figure: an approval count can rise
  * past the number of participating directors when a proposal type allows more than one approval per
- * voter (see `maxApprovalsPerVoter` in `mvp-vote-tally.ts`), so calling it ballots would be wrong. The
+ * voter (see `maxApprovalsPerVoter` in `vote-tally.ts`), so calling it ballots would be wrong. The
  * same shape with no count, the generic "已记录该候选人的票数", is what a winner sentence carries when
  * the record cannot say how many approvals the winner took, and each alternative below is exactly one
  * such wording. The count is what case 7 requires the director to hear, so a winner sentence carrying

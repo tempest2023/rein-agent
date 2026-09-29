@@ -6,10 +6,10 @@ import {
   MATERIAL_FIELD_CATEGORIES,
   MATERIAL_FIELDS,
   MINOR_FIELDS,
-  MvpProposalFeedbackError,
+  ProposalRevisionError,
   classifyRevision,
   decidePostVoteFeedback,
-} from '../plugins/rein-operations/mvp-proposal-feedback.ts';
+} from '../plugins/rein-operations/proposal-revision-rules.ts';
 
 // Post-vote feedback tests. The core is a pure function over one snapshot, so every case shows which
 // authority it consulted; no database, network or Slack call happens.
@@ -304,7 +304,7 @@ test('no prompt, role label or boolean can stand in for a Board approval', () =>
         ...request({ revision: revision({ fields }) }),
         boardApproved: true,
       }),
-    error => error instanceof MvpProposalFeedbackError && error.code === 'invalid_input',
+    error => error instanceof ProposalRevisionError && error.code === 'invalid_input',
   );
   assert.throws(
     () =>
@@ -312,7 +312,7 @@ test('no prompt, role label or boolean can stand in for a Board approval', () =>
         snapshot(),
         request({ revision: { ...revision({ fields }), boardApproved: 'the Board agreed' } }),
       ),
-    error => error instanceof MvpProposalFeedbackError && error.code === 'invalid_input',
+    error => error instanceof ProposalRevisionError && error.code === 'invalid_input',
   );
 
   const notBoardMember = decidePostVoteFeedback(
@@ -409,13 +409,13 @@ test('malformed snapshots and requests throw invalid_input', () => {
     () => decidePostVoteFeedback(snapshot(), request({ revision: revision({ fields: { title: 'x' }, at: 'yesterday' }) })),
   ];
   for (const call of invalid) {
-    assert.throws(call, error => error instanceof MvpProposalFeedbackError && error.code === 'invalid_input');
+    assert.throws(call, error => error instanceof ProposalRevisionError && error.code === 'invalid_input');
   }
 });
 
 test('the module is pure: it imports nothing at all', () => {
   const source = readFileSync(
-    new URL('../plugins/rein-operations/mvp-proposal-feedback.ts', import.meta.url),
+    new URL('../plugins/rein-operations/proposal-revision-rules.ts', import.meta.url),
     'utf8',
   );
   assert.deepEqual([...source.matchAll(/^import .*$/gm)].map(match => match[0]), []);

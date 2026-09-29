@@ -34,7 +34,7 @@ flowchart LR
   Domain --> Records[Local rehearsal ledger; production store pending]
   Domain --> Outbox[Local intent ledger and injected outbox runner]
   Outbox --> Chat
-  Outbox --> Website[Foundation website adapter: deferred from the MVP]
+  Outbox --> Website[Foundation website adapter: deferred from v0.1]
   Admin[Authorized operators] --> Domain
   Upstream[Upstream OpenClaw releases] -. reviewed pin bump .-> Gateway
   Data[Foundation Supabase: members, directors, contact identities, link vetoes, funds snapshots] -. read-only reader implemented, no live connection .-> Domain
@@ -60,7 +60,7 @@ the synthetic simulators and the legacy proposal bridge. The reads go through
 false. No live database is connected yet.
 
 Nothing else is registered. The remaining deterministic modules, including the weighted governance
-rounds, are exercised through their module APIs in local tests and stay unregistered because the MVP
+rounds, are exercised through their module APIs in local tests and stay unregistered because v0.1
 excludes their surfaces. The activity, change, oversight and outbox cores are unreachable from this
 runtime slice; their implementation moved to a follow-up PR.
 
@@ -72,9 +72,9 @@ Workspace files under `workspace/` follow the
 follows the [agents CLI](https://docs.openclaw.ai/cli/agents). `config/operations.example.json` is a
 design input; nothing loads it at runtime.
 
-## P0 MVP vertical slice
+## P0 v0.1 vertical slice
 
-The MVP is deliberately smaller than the PRD lifecycle: Slack identity, a simple Contributor
+The v0.1 slice is deliberately smaller than the PRD lifecycle: Slack identity, a simple Contributor
 proposal, a simple Board approval vote with a recorded result, and a read-only funds snapshot.
 
 ```mermaid
@@ -86,15 +86,15 @@ flowchart LR
   Result --> Human[People decide and pay outside the Agent]
 ```
 
-| MVP step | Local code today | Still required |
+| v0.1 step | Local code today | Still required |
 | --- | --- | --- |
-| Slack identity | `request-context.ts` binds a host sender; `foundation-db-reader.ts` and `mvp-read-tools.ts` resolve a sender. Under D13 that resolver matches the sender's Slack profile email against exactly one `<env>_contact_identities` row at each request when it is on, with no persisted link and with a revoked or conflicting link row kept only as a veto. The resolver exists in `slack-email-lookup.ts` plus the reader's email-first path and is covered by local tests, but it is opt-in and off by default (`foundationDb.identityEmailMatch`), and the `users:read` / `users:read.email` bot scopes and bot token it needs are not installed or configured, so by default the reader still resolves against the identity-link table. The snapshot validator behind the older authoritative-registry path is unreachable from this runtime slice; its implementation moved to a follow-up PR. | The installed bot scopes, a configured bot token, the resolver enabled, a Slack app, approved workspace and channel IDs, and the reviewed identity records, plus a live database connection from the Agent. The identity-link migration is committed in the sibling repository `tempest2023/ReinProtocolFoundation` (branch `tempest/agent-mvp-schema-and-welcome-email`, PR #13, head `2dc244a`) and applied to the linked project, but no tool has used it. |
-| Contributor proposal | `proposals.ts` and `proposal-store.ts` with the optional proposal bridge, plus the database-backed `rein_governance_proposal_submit` in `mvp-write-tools.ts`. | A Slack conversation wired to the bridge plus the database-backed active-Contributor source. |
-| Board approval vote and result | `mvp-write-tools.ts` registers `rein_poll_open`, `rein_poll_vote` and `rein_poll_result`. The round takes its candidate cap from the stored vote type and the tool reads the candidate pool from the database itself, so no caller supplies candidates, a cap or an option label; an options-only call is refused with `legacy_options_unsupported`. `rein_poll_vote` accepts `approvedProposalIds` only, bounded by the poll's own `maxApprovalsPerVoter`, and an empty list is the abstention; the database freezes the candidate list and both limits at insert time. `mvp-vote-tally.ts` counts a frozen eligible list at one equal weight per member, and `governance.ts` holds the older weighted round model that stays unregistered. | An approved voter list and confirmation of the highest-count tie rule. No tool posts to Slack, so the result returns to the calling turn only. |
-| Read-only funds snapshot | `foundation-db-reader.ts` reads the append-only snapshot table and `mvp-read-tools.ts` exposes `rein_funds` to approved Board channels. | A live database connection from the Agent. The snapshot migration is committed in the sibling repository `tempest2023/ReinProtocolFoundation` (branch `tempest/agent-mvp-schema-and-welcome-email`, PR #13, head `2dc244a`) and applied to the linked project, but no tool has read it. |
+| Slack identity | `request-context.ts` binds a host sender; `foundation-db-reader.ts` and `governance-read-tools.ts` resolve a sender. Under D13 that resolver matches the sender's Slack profile email against exactly one `<env>_contact_identities` row at each request when it is on, with no persisted link and with a revoked or conflicting link row kept only as a veto. The resolver exists in `slack-email-lookup.ts` plus the reader's email-first path and is covered by local tests, but it is opt-in and off by default (`foundationDb.identityEmailMatch`), and the `users:read` / `users:read.email` bot scopes and bot token it needs are not installed or configured, so by default the reader still resolves against the identity-link table. The snapshot validator behind the older authoritative-registry path is unreachable from this runtime slice; its implementation moved to a follow-up PR. | The installed bot scopes, a configured bot token, the resolver enabled, a Slack app, approved workspace and channel IDs, and the reviewed identity records, plus a live database connection from the Agent. The identity-link migration is committed in the sibling repository `tempest2023/ReinProtocolFoundation` (PR #13, head `78281fa`) and applied to the linked project, but no tool has used it. |
+| Contributor proposal | `proposals.ts` and `proposal-store.ts` with the optional proposal bridge, plus the database-backed `rein_governance_proposal_submit` in `governance-write-tools.ts`. | A Slack conversation wired to the bridge plus the database-backed active-Contributor source. |
+| Board approval vote and result | `governance-write-tools.ts` registers `rein_poll_open`, `rein_poll_vote` and `rein_poll_result`. The round takes its candidate cap from the stored vote type and the tool reads the candidate pool from the database itself, so no caller supplies candidates, a cap or an option label; an options-only call is refused with `legacy_options_unsupported`. `rein_poll_vote` accepts `approvedProposalIds` only, bounded by the poll's own `maxApprovalsPerVoter`, and an empty list is the abstention; the database freezes the candidate list and both limits at insert time. `vote-tally.ts` counts a frozen eligible list at one equal weight per member, and `governance.ts` holds the older weighted round model that stays unregistered. | An approved voter list and confirmation of the highest-count tie rule. No tool posts to Slack, so the result returns to the calling turn only. |
+| Read-only funds snapshot | `foundation-db-reader.ts` reads the append-only snapshot table and `governance-read-tools.ts` exposes `rein_funds` to approved Board channels. | A live database connection from the Agent. The snapshot migration is committed in the sibling repository `tempest2023/ReinProtocolFoundation` (PR #13, head `78281fa`) and applied to the linked project, but no tool has read it. |
 
 Weighted rounds, quorum, recusal, competing-budget allocation, payments, activity spaces, reminders,
-articles, website publication and oversight are deferred from the MVP. The activity, change,
+articles, website publication and oversight are deferred from v0.1. The activity, change,
 oversight and outbox cores are unreachable from this runtime slice and their implementation moved to
 a follow-up PR; the remaining deferred modules stay unregistered.
 
@@ -125,7 +125,7 @@ planned.
 
 ## Proposed service boundaries
 
-The MVP needs only the Identity, Proposals and Governance rows below, in the narrow form described
+The v0.1 slice needs only the Identity, Proposals and Governance rows below, in the narrow form described
 above, plus a read-only view of Finance. Activities, Outcomes and Oversight are deferred.
 
 | Boundary | Responsibilities | PRD |
@@ -157,7 +157,7 @@ agreed retention policy.
 For any external effect, persist intent and an idempotency key before delivery, store the provider
 receipt, and reconcile uncertain outcomes before retrying. Allocate funds atomically across winning
 proposals; do not resolve competition by processing order. Competing-proposal allocation is deferred
-from the MVP. Database selection, migrations and provider contracts are pending.
+from v0.1. Database selection, migrations and provider contracts are pending.
 
 ## Three independent state dimensions
 

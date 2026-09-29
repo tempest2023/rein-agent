@@ -1,11 +1,11 @@
 # P0 acceptance evidence matrix
 
 This matrix tracks the PRD's AC01–AC20 against **current evidence**. “Core tested” means synthetic inputs exercised deterministic Rein-owned modules. It does not mean the real chat, member registry, website or finance provider has passed. A production result requires the provider evidence in the last column. The ten synthetic Slack
-rehearsal cases and their final verdicts are in the [MVP Slack acceptance record](mvp-acceptance-2026-09-28.md).
+rehearsal cases and their final verdicts are in the [v0.1 governance acceptance record](governance-acceptance-2026-09-28.md).
 
-## MVP slice versus deferred work
+## v0.1 slice versus deferred work
 
-The strict P0 MVP is the four steps in [PRD §2.3](PRD-agent-community-operations.md): Slack identity
+The strict P0 v0.1 slice is the four steps in [PRD §2.3](PRD-agent-community-operations.md): Slack identity
 → Contributor proposal → simple Board vote and result → read-only funds snapshot. In scope:
 AC01–AC04, plus the parts of AC05–AC07 and AC16–AC17 those steps exercise. AC08–AC14 and AC18–AC20
 belong to the deferred remainder and stay open until their phase starts.
@@ -23,21 +23,21 @@ synthetic simulators and the legacy proposal bridge.
 
 | Tool | Kind | Code |
 | --- | --- | --- |
-| `rein_member_status` | read | `foundation-db-reader.ts`, `mvp-read-tools.ts` |
-| `rein_funds` | read | `foundation-db-reader.ts`, `mvp-read-tools.ts` |
-| `rein_poll_candidates` | read | `foundation-db-reader.ts`, `mvp-read-tools.ts` |
-| `rein_vote_type_resolve` | read | `mvp-vote-type-resolve.ts`, `mvp-read-tools.ts` |
-| `rein_proposal_collect` | read | `mvp-collect-tools.ts` |
-| `rein_governance_proposal_submit` | write | `foundation-db-writer.ts`, `mvp-write-tools.ts` |
-| `rein_poll_open` | write | `foundation-db-writer.ts`, `mvp-write-tools.ts` |
-| `rein_poll_vote` | write | `foundation-db-writer.ts`, `mvp-write-tools.ts` |
-| `rein_poll_result` | write | `mvp-vote-tally.ts`, `mvp-write-tools.ts` |
-| `rein_proposal_comment_suggest` | write | `mvp-feedback-tools.ts`, `foundation-db-writer.ts` |
-| `rein_revision_approve` | write | `mvp-feedback-tools.ts`, `foundation-db-writer.ts` |
-| `rein_revision_apply` | write | `mvp-feedback-tools.ts`, `foundation-db-writer.ts` |
+| `rein_member_status` | read | `foundation-db-reader.ts`, `governance-read-tools.ts` |
+| `rein_funds` | read | `foundation-db-reader.ts`, `governance-read-tools.ts` |
+| `rein_poll_candidates` | read | `foundation-db-reader.ts`, `governance-read-tools.ts` |
+| `rein_vote_type_resolve` | read | `vote-type-resolve.ts`, `governance-read-tools.ts` |
+| `rein_proposal_collect` | read | `proposal-collect-tools.ts` |
+| `rein_governance_proposal_submit` | write | `foundation-db-writer.ts`, `governance-write-tools.ts` |
+| `rein_poll_open` | write | `foundation-db-writer.ts`, `governance-write-tools.ts` |
+| `rein_poll_vote` | write | `foundation-db-writer.ts`, `governance-write-tools.ts` |
+| `rein_poll_result` | write | `vote-tally.ts`, `governance-write-tools.ts` |
+| `rein_proposal_comment_suggest` | write | `proposal-feedback-tools.ts`, `foundation-db-writer.ts` |
+| `rein_revision_approve` | write | `proposal-feedback-tools.ts`, `foundation-db-writer.ts` |
+| `rein_revision_apply` | write | `proposal-feedback-tools.ts`, `foundation-db-writer.ts` |
 
 Those tool names, and the `foundationDb` config block, are the current stable interfaces; the source
-files that hold them keep their historical `mvp-*.ts` filenames.
+files that hold them use stable v0.1 filenames.
 
 Post-result feedback is the one place where a confirmed rule has two asymmetric sides. An
 **ordinary** revision, moving only the title or the summary, is accepted and made effective by the
@@ -50,7 +50,7 @@ the stored revision row additionally permits an **active Contributor** as its au
 database-level allowance the registered tools do not currently expose. A comment applies nothing,
 and no revision moves money.
 
-Four deliberate MVP shapes are worth stating plainly. A poll is defined by a **stored vote type**,
+Four deliberate v0.1 shapes are worth stating plainly. A poll is defined by a **stored vote type**,
 not by a caller: `rein_poll_open` reads that type's own candidate cap, assembles the candidate
 pool from stored proposals (offering recently unselected ones too) and lets the database freeze the
 list, so no caller supplies candidates, a cap or an option label. There is still **no automatic
@@ -85,14 +85,13 @@ local code with tests, but it is opt-in and off by default (`foundationDb.identi
 workspace exercises that resolver and the retained link table stays the read path until it is
 enabled. Two
 migrations are **tracked in the sibling Foundation repository**
-(`tempest2023/ReinProtocolFoundation`) on branch `tempest/agent-mvp-schema-and-welcome-email` (PR
-#13, open). Its current committed head is `2dc244aac6cfaf318a90d51c3c25876d0224c740` ("Recover
-Remote-Only Case 7 Same-Day Fixture Migration", 2026-09-28); the rename commit
+(`tempest2023/ReinProtocolFoundation`) on its PR #13 branch (PR #13, open). Its current PR head is
+`78281fa` ("Recover Remote-Only Case 7 Same-Day Fixture Migration", 2026-09-28); the rename commit
 `08542ad09932a4cefb62f230a9bdcf9fd4d32dfe` ("Complete Rein governance catalog rename through
 triggers, constraints, and indexes") and the earlier clock commit
 `32977bfb6cd6ae73b81aa4b396f9ae1cb67d2ac8` ("Make the database clock authoritative for ballot
-`cast_at`") are its ancestors, and the two MVP schema files were first authored at `4bd5ce8` ("Add the
-Rein Agent MVP Slack identity, fund snapshot, and governance schema"). Both MVP migrations are
+`cast_at`") are its ancestors, and the two schema files were first authored at `4bd5ce8` ("Add the
+Rein Agent Slack identity, fund snapshot, and governance schema"). Both base migrations are
 **applied to the linked project**:
 `supabase/migrations/20260924094436_rein_slack_identity_and_fund_snapshots.sql` (identity links,
 append-only funds snapshots) and
@@ -105,16 +104,17 @@ default selects which prefix a request reads and is not proof that only the `dev
 A third sibling migration, `20260927103000_rein_mvp_ballot_cast_at_db_clock.sql`, was committed at
 `32977bfb` and is present at the current sibling head. A fourth,
 `20260927110000_rein_governance_names.sql`, renames the physical tables and the two RPCs to their
-long-term names and keeps the `<env>_rein_mvp_*` names reachable as compatibility views and RPC
-wrappers. Both are **applied** to the linked project as of 2026-09-28: read-only inspection lists
-both versions and finds the ten new physical tables, ten old-name views and four RPC wrappers, so the
-clock authority is in effect in the linked schema and the new names resolve. Applied schema is not a
-live code result; no live ballot or tool call has exercised the new names. The sibling code's local
-pgTAP suite stands at 187/187 assertions at that same commit, run twice in an isolated container.
+long-term names. Both are **applied** to the linked project as of 2026-09-28: read-only inspection
+lists both versions and finds the ten new physical tables, so the clock authority is in effect in the
+linked schema and the new names resolve. The transition compatibility views and RPC wrappers were
+removed by the later applied `20260929045543_remove_stage_compatibility_objects.sql`. Applied schema
+is not a live code result; no live ballot or tool call has exercised the new names. The sibling
+code's local pgTAP suite stands at 187/187 assertions at that same commit, run twice in an isolated
+container.
 The phase-two migration carries the vote types, the approve-only ballot shape, the
 frozen candidate list, the finalize RPC and the material-revision approval rule this document
 describes, with pgTAP coverage in the sibling repository. The rehearsal runs did read and write the
-linked `dev_*` tables, but on the **pre-rename build** (the historical `rein_mvp_*` interfaces) and
+linked `dev_*` tables, but on the **pre-rename build** (the original stage-prefixed interfaces) and
 with synthetic rows only; the `prod_*` business tables were never written, and no live Slack retest
 has run against the current post-rename head, so no schema claim here should be treated as a live
 end-to-end result on the current head.
@@ -132,17 +132,17 @@ real PostgREST instance.
 | AC02 | `proposals.test.mjs` checks fields, versions and reconfirmation; `proposal-tool-bridge.test.mjs` exercises guarded create/revise/confirm/submit calls. | Local tool tested | Real chat conversation that gathers fields across messages and returns the confirmed summary. |
 | AC03 | `proposals.test.mjs` checks explicit zero-budget authorization and blockers. | Core tested | Approved policy scope, responsible exception handler and real fast-track rehearsal. |
 | AC04 | `proposals.test.mjs` routes complete funding requests to governance, including small amounts. | Core tested | Live Board round presentation and provider-backed proposal records. |
-| AC05 | `p0-rehearsal.test.mjs` and `governance.test.mjs` freeze versions, roster, weights and rules; `foundation-db-writer.test.mjs` and `mvp-rehearsal.test.mjs` assemble a round's candidate pool from stored proposals of the named vote type, re-offering recently unselected ones, bounded by that type's own cap. The round-persistence test moved to a follow-up PR with `governance-store.ts`. The concrete cap values are still unapproved configuration. | Local modules and MVP tools tested; plus a synthetic dev run against the linked `dev_*` schema in the rehearsal workspace (type-scoped `rein_poll_candidates` read and candidate-pool opening). No production provider acceptance | Approved per-type cap values, authoritative finance availability and delivered Board briefing. |
-| AC06 | `governance.test.mjs` rejects invalid, ineligible and late ballots; `foundation-db-reader.test.mjs` resolves the member and director role from the database; `mvp-write-tools.test.mjs` refuses a late ballot and a choice outside a stored poll's options. The refused-ballot audit, authoritative-registry eligibility and host-bound vote-tool checks moved to a follow-up PR with `governance-store.ts`, `registry-snapshot.ts` and `governance-tool-bridge.ts`. | Local modules tested; database tools registered only under explicit `foundationDb` config | Trusted sender-to-member identity, explicit vote confirmation in Slack, private ballot access, and a real round audit. |
-| AC07 | `governance.test.mjs` covers replacement, recusal, abstention, quorum, ties and thresholds; `mvp-vote-tally.test.mjs` covers one equal weight per eligible member, an empty approval list casting no approval and a tie or empty poll producing `no_winner`; `mvp-write-tools.test.mjs` and `mvp-rehearsal.test.mjs` exercise the registered tools' approve-only enforcement, the per-poll `maxApprovalsPerVoter` bound, the frozen candidate list and the deadline that decides a round. `mvp-feedback-tools.test.mjs` covers the post-result rule in both directions: an ordinary title or summary revision is applied by the Agent with no separate approval, a material revision is refused with `revision_not_approved` until a current director's approval is recorded, a comment applies nothing, and every feedback call is Board-scoped. The Board-scoped recusal and retry checks in the host-bound vote bridge moved to a follow-up PR with `governance-tool-bridge.ts`. The per-type maximum approvals and candidate cap are confirmed rules (C08, C14, D08, D09) with concrete values still unapproved configuration. | Local modules and database tools tested, including the post-result feedback tools; database tools registered only under explicit `foundationDb` config | Confirmation of the highest-count tie rule, the approved per-type values, an approved voter list, the feedback author scope and a real round audit. Weighted, quorum and recusal rules are deferred from the MVP. |
-| AC08 | `governance.test.mjs` reports shortfall and holds allocation when funds are unknown or insufficient. | Core tested; deferred from the MVP | Atomic reservation against an authoritative finance source under concurrent rounds. The MVP does not allocate one budget across competing proposals. |
+| AC05 | `p0-rehearsal.test.mjs` and `governance.test.mjs` freeze versions, roster, weights and rules; `foundation-db-writer.test.mjs` and `governance-rehearsal.test.mjs` assemble a round's candidate pool from stored proposals of the named vote type, re-offering recently unselected ones, bounded by that type's own cap. The round-persistence test moved to a follow-up PR with `governance-store.ts`. The concrete cap values are still unapproved configuration. | Local modules and governance tools tested; plus a synthetic dev run against the linked `dev_*` schema in the rehearsal workspace (type-scoped `rein_poll_candidates` read and candidate-pool opening). No production provider acceptance | Approved per-type cap values, authoritative finance availability and delivered Board briefing. |
+| AC06 | `governance.test.mjs` rejects invalid, ineligible and late ballots; `foundation-db-reader.test.mjs` resolves the member and director role from the database; `governance-write-tools.test.mjs` refuses a late ballot and a choice outside a stored poll's options. The refused-ballot audit, authoritative-registry eligibility and host-bound vote-tool checks moved to a follow-up PR with `governance-store.ts`, `registry-snapshot.ts` and `governance-tool-bridge.ts`. | Local modules tested; database tools registered only under explicit `foundationDb` config | Trusted sender-to-member identity, explicit vote confirmation in Slack, private ballot access, and a real round audit. |
+| AC07 | `governance.test.mjs` covers replacement, recusal, abstention, quorum, ties and thresholds; `vote-tally.test.mjs` covers one equal weight per eligible member, an empty approval list casting no approval and a tie or empty poll producing `no_winner`; `governance-write-tools.test.mjs` and `governance-rehearsal.test.mjs` exercise the registered tools' approve-only enforcement, the per-poll `maxApprovalsPerVoter` bound, the frozen candidate list and the deadline that decides a round. `proposal-feedback-tools.test.mjs` covers the post-result rule in both directions: an ordinary title or summary revision is applied by the Agent with no separate approval, a material revision is refused with `revision_not_approved` until a current director's approval is recorded, a comment applies nothing, and every feedback call is Board-scoped. The Board-scoped recusal and retry checks in the host-bound vote bridge moved to a follow-up PR with `governance-tool-bridge.ts`. The per-type maximum approvals and candidate cap are confirmed rules (C08, C14, D08, D09) with concrete values still unapproved configuration. | Local modules and database tools tested, including the post-result feedback tools; database tools registered only under explicit `foundationDb` config | Confirmation of the highest-count tie rule, the approved per-type values, an approved voter list, the feedback author scope and a real round audit. Weighted, quorum and recusal rules are deferred from v0.1. |
+| AC08 | `governance.test.mjs` reports shortfall and holds allocation when funds are unknown or insufficient. | Core tested; deferred from v0.1 | Atomic reservation against an authoritative finance source under concurrent rounds. v0.1 does not allocate one budget across competing proposals. |
 | AC09 | Local implementation moved to a follow-up PR with `activities.ts` and `outbox-runner.ts`: a unique space intent plus provider receipt lookup and same-key retry against a fake provider. | Moved to follow-up PR | Provider receipt/lookup proving one real event space across timeout and retry. |
 | AC10 | Local implementation moved to a follow-up PR with `activities.ts`: task completion cancelling chasing reminders, snooze, quiet hours, reminder suppression and the explicit timezone requirement for dispatch. | Moved to follow-up PR | Scheduled runner and delivered notification evidence under the chosen platform. |
 | AC11 | Local implementation moved to a follow-up PR with `changes.ts` and `change-coordinator.ts`: change planning and guards plus a narrow durable handoff into guarded activity actions while retaining unsupported work. | Moved to follow-up PR | Transactional application to activity, registration, reminder and finance owners; actual recipient notifications for time, location, lead or cancellation changes. |
 | AC12 | Local implementation moved to a follow-up PR with `activities.ts`: outcome fields and specific missing items. | Moved to follow-up PR | Real event channel intake and permissions for incremental materials. |
 | AC13 | Local implementation moved to a follow-up PR with `activities.ts`: alternative materials and channel-specific consent. | Moved to follow-up PR | Website adapter excluding unauthorized media and handling withdrawal. |
 | AC14 | Local implementation moved to a follow-up PR with `activities.ts` and `outbox-runner.ts`: lead fact confirmation, a single canonical article per activity, the separate `post_article_link` return intent, and consent/content/receipt checks before `published`. | Moved to follow-up PR | One real article with canonical URL; timeout recovery and correction. |
-| AC15 | `foundation-db-reader.test.mjs` and `mvp-read-tools.test.mjs` cover the read-only funds snapshot the MVP exposes. The activity finance rules (`finance.approve_adjust`, the ordered overspend recovery, blocked settlement of unpaid obligations) moved to a follow-up PR with `activities.ts`. | Read-only snapshot reader tested; activity finance moved to follow-up PR; payment paths deferred from the MVP | Finance-owner reconciliation against actual records, plus real available-funds verification; no payment execution by Agent. The MVP shows a read-only snapshot only. |
+| AC15 | `foundation-db-reader.test.mjs` and `governance-read-tools.test.mjs` cover the read-only funds snapshot v0.1 exposes. The activity finance rules (`finance.approve_adjust`, the ordered overspend recovery, blocked settlement of unpaid obligations) moved to a follow-up PR with `activities.ts`. | Read-only snapshot reader tested; activity finance moved to follow-up PR; payment paths deferred from v0.1 | Finance-owner reconciliation against actual records, plus real available-funds verification; no payment execution by Agent. v0.1 shows a read-only snapshot only. |
 | AC16 | `request-context.test.mjs` rejects unapproved channels and missing trusted senders. | Core tested | Platform permission test showing Board and private event data never appear in public or another event scope. |
 | AC17 | `ledger.test.mjs` and `proposal-store.test.mjs` cover local idempotency and stale-process conflicts; `p0-rehearsal.test.mjs` exercises the ledger-backed proposal store across a restart. The refused-ballot audit and fake-provider uncertain receipt lookup moved to a follow-up PR with `governance-store.ts` and `outbox-runner.ts`. | Core tested | Kill/restart drill around live provider calls, uncertain receipt lookup and voting fairness decision. |
 | AC18 | Local implementation moved to a follow-up PR with `oversight.ts`: routine progress separated from outstanding exceptions in a weekly summary. | Moved to follow-up PR | Real-source weekly summary delivered to authorized oversight recipients. |
@@ -153,22 +153,21 @@ The integration requirements are in [provider contracts](integration-contracts.m
 
 ## Naming and the rename migration
 
-A pre-launch review asked for the `mvp` naming to be removed from tools, tables, config and skills.
-The plugin and configuration now use the stable names in the table above: the twelve tools and the
-`foundationDb` config block. The database reaches matching names through the forward migration
-`20260927110000_rein_governance_names.sql`, tracked in
+A pre-launch review asked for the stage-based naming to be removed from tools, tables, config and
+skills. The plugin and configuration now use the stable v0.1 names in the table above: the twelve
+tools and the `foundationDb` config block. The database reaches matching names through the forward
+migration `20260927110000_rein_governance_names.sql`, tracked in
 [provider contracts](integration-contracts.md#naming-and-the-rename-migration). It is committed in PR
 #13 and **applied** to the linked project as of 2026-09-28; it renames the physical tables and the two
-RPCs and keeps the earlier `<env>_rein_mvp_*` table and RPC names reachable as compatibility views
-and wrappers during the transition, so the new names resolve and old-name callers still work. The
-schema gate is closed; the live code path remains unverified. Source file and test filenames keep
-their historical `mvp-*.mjs` names, which are not interfaces.
+RPCs. The transition compatibility views and wrappers it created were removed by the later applied
+`20260929045543_remove_stage_compatibility_objects.sql`, so the stable names are the only interface.
+The schema gate is closed; the live code path remains unverified. Source file and test filenames now
+use the stable v0.1 stems as well.
 
 The caller-facing names move with the plugin, so a caller that hits a malformed `foundationDb` block
 or an unset named variable now reads `foundation_db_config_invalid` or
 `foundation_db_env_value_missing`, and `rein_status` reports `foundationDbReadToolsEnabled`,
 `foundationDbWriteToolsEnabled`, `foundationDbCollectToolsEnabled` and `foundationDbFeedbackToolsEnabled`.
 These are code interfaces, not
-schema, so they need no migration. The `<env>_rein_mvp_*` compatibility views and RPC wrappers stay
-until the old-name clients are replaced and verified on the new `<env>_rein_*` names; a later
-migration removes them, and they must never be dropped while an old client is still active.
+schema, so they need no migration. The earlier stage-prefixed compatibility views and RPC wrappers
+have been removed, so the stable `<env>_rein_*` names are the only interface in the linked schema.

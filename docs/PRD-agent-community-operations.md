@@ -5,7 +5,7 @@
 > Product: OpenClaw-based community operations Agent\
 > Version: v0.1 · Product requirements draft\
 > Date: 2026-09-22\
-> Status: OpenClaw, Slack as the P0 platform, a database-backed member/director/funds source, an approve-only Board vote, and per-type candidate caps with per-type approval budgets are confirmed. The strict P0 MVP slice is §2.3. Everything else, including the numerical defaults in this document, remains a product recommendation, not approved or live.\
+> Status: OpenClaw, Slack as the P0 platform, a database-backed member/director/funds source, an approve-only Board vote, and per-type candidate caps with per-type approval budgets are confirmed. The strict P0 v0.1 slice is §2.3. Everything else, including the numerical defaults in this document, remains a product recommendation, not approved or live.\
 > Audience: Organization founders, Board members, product and design teams, community operators, developers, and testers.
 
 ## 1. Product Positioning and Background
@@ -54,7 +54,7 @@ If the same event requests funding, it enters a periodic selection round. The Ag
 | C13 | Preserve room for future business expansion and DAO governance. |
 | C14 | The Agent assembles each vote round from a pool of recent proposals plus proposals that were not selected in an earlier round. Each proposal type carries its own candidate cap, chosen by operators and applied in operation relative to the eligible voter count; the Events cap is configured as 10 in the current example, and the number is not a universal fixed policy. A round with a single candidate is a valid round. |
 | C15 | After a result, feedback may change an accepted proposal. A change to budget, location, personnel or the major event flow requires at least one current Board member approval before the changed version takes effect; schedule is treated as material in the current implementation. A revision that moves only the title or the summary is ordinary, and the Agent may accept a reasonable one and make it effective itself, with no separate Board approval. |
-| C16 | Slack serves the core circle only: core board members and core contributors use it for internal governance, namely Board voting, fund review and event review. Discord is the general-participant surface and stays a later, separate scope; in the early Agent period it carries onboarding, free-resource navigation and participation paths only, with no governance action. Slack remains the single P0 MVP platform: no Discord server is connected or implemented, and no MVP step depends on Discord. Identity links are kept per platform and per space, so a Discord identity link never confers Slack governance rights, one platform's role or channel membership never substitutes for another platform's eligibility check, and no generic cross-channel business framework is planned. |
+| C16 | Slack serves the core circle only: core board members and core contributors use it for internal governance, namely Board voting, fund review and event review. Discord is the general-participant surface and stays a later, separate scope; in the early Agent period it carries onboarding, free-resource navigation and participation paths only, with no governance action. Slack remains the single P0 platform: no Discord server is connected or implemented, and no v0.1 step depends on Discord. Identity links are kept per platform and per space, so a Discord identity link never confers Slack governance rights, one platform's role or channel membership never substitutes for another platform's eligibility check, and no generic cross-channel business framework is planned. |
 
 ### 2.2 Additional Product Recommendations
 
@@ -62,12 +62,12 @@ The following additions make the workflow complete: onboarding, identity linking
 
 Times, thresholds, and quantities labeled “recommended default” are adjustable. Until confirmed, they must not be presented as adopted organizational policies. If required governance settings are missing, the system must clearly show that it is not ready, rather than inventing rules and opening an official selection round.
 
-Most of these recommendations are deferred from the MVP; §2.3 lists what is deferred and why.
+Most of these recommendations are deferred from v0.1; §2.3 lists what is deferred and why.
 
-### 2.3 Strict P0 MVP Scope, Deferrals, and Objections
+### 2.3 Strict P0 v0.1 Scope, Deferrals, and Objections
 
 The organization wants one working vertical slice on real data before the rest of this document
-becomes relevant. The confirmed MVP is:
+becomes relevant. The confirmed v0.1 slice is:
 
 1. **Slack identity.** The bot reads the trusted sender's current Slack profile email through
    `users.info`, under the `users:read` and `users:read.email` bot scopes, and requires an exact
@@ -76,7 +76,7 @@ becomes relevant. The confirmed MVP is:
    profile email is missing, hidden, unmatched or ambiguous, or whose retained link row is revoked
    or conflicts with the matched contact, is unidentified: they may ask questions and prepare drafts
    but cannot submit a proposal, vote, or act. This is a deliberate narrowing of the earlier manual
-   team/user link prerequisite for the Slack MVP; same-platform multi-account identity now derives
+   team/user link prerequisite for the Slack v0.1 slice; same-platform multi-account identity now derives
    from the email match, while cross-platform identity stays deferred. One installation serves
    exactly one Slack workspace, because the runtime's trusted sender context carries no team ID.
 2. **Contributor proposal.** A linked, active Contributor submits a simple funding proposal in
@@ -108,7 +108,7 @@ database or Slack workspace.
 `foundation-db-writer.ts` exposes revision recording and the `<env>_rein_approve_revision` call, and a
 database trigger refuses to make a revision effective when it moves a material field — budget,
 location, personnel or the major event flow — until a current director's approval is recorded.
-`mvp-feedback-tools.ts` registers three tools from the same explicit `foundationDb` block, so the workflow is
+`proposal-feedback-tools.ts` registers three tools from the same explicit `foundationDb` block, so the workflow is
 no longer database-only: `rein_proposal_comment_suggest` records a comment or a suggested
 revision, `rein_revision_approve` records a current director's approval, and
 `rein_revision_apply` makes a recorded revision the effective version. Applying is where the two
@@ -131,15 +131,15 @@ end-to-end result.
 A funding approval is a decision record only. It does not move money, does not commit a payment, and
 does not by itself authorize spending.
 
-Explicitly deferred from the MVP:
+Explicitly deferred from v0.1:
 
 | Deferred | Why it is deferred now |
 | --- | --- |
-| Weighted voting, participation thresholds and quorum | The MVP tally needs no arithmetic beyond one equal vote per eligible member. |
+| Weighted voting, participation thresholds and quorum | The v0.1 tally needs no arithmetic beyond one equal vote per eligible member. |
 | Recusal and conflict-of-interest rules | Needs an agreed disclosure and eligibility policy that does not exist yet. |
 | Competing-proposal budget allocation and ranking | Needs an approved prioritisation rule; processing order must never decide it. |
-| Payment, reimbursement and settlement | The Agent does not execute payments. Finance stays read-only in the MVP. |
-| Activity spaces, checklists, reminders, outcomes and articles | A separate product surface that depends on policies the MVP is not waiting for. |
+| Payment, reimbursement and settlement | The Agent does not execute payments. Finance stays read-only in v0.1. |
+| Activity spaces, checklists, reminders, outcomes and articles | A separate product surface that depends on policies v0.1 is not waiting for. |
 | Website publishing and social media | Needs provider contracts plus material rights and retention decisions. |
 | Weekly summaries, exception centre, pause controls and oversight | Follows the workflows above instead of leading them. |
 | A second chat platform (the Discord general-participant scope in C16), cross-platform identity, and DAO or on-chain migration | P0 is one platform against the organization's own database; the Discord scope is separate, limited to onboarding, free-resource navigation and participation paths, and not connected. |
@@ -147,7 +147,7 @@ Explicitly deferred from the MVP:
 Objection to the current draft: sections 5–13 describe close to a full product, and much of it
 depends on governance parameters the organization has not approved (weights, quorum, recusal, budget
 competition). Building those paths now would encode unapproved policy without producing a working
-slice any sooner. Recommendation: ship the four MVP steps against real data, then admit each
+slice any sooner. Recommendation: ship the four v0.1 steps against real data, then admit each
 deferred area only once its rule and owner are recorded in the [decision register](decisions.md).
 
 Two boundaries must be stated honestly. The highest-count tie rule is not adopted: when the top
@@ -197,8 +197,8 @@ Roles can overlap; the relevant capacity must be explicit when a conflict of int
 
 | Phase | Scope | Deliverable |
 | --- | --- | --- |
-| P0 MVP (§2.3): minimum operating slice | Slack identity linking; a simple Contributor funding proposal; a simple Board vote with a published result; a read-only available-funds snapshot | A linked Contributor can submit a proposal, the Board can decide it, and the decision is recorded and returned to the calling turn without the founder driving it. Posting the result back to Slack is not implemented in the MVP; §2.3 step 3 states this, and the phase table predates that narrowing. |
-| P0 remainder: deferred until the MVP slice is verified | Zero-budget fast track; event spaces; preparation reminders; completion review; website articles; exception oversight and weekly reports | An event can proceed from proposal to public outcomes without the founder manually driving every routine step |
+| P0 v0.1 slice (§2.3): minimum operating slice | Slack identity linking; a simple Contributor funding proposal; a simple Board vote with a published result; a read-only available-funds snapshot | A linked Contributor can submit a proposal, the Board can decide it, and the decision is recorded and returned to the calling turn without the founder driving it. Posting the result back to Slack is not implemented in v0.1; §2.3 step 3 states this, and the phase table predates that narrowing. |
+| P0 remainder: deferred until the v0.1 slice is verified | Zero-budget fast track; event spaces; preparation reminders; completion review; website articles; exception oversight and weekly reports | An event can proceed from proposal to public outcomes without the founder manually driving every routine step |
 | P1: Ongoing community operations | Study groups and event series, local community support, contributor development, needs matching, feedback analysis, social media image and text posts, and policy-authorized automatic publishing | The Agent maintains a community rhythm and improves repeat events and participation quality |
 | P2: Scale and governance evolution | A second chat platform, cross-platform identity and deduplication, multi-region coordination, partner workflows, and DAO governance integration | Expand while preserving historical records and accountability boundaries |
 
@@ -221,7 +221,7 @@ Slack is the selected P0 platform; a second platform is a later extension, and s
 
 An event space may be a dedicated channel or a thread, depending on scale. Every event must have a persistent, distinct entry point, but a small event does not necessarily require its own top-level channel.
 
-The space table describes Slack, the P0 platform, which serves the core circle: core board members and core contributors. General-participant spaces belong to the later, separate Discord scope in C16 and are outside the MVP.
+The space table describes Slack, the P0 platform, which serves the core circle: core board members and core contributors. General-participant spaces belong to the later, separate Discord scope in C16 and are outside v0.1.
 
 ### 6.2 Conversation Principles
 
@@ -269,7 +269,7 @@ The Agent provides a short welcome describing the mission, upcoming events, part
 **R02 · Identity linking and eligibility verification (P0)**
 
 - Establish a verifiable link between chat accounts and organizational membership identities. Matching display names do not establish identity.
-- For the Slack MVP, that link is resolved, not stored per account: the sender's current Slack profile email must match exactly one community identity row, the current role is derived per request, and any retained link row is only a revocation or conflict veto (D13).
+- For the Slack v0.1 slice, that link is resolved, not stored per account: the sender's current Slack profile email must match exactly one community identity row, the current role is derived per request, and any retained link row is only a revocation or conflict veto (D13).
 - Verify current eligibility for proposals, voting, lead changes, and other important actions.
 - A sender who cannot be resolved to exactly one community identity record can ask questions and prepare drafts, but cannot formally submit; a missing, hidden, unmatched or ambiguous profile email fails closed.
 - Platform role labels may help presentation but cannot alone establish Contributor or Board eligibility.
@@ -341,14 +341,14 @@ Leads can request explanations, correct facts, or ask for review. The Agent reco
 
 ### 8.4 Periodic Selection and Board Approval Voting
 
-**MVP status.** The MVP in §2.3 uses the confirmed approve-only tally and needs only R10 (a visible
+**v0.1 status.** The v0.1 slice in §2.3 uses the confirmed approve-only tally and needs only R10 (a visible
 cutoff, the assembled candidate pool and eligibility), R11 (a factual briefing), R12 (explicit,
 attributable approvals) and R16 (deadline, result, exceptions). The confirmed shape is C08, C14 and
 C15: approve-only ballots, a per-type candidate cap applied against the eligible voter count,
 per-type maximum approvals per voter, and a current Board member approval before a budget, location,
 personnel or major event-flow change takes effect. R13, R14 and R15 encode weighted voting, quorum,
 recusal and competing-budget allocation; they remain proposed defaults and are deferred from the
-MVP. Do not present them as adopted.
+v0.1. Do not present them as adopted.
 
 **R10 · Selection cadence and eligible proposals (P0)**
 
@@ -377,7 +377,7 @@ The Agent may compare options and explain trade-offs, but must separate facts fr
 - Prohibit voting on another person's behalf, duplicate counting, and late votes. Display non-participation and abstention separately; there is no rejection category.
 - Answers to proposal questions must not disclose private materials restricted to particular handlers.
 
-**R13 · Eligibility, weights, and conflicts of interest (weights and recusal deferred from the MVP)**
+**R13 · Eligibility, weights, and conflicts of interest (weights and recusal deferred from v0.1)**
 
 Authorized people maintain the Board roster and weights, with traceable changes. Ordinary changes apply from the next round; active rounds retain the published version.
 
@@ -385,12 +385,12 @@ Recommendation: a proposal's lead and Board members with a direct interest recus
 
 Major exceptions, such as a compromised account or loss of eligibility, may justify pausing a round under exception authority. Explain the impact and determine whether to restart. Do not secretly delete or alter votes to correct the result.
 
-**R14 · Proposed phase-one counting rules (deferred from the MVP; organizational confirmation required)**
+**R14 · Proposed phase-one counting rules (deferred from v0.1; organizational confirmation required)**
 
-The confirmed MVP counting rule is simpler than this section: approve-only ballots, highest approval
+The confirmed v0.1 counting rule is simpler than this section: approve-only ballots, highest approval
 count wins, all-abstain has no winner (C08). The weighted-threshold rules below are a discussion-ready
 proposal for the deferred weighted phase, not an adopted policy, and they must not be applied to the
-MVP tally:
+v0.1 tally:
 
 1. Count each proposal independently. Exclude recused members from that proposal's eligible headcount and total eligible weight.
 2. Participation requires at least half of eligible members, rounded up, and at least half of the proposal's total eligible voting weight.
@@ -403,7 +403,7 @@ Example: three eligible members have weights of 3, 2, and 1. Two vote approve an
 
 If these members are also statutory directors, event funding selection records must not automatically be treated as formal Board resolutions applicable to all matters without confirmation. The product must identify the decision type and accommodate any separately required formal confirmation records.
 
-**R15 · Multiple proposals and competing budget demands (deferred from the MVP)**
+**R15 · Multiple proposals and competing budget demands (deferred from v0.1)**
 
 The phase-one recommendation is to apply the support threshold to each proposal and announce the round's budget beforehand. If proposals meeting the threshold collectively exceed that budget, show the shortfall and move to an explicit prioritization decision or a later round. The Agent must not independently choose winners or allocate funds according to message-processing order.
 
@@ -572,7 +572,7 @@ Names, locations, and amounts below are fictional examples illustrating the work
 
 **As** a student who has just joined, **I want** the Agent to explain what I can join and how to take on responsibility gradually, **so that** I can participate without first learning the entire organizational structure.
 
-**Later Discord scenario (outside the P0 MVP):** Lin joins Discord and expresses interest in AI safety. The Agent recommends genuine free resources, upcoming events or courses. If none fit, it says so and offers interest registration and a Contributor application entry point. This surface grants no Board vote, fund review or event review authority.
+**Later Discord scenario (outside the P0 v0.1 slice):** Lin joins Discord and expresses interest in AI safety. The Agent recommends genuine free resources, upcoming events or courses. If none fit, it says so and offers interest registration and a Contributor application entry point. This surface grants no Board vote, fund review or event review authority.
 
 **Acceptance:** The welcome is concise; recommendations are not fabricated; applying for Contributor status is optional, and ordinary members can still attend open events.
 
@@ -703,7 +703,7 @@ Names, locations, and amounts below are fictional examples illustrating the work
 | Welcomes, FAQs, proposal completion, status queries, preparation checklists, routine reminders, and weekly reports | Agent executes automatically within organizational boundaries |
 | Zero-budget approval, routine completion review, and event space creation | Automatic execution once explicit authorization conditions are met; record the basis |
 | Funded event approval and competing resource requests | Follow Board selection and allocation rules |
-| MVP Board approval vote (§2.3) | Approve-only: one equal weight per eligible director, no reject choice, abstain casts no approvals, up to the per-type maximum approvals per voter, and the highest approval count wins; all-abstain has no winner and a highest-count tie produces no official winner pending confirmation; a passed vote is a decision record and never a payment |
+| v0.1 Board approval vote (§2.3) | Approve-only: one equal weight per eligible director, no reject choice, abstain casts no approvals, up to the per-type maximum approvals per voter, and the highest approval count wins; all-abstain has no winner and a highest-count tie produces no official winner pending confirmation; a passed vote is a decision record and never a payment |
 | Confirmation of draft facts, important proposal changes, and acceptance of responsibility | Explicit confirmation by the relevant lead |
 | Website publication during the pilot | Publish automatically after the lead confirms facts and materials; no per-article founder approval |
 | Identity or weight changes, expanded authority, complex disputes, and major exceptions | Designated authorized people handle them and record reasons |
@@ -763,7 +763,7 @@ The product processes text and images deliberately submitted in chat. It does no
 | AC20 | Rehearse one complete zero-budget event and one funded event, with traceability from proposal through outcomes and settlement records. |
 
 AC09–AC14 and AC18–AC20 belong to the deferred remainder in §2.3 and are acceptance criteria for
-that later phase. The MVP slice covers AC01–AC04 together with the parts of AC05–AC07 and AC16–AC17
+that later phase. The v0.1 slice covers AC01–AC04 together with the parts of AC05–AC07 and AC16–AC17
 that its four steps actually exercise.
 
 ## 14. Operational Metrics and Pilot Targets
@@ -802,14 +802,14 @@ These are product configuration and governance decisions. They do not block writ
 | Initial chat platform | Resolved: Slack (confirmed 2026-09-24) | Decided |
 | Selection cadence and time zone | Recommended: every two weeks, with an explicit organizational time zone | Before a real selection round |
 | Voting window and advance notice | Recommended: 45 minutes, briefing at least 24 hours beforehand | Before a real selection round |
-| Participation, threshold, recusal, and competing-budget rules | Resolved for the MVP: approve-only, one equal weight per eligible director, per-type maximum approvals per voter, highest approval count, and no winner from an all-abstain round. Deferred: weighted voting, quorum, recusal and competing-budget rules (R13–R15) | Decided for the MVP 2026-09-24 |
+| Participation, threshold, recusal, and competing-budget rules | Resolved for v0.1: approve-only, one equal weight per eligible director, per-type maximum approvals per voter, highest approval count, and no winner from an all-abstain round. Deferred: weighted voting, quorum, recusal and competing-budget rules (R13–R15) | Decided for v0.1 2026-09-24 |
 | Per-type candidate cap | Confirmed to be per type and configurable against the eligible voter count; the Events example is 10. The concrete number per type is still to be recorded | Before the first assembled real round |
 | Per-type maximum approvals per voter | Confirmed to be per type: usually one, sometimes more than one. The concrete budget per type is still to be recorded | Before the first assembled real round |
 | Tie rule | Not confirmed: a highest-count tie must not be declared an official winner or silently broken. Options include no winner, a chair casting vote, or another rule. All-abstain is already settled as no winner | Before a real vote |
-| Post-result revision of an accepted proposal | Resolved: an ordinary title or summary revision is accepted and applied by the Agent with no separate Board approval; budget, location, personnel and major event flow — and schedule in the current implementation — need one current Board member's recorded approval. Still open: whether an active Contributor may also author feedback, since the database row permits one while the registered tools require a current director | Decided for the MVP 2026-09-24; the remaining author-scope question before a real post-result revision |
+| Post-result revision of an accepted proposal | Resolved: an ordinary title or summary revision is accepted and applied by the Agent with no separate Board approval; budget, location, personnel and major event flow — and schedule in the current implementation — need one current Board member's recorded approval. Still open: whether an active Contributor may also author feedback, since the database row permits one while the registered tools require a current director | Decided for v0.1 2026-09-24; the remaining author-scope question before a real post-result revision |
 | Board roster and voter list | Directors come from the organization's database; identify who maintains the list and when it freezes | Before a real vote |
 | Authorized zero-budget event scope | Begin with routine small educational and discussion events; list exceptions | Before automatic approval |
-| Contributor eligibility and identity linking | Retain the existing eligibility system. For the Slack MVP, resolve the sender's current Slack profile email to exactly one community identity row and derive the current role per request (D13); the retained link row is a revocation or conflict veto, not a grant. Still open: who maintains the email-to-contact rows and who may verify an identity | Before formal proposals |
+| Contributor eligibility and identity linking | Retain the existing eligibility system. For the Slack v0.1 slice, resolve the sender's current Slack profile email to exactly one community identity row and derive the current role per request (D13); the retained link row is a revocation or conflict veto, not a grant. Still open: who maintains the email-to-contact rows and who may verify an identity | Before formal proposals |
 | Funding source, accounting currency, and snapshot owner | Read only the latest human-entered available-funds snapshot; name who may record it and its currency | Before the Agent displays funds |
 | Payment, reimbursement, and settlement requirements | Define advance-spending conditions, evidence, and processing deadlines | Before funded events |
 | Public visibility of leads and collaborators | Individual authorization; separate internal accountability from public attribution | Before public events |

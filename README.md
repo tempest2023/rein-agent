@@ -37,16 +37,15 @@ The interface names are `rein_member_status`, `rein_funds`, `rein_poll_candidate
 and `rein_revision_apply`; the config block is `foundationDb`; the tables are
 `<env>_rein_vote_types`, `<env>_rein_proposals`, `<env>_rein_polls`, `<env>_rein_ballots` and
 `<env>_rein_proposal_revisions`; and the RPCs are `<env>_rein_finalize_poll` and
-`<env>_rein_approve_revision`. These replace the earlier `rein_mvp_*` tool names, `mvp` config block
-and `<env>_rein_mvp_*` tables and RPCs, which were only development names. The upgrade is a committed
-forward migration, `20260927110000_rein_governance_names.sql`, ordered after the committed
-`20260927103000` migration in the sibling Foundation repository. Both migrations are now **applied**
-to the linked project (project ref `ksgyfyysnojqrwfuyqwe`); read-only inspection on 2026-09-28 finds
-both versions in the linked remote, the ten new physical tables, the ten old-name compatibility views
-and the four RPC wrappers. That migration renames the physical tables and RPCs and keeps the old table
-and RPC names reachable as read/write compatibility views and RPC wrappers during the transition, so
-callers that have not yet moved over still work. Applying a migration is not the same as the Agent
-using it: code live end-to-end verification is still absent.
+`<env>_rein_approve_revision`. These are the v0.1 initial-release names; earlier development builds
+used stage-prefixed tool names, a stage-named config block and stage-prefixed tables and RPCs. The
+upgrade is a committed forward migration, `20260927110000_rein_governance_names.sql`, ordered after
+the committed `20260927103000` migration in the sibling Foundation repository. Both migrations are
+now **applied** to the linked project (project ref `ksgyfyysnojqrwfuyqwe`) as of 2026-09-28. The
+rename migration's transition compatibility views and RPC wrappers were removed by the later applied
+`20260929045543_remove_stage_compatibility_objects.sql`, so the linked schema now answers only on the
+stable `<env>_rein_*` names. Applying a migration is not the same as the Agent using it: code live
+end-to-end verification is still absent.
 
 Two earlier database migrations for that slice are committed in the sibling Foundation repository and
 applied to the linked `BeneficenceProtocol` project (verified read-only 2026-09-27). Each defines both
@@ -59,7 +58,7 @@ run against a test Slack workspace and the linked `dev_*` schema only; the live 
 rename, and the current PR head has **no live Slack retest after the rename**. A passed vote is a decision record: payments, reservations and publishing are not enabled,
 and weighted voting, quorum, recusal, competing-budget allocation, activities, reminders, articles and
 oversight remain deferred. See the [implementation and deployment record](docs/implementation-and-deployment-zh.md)
-and the [MVP Slack acceptance record](docs/mvp-acceptance-2026-09-28.md): cases 2-10 are accepted on
+and the [v0.1 governance acceptance record](docs/governance-acceptance-2026-09-28.md): cases 2-10 are accepted on
 synthetic development evidence, and case 1 was skipped by the owner and is not passed.
 
 ## Repository layout
@@ -165,7 +164,7 @@ social-media image and text publishing, and DAO integration belong to later phas
 - [Architecture and integration boundaries](docs/architecture.md)
 - [Setup and local runtime](docs/setup.md)
 - [Development, verification, deployment and ten Agent rehearsals](docs/implementation-and-deployment-zh.md)
-- [MVP Slack acceptance record (2026-09-28)](docs/mvp-acceptance-2026-09-28.md)
+- [v0.1 governance acceptance record (2026-09-28)](docs/governance-acceptance-2026-09-28.md)
 - [P0 requirement evidence matrix](docs/p0-acceptance-matrix.md)
 - [Provider integration contracts](docs/integration-contracts.md)
 - [Updating OpenClaw](docs/upstream.md)
