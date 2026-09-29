@@ -1,0 +1,24 @@
+{
+  "display_information": {
+    "name": "Rein Governance Test (local OAuth)",
+    "description": "Local development app that mints user tokens for the five Rein governance test identities ahead of the v0.1 initial release. User scope only; no bot identity.",
+    "background_color": "#1f2d3d"
+  },
+  "features": {},
+  "oauth_config": {
+    "redirect_urls": [
+      "https://your-quick-tunnel-host.example.com/oauth/callback"
+    ],
+    "scopes": {
+      "user": [
+        "chat:write"
+      ]
+    },
+    "pkce_enabled": true
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

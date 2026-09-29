@@ -1,13 +1,31 @@
 {
   "id": "rein-operations",
   "name": "Rein Operations",
-  "description": "Foundation operations extension; initial read-only capability status.",
+  "description": "Foundation operations extension; status, synthetic rehearsals and explicitly configured proposal tools, plus the database-backed Slack governance slice for identity status, available funds, Contributor proposals and Board polls.",
   "categories": [
     "other"
   ],
   "contracts": {
     "tools": [
-      "rein_status"
+      "rein_status",
+      "rein_simulate_vote",
+      "rein_simulate_proposal",
+      "rein_proposal_create",
+      "rein_proposal_revise",
+      "rein_proposal_confirm",
+      "rein_proposal_submit",
+      "rein_member_status",
+      "rein_funds",
+      "rein_poll_candidates",
+      "rein_vote_type_resolve",
+      "rein_governance_proposal_submit",
+      "rein_poll_open",
+      "rein_poll_vote",
+      "rein_poll_result",
+      "rein_proposal_collect",
+      "rein_proposal_comment_suggest",
+      "rein_revision_approve",
+      "rein_revision_apply"
     ]
   },
   "activation": {
@@ -15,7 +33,77 @@
   },
   "configSchema": {
     "type": "object",
-    "properties": {},
+    "properties": {
+      "proposalTools": {
+        "type": "object",
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "platform": { "enum": ["discord", "slack"] },
+          "allowedNativeChannelIds": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "statePath": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      },
+      "foundationDb": {
+        "type": "object",
+        "description": "Database-backed Slack governance slice: identity status, available funds, configured-type candidate and spoken-type-phrase reads, plus Contributor proposal field collection, proposal submission, Board poll, ballot and result writes, and post-result feedback on a proposal that passed. One installation serves exactly one Slack workspace: OpenClaw tool context carries no team ID, so the team is fixed configuration. Enabling this block registers rein_member_status, rein_funds, rein_poll_candidates, rein_vote_type_resolve, rein_governance_proposal_submit, rein_poll_open, rein_poll_vote, rein_poll_result, rein_proposal_collect, rein_proposal_comment_suggest, rein_revision_approve and rein_revision_apply instead of the synthetic simulators and the legacy proposal tools. The candidate read names one vote type explicitly, never guesses one from prose, and is limited to the approved Board channel and to current directors; it creates, selects, withdraws and votes on nothing. The phrase resolver matches only the display names and aliases the operator wrote in this block, by exact equality after normalization; it carries no built-in synonym or translation, reports several matches as ambiguous with no type chosen, and hands a type code back only when the stored type table already has it. The field-collection tool is read-only and limited to the approved proposal channel and to a currently active Contributor: it reports the fields collected so far, the fields a submit still requires, and a short prompt to ask next, and it stores nothing and never submits even when every required field is present. Its optional draft token carries the collected fields for one later turn, sealed under its own key and prefix, so it is neither a submit confirmation nor accepted as one. After a result the Board may still comment or suggest a revision on a proposal that passed. An ordinary revision of the title or the summary is accepted and made effective by the Agent itself, with no separate Board approval. A revision that moves budget, location, schedule, personnel or the major event flow is refused until a current director records an approval; schedule is material in the current implementation. Feedback is limited to the approved Board channel and to current directors, who are the voters; the database row also permits an active Contributor author. A recorded vote outcome, a comment, an approval and an applied revision never reserve, approve or pay money, and no tool posts a message.",
+        "properties": {
+          "enabled": { "type": "boolean", "description": "Explicit opt-in. Nothing registers while this is false or absent." },
+          "platform": { "enum": ["slack"], "description": "P0 uses exactly one chat platform; this slice is Slack-only." },
+          "slackTeamId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The one Slack team this installation serves, for example T01234567. Not a credential; never echoed to callers."
+          },
+          "environment": {
+            "enum": ["dev", "prod"],
+            "description": "Selects the dev_ or prod_ database table set. Required, with no implicit default."
+          },
+          "identityEmailMatch": {
+            "enum": ["enabled", "disabled"],
+            "default": "disabled",
+            "description": "Opt-in email-first identity matching. Off by default, and off means the reader consults the verified Slack link rows only, exactly as before the option existed. Enabled, one current Slack profile email that matches exactly one contact_identities email row is itself the grant: it resolves a sender whose Slack account has no link row, and it also resolves a sender whose retained verified link names the same contact. It is not a fallback that a manual link overrides. A link that names a different contact and a revoked link both fail closed, so an address change or a stale link can never bypass an administrator's decision. Enabling it requires slackBotTokenEnvVar; a bot token with users:read and users:read.email is read from the server process environment, never from this config."
+          },
+          "proposalChannelIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "description": "Approved native Slack channel IDs where a member may ask about their own status, and where an active Contributor may submit a proposal."
+          },
+          "boardChannelIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "description": "Approved native Slack channel IDs for the Board; funds reads, poll creation, ballots and results are limited to these channels and to current directors."
+          },
+          "supabaseUrlEnvVar": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of the server environment variable that holds the Supabase project URL. The value is read from the server process environment, never from this config."
+          },
+          "supabaseServiceKeyEnvVar": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of the server environment variable that holds the server-only Supabase key. The key is never stored in config, status, results or error messages."
+          },
+          "proposalConfirmationKeyEnvVar": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of the server environment variable that holds the server-only key used to sign one proposal confirmation token. The prepare step of rein_governance_proposal_submit returns a short-lived token bound to the proposer and the exact proposal text, and the confirm step refuses to write until that token is echoed back with an explicit author confirmation. The key is never stored in config, status, results or error messages."
+          },
+          "slackBotTokenEnvVar": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of the server environment variable that holds the Slack bot token with users:read and users:read.email, used only when identityEmailMatch is enabled. The token is read from the server process environment and is never stored in config, status, results or error messages; the tools register without it while email matching is disabled."
+          },
+          "voteTypeAliases": {
+            "type": "object",
+            "description": "Optional operator-authored display names for the configured vote types: one entry per stored type, keyed by its lower snake case type code, carrying the human name a member would say and any additional names for it. The read-only rein_vote_type_resolve tool matches one spoken phrase against these names by exact equality after trimming, collapsing internal whitespace and case folding; exactly one match resolves, several are reported as ambiguous with no type chosen, and none is reported as unmapped with the operator's own names offered for clarification. No synonym, translation or closest match is ever inferred, and a type code is handed back only when the stored type table already has it. Omitting the block resolves nothing."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "additionalProperties": false
   }
 }

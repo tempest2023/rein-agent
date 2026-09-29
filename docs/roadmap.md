@@ -1,10 +1,24 @@
 # Implementation roadmap
 
-Everything below is planned, not completed software. Initialization delivers documentation, workspace templates, the official OpenClaw source submodule, and a local read-only plugin with integration checks.
+The local deterministic cores for proposals, governance and a rehearsal ledger are implemented and tested. The activity, change, oversight and outbox cores are unreachable from the plugin entry and their implementation moved to a follow-up PR. The milestones below remain open as **production acceptance**: trusted identity, chat and website adapters, approved policy, provider receipts and end-to-end pilot evidence are still required. See [implementation and deployment](implementation-and-deployment-zh.md).
+
+Final acceptance state: cases 2-10 of the ten synthetic Slack rehearsals are accepted on
+synthetic development evidence, and case 1 was skipped by the owner and is not passed. The current
+PR head carries the renamed interfaces with unit and loader-level validation only and has no live
+Slack retest; `prod_*` tables are untouched and the production migration and release gates remain.
+See the [v0.1 governance acceptance record](governance-acceptance-2026-09-28.md).
+
+For a requirement-by-requirement status, see the [P0 acceptance matrix](p0-acceptance-matrix.md).
+
+The strict P0 v0.1 slice is the shorter slice in [PRD §2.3](PRD-agent-community-operations.md): Slack
+identity, a simple Contributor proposal, a simple Board vote and result, and a read-only funds
+snapshot. M0 is decided for the v0.1 slice (Slack, the organization's own database, simple one-person-one-vote).
+M1/M2 as written below carry the deferred remainder, including zero-budget fast track, budget
+allocation, competing proposals and the weighted round model; they do not block the v0.1 slice.
 
 | Milestone | Deliverable | Acceptance |
 | --- | --- | --- |
-| M0: decisions and contracts | Policy decisions, runtime version, one chat platform, storage and tool contracts | §16 decisions assigned and required fields explicitly approved |
+| M0: decisions and contracts | Policy decisions, runtime version, one chat platform, storage and tool contracts | v0.1 items decided (Slack, own database, one-person-one-vote); remaining §16 decisions assigned before their phase |
 | M1: member to proposal | Identity linking, draft/version confirmation, evaluation and configured zero-budget path | AC01–AC04 |
 | M2: facilitated evaluation | Snapshots, deterministic ballots/tally, cutoff, budget allocation and audit | AC05–AC08 |
 | M3: execution | Unique spaces, scheduling, changes, cancellation and handover | AC09–AC11 |

@@ -12,6 +12,7 @@ workspace/USER.md
 workspace/memory/
 runtime/
 secrets/
+/SECRETs.md
 coverage/
 
 .toolchain/

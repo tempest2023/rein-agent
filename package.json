@@ -10,10 +10,12 @@
   "scripts": {
     "check": "node scripts/check.mjs",
     "test": "node --test tests/*.test.mjs",
+    "toolchain:pnpm": "npx --prefix .toolchain --no-install pnpm",
     "openclaw": "node scripts/openclaw.mjs",
     "setup:local": "node scripts/init-local.mjs",
     "upstream:update": "node scripts/update-openclaw.mjs",
     "verify:plugin": "node scripts/verify-plugin.mjs",
+    "verify:proposal-tools": "node scripts/verify-proposal-tools.mjs",
     "smoke:gateway": "node scripts/smoke-gateway.mjs"
   }
 }
