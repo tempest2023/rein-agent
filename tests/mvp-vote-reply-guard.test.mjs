@@ -269,7 +269,7 @@ test('the guard names one ballot tool, one surface, one kind and one bounded fen
   assert.equal(TOOL_SEARCH_DISPATCHER_TOOL_NAME, 'tool_call');
   assert.ok(VOTE_REPLY_GUARD_TTL_MS > 0);
   assert.ok(VOTE_REPLY_GUARD_MAX_ENTRIES >= 1);
-  assert.match(VOTE_REPLY_GUARD_SHARED_STATE_KEY, /mvp-vote-reply-guard\.v1$/);
+  assert.match(VOTE_REPLY_GUARD_SHARED_STATE_KEY, /governance-vote-reply-guard\.v1$/);
   // The matcher admits the ballot tool, the one preparatory read, the disqualifying siblings and the
   // Tool Search dispatcher, and nothing else.
   assert.deepEqual(

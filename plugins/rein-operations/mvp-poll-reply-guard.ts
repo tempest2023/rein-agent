@@ -164,7 +164,7 @@ export const MAX_POLL_NOTE_LENGTH = 1000;
  * key is distinct from the collect guard's slot, so the two guards can never read each other's entry.
  */
 export const POLL_REPLY_GUARD_SHARED_STATE_KEY =
-  '@rein-protocol/openclaw-rein-operations.mvp-poll-reply-guard.v1';
+  '@rein-protocol/openclaw-rein-operations.governance-poll-reply-guard.v1';
 /** Shape version of one store: a store carrying any other version is replaced, not read. */
 const POLL_REPLY_GUARD_STORE_VERSION = 1;
 /**

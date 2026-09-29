@@ -72,7 +72,7 @@ const unsafeFinalPayload = () => ({
  * into the slot the plugin's own registration uses; the tests that prove two instances meet, or that
  * two keys stay apart, pass their own keys explicitly.
  */
-const isolatedStoreKey = () => Symbol('rein-mvp-guard-test-instance');
+const isolatedStoreKey = () => Symbol('rein-governance-guard-test-instance');
 
 const buildGuard = (options = {}) =>
   createCollectReplyGuard({ now: () => 0, stateKey: isolatedStoreKey(), ...options });
@@ -712,8 +712,8 @@ test('two stores stay apart unless the instances are given the same key', () => 
   assert.ok(send(first), 'the arming instance still answers its own run');
 
   // A string key is interned, so the same text names the same store in both instances.
-  const textFirst = createCollectReplyGuard({ now: () => 0, stateKey: 'rein-mvp-guard-test.text-key' });
-  const textSecond = createCollectReplyGuard({ now: () => 0, stateKey: 'rein-mvp-guard-test.text-key' });
+  const textFirst = createCollectReplyGuard({ now: () => 0, stateKey: 'rein-governance-guard-test.text-key' });
+  const textSecond = createCollectReplyGuard({ now: () => 0, stateKey: 'rein-governance-guard-test.text-key' });
   arm(textFirst);
   assert.ok(send(textSecond), 'the same string key must name the same store');
 
@@ -919,10 +919,10 @@ test('the entry threads the host logger into the guard once the trace is switche
     // One entry line and one classified line per hook: the match, then the arm, then the payload entry
     // and the hit that replaced it.
     assert.equal(logLines.length, 4, logLines.join('\n'));
-    assert.ok(logLines[0].startsWith('rein-mvp-guard after_tool_call.match'), logLines[0]);
-    assert.ok(logLines[1].startsWith('rein-mvp-guard after_tool_call.arm'), logLines[1]);
-    assert.ok(logLines[2].startsWith('rein-mvp-guard reply_payload_sending.entry'), logLines[2]);
-    assert.ok(logLines[3].startsWith('rein-mvp-guard reply_payload_sending.hit'), logLines[3]);
+    assert.ok(logLines[0].startsWith('rein-governance-guard after_tool_call.match'), logLines[0]);
+    assert.ok(logLines[1].startsWith('rein-governance-guard after_tool_call.arm'), logLines[1]);
+    assert.ok(logLines[2].startsWith('rein-governance-guard reply_payload_sending.entry'), logLines[2]);
+    assert.ok(logLines[3].startsWith('rein-governance-guard reply_payload_sending.hit'), logLines[3]);
     assert.ok(!logLines.join('\n').includes('event_pair'), logLines.join('\n'));
   } finally {
     if (previous === undefined) delete process.env[COLLECT_REPLY_GUARD_DIAG_ENV];
@@ -948,8 +948,8 @@ function collectDiagnostics(options = {}) {
   return { guard, lines };
 }
 
-const collectLines = lines => lines.filter(line => line.startsWith('rein-mvp-guard after_tool_call'));
-const replyLines = lines => lines.filter(line => line.startsWith('rein-mvp-guard reply_payload_sending'));
+const collectLines = lines => lines.filter(line => line.startsWith('rein-governance-guard after_tool_call'));
+const replyLines = lines => lines.filter(line => line.startsWith('rein-governance-guard reply_payload_sending'));
 
 test('the trace stays silent unless it is explicitly enabled and given a sink', () => {
   // No sink: even with the environment variable set, nothing is emitted.
@@ -997,9 +997,9 @@ test('an armed Tool Search dispatch and a rewritten reply each trace exactly one
   // Four lines: the match and the arm for the tool call, then the entry and the hit for the payload.
   assert.equal(lines.length, 4, lines.join('\n'));
   const entryMatch = collectLines(lines)[0];
-  assert.ok(entryMatch.startsWith('rein-mvp-guard after_tool_call.match'), entryMatch);
+  assert.ok(entryMatch.startsWith('rein-governance-guard after_tool_call.match'), entryMatch);
   const armed = collectLines(lines)[1];
-  assert.ok(armed.startsWith('rein-mvp-guard after_tool_call.arm'), armed);
+  assert.ok(armed.startsWith('rein-governance-guard after_tool_call.arm'), armed);
   // A dispatched call names both the outer dispatcher it observed and the guest tool it resolved to.
   assert.ok(armed.includes(`observed=${TOOL_SEARCH_DISPATCHER_TOOL_NAME}`), armed);
   assert.ok(armed.includes(`matched=${COLLECT_GUARD_TOOL_NAME}`), armed);
@@ -1007,9 +1007,9 @@ test('an armed Tool Search dispatch and a rewritten reply each trace exactly one
   // The run id is the identifier-shaped `run-case3-1` fixture, so it correlates as-is.
   assert.ok(armed.includes(`run=${RUN}`), armed);
 
-  assert.ok(replyLines(lines)[0].startsWith('rein-mvp-guard reply_payload_sending.entry'), replyLines(lines)[0]);
+  assert.ok(replyLines(lines)[0].startsWith('rein-governance-guard reply_payload_sending.entry'), replyLines(lines)[0]);
   const hit = replyLines(lines)[1];
-  assert.ok(hit.startsWith('rein-mvp-guard reply_payload_sending.hit'), hit);
+  assert.ok(hit.startsWith('rein-governance-guard reply_payload_sending.hit'), hit);
   assert.ok(hit.includes('channel=slack'), hit);
   assert.ok(hit.includes('kind=final'), hit);
   assert.ok(hit.includes(`run=${RUN}`), hit);
@@ -1021,7 +1021,7 @@ test('a refused observation traces one line that names the refusal reason', () =
     {
       drive: guard => guard.afterToolCall({ toolName: 'rein_status', params: {}, runId: RUN, result: {} }),
       expect: line => {
-        assert.ok(line.startsWith('rein-mvp-guard after_tool_call.reject'), line);
+        assert.ok(line.startsWith('rein-governance-guard after_tool_call.reject'), line);
         assert.ok(line.includes('match=false'), line);
         assert.ok(line.includes('reason=unmatched_tool'), line);
       },
@@ -1059,7 +1059,7 @@ test('a refused observation traces one line that names the refusal reason', () =
     const matched = collectLines(lines);
     // The entry line always comes first and raw; the classified line follows when it is a refusal.
     assert.equal(matched.length, 2, `expected an entry and a classified line, got: ${lines.join('\n')}`);
-    assert.ok(matched[0].startsWith('rein-mvp-guard after_tool_call.match'), matched[0]);
+    assert.ok(matched[0].startsWith('rein-governance-guard after_tool_call.match'), matched[0]);
     expect(matched[1]);
   }
 });
@@ -1071,10 +1071,10 @@ test('a submit in the run traces its own match and clearing, not the collect pro
   observeSubmit(guard);
   const matched = collectLines(lines);
   assert.equal(matched.length, 4, lines.join('\n'));
-  assert.ok(matched[0].startsWith('rein-mvp-guard after_tool_call.match'), matched[0]);
-  assert.ok(matched[1].startsWith('rein-mvp-guard after_tool_call.arm'), matched[1]);
-  assert.ok(matched[2].startsWith('rein-mvp-guard after_tool_call.match'), matched[2]);
-  assert.ok(matched[3].startsWith('rein-mvp-guard after_tool_call.reject'), matched[3]);
+  assert.ok(matched[0].startsWith('rein-governance-guard after_tool_call.match'), matched[0]);
+  assert.ok(matched[1].startsWith('rein-governance-guard after_tool_call.arm'), matched[1]);
+  assert.ok(matched[2].startsWith('rein-governance-guard after_tool_call.match'), matched[2]);
+  assert.ok(matched[3].startsWith('rein-governance-guard after_tool_call.reject'), matched[3]);
   assert.ok(matched[3].includes('reason=submit_observed'), matched[3]);
   assert.ok(matched[3].includes(`matched=${SUBMIT_GUARD_TOOL_NAME}`), matched[3]);
 });
@@ -1092,8 +1092,8 @@ test('a reply that is not rewritten traces one miss line with its reason', () =>
     drive(guard);
     const matched = replyLines(lines);
     assert.equal(matched.length, 2, `expected an entry and a classified line, got: ${lines.join('\n')}`);
-    assert.ok(matched[0].startsWith('rein-mvp-guard reply_payload_sending.entry'), matched[0]);
-    assert.ok(matched[1].startsWith('rein-mvp-guard reply_payload_sending.reject'), matched[1]);
+    assert.ok(matched[0].startsWith('rein-governance-guard reply_payload_sending.entry'), matched[0]);
+    assert.ok(matched[1].startsWith('rein-governance-guard reply_payload_sending.reject'), matched[1]);
     assert.ok(matched[1].includes(expect), matched[1]);
     assert.ok(matched[1].includes(`run=${run}`), matched[1]);
   }
@@ -1106,7 +1106,7 @@ test('a ready-to-submit collect consumes its run and traces the prepared refusal
   });
   assert.equal(send(guard), undefined);
   const line = replyLines(lines)[1];
-  assert.ok(line.startsWith('rein-mvp-guard reply_payload_sending.reject'), line);
+  assert.ok(line.startsWith('rein-governance-guard reply_payload_sending.reject'), line);
   assert.ok(line.includes('reason=prepared_for_submit'), line);
 });
 

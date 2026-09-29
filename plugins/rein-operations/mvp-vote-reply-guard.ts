@@ -181,7 +181,7 @@ export const MAX_VOTE_APPROVAL_COUNT = 200;
  * read each other's entry.
  */
 export const VOTE_REPLY_GUARD_SHARED_STATE_KEY =
-  '@rein-protocol/openclaw-rein-operations.mvp-vote-reply-guard.v1';
+  '@rein-protocol/openclaw-rein-operations.governance-vote-reply-guard.v1';
 /** Shape version of one store: a store carrying any other version is replaced, not read. */
 const VOTE_REPLY_GUARD_STORE_VERSION = 1;
 

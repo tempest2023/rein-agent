@@ -361,7 +361,7 @@ test('the guard names one result tool, one surface, one dispatch kind and one bo
   assert.equal(TOOL_SEARCH_DISPATCHER_TOOL_NAME, 'tool_call');
   assert.ok(POLL_REPLY_GUARD_TTL_MS > 0);
   assert.ok(POLL_REPLY_GUARD_MAX_ENTRIES >= 1);
-  assert.match(POLL_REPLY_GUARD_SHARED_STATE_KEY, /mvp-poll-reply-guard\.v1$/);
+  assert.match(POLL_REPLY_GUARD_SHARED_STATE_KEY, /governance-poll-reply-guard\.v1$/);
   // The matcher admits the result tool, every closing write and the Tool Search dispatcher, and
   // nothing else.
   assert.deepEqual([...POLL_REPLY_GUARD_TOOL_NAMES], [

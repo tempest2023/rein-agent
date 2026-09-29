@@ -138,7 +138,7 @@ export const COLLECT_REPLY_GUARD_MAX_ENTRIES = 64;
  * never a token.
  */
 export const COLLECT_REPLY_GUARD_SHARED_STATE_KEY =
-  '@rein-protocol/openclaw-rein-operations.mvp-collect-reply-guard.v1';
+  '@rein-protocol/openclaw-rein-operations.governance-collect-reply-guard.v1';
 /** Shape version of one store: a store carrying any other version is replaced, not read. */
 const COLLECT_REPLY_GUARD_STORE_VERSION = 1;
 /**
@@ -491,7 +491,7 @@ export function createCollectReplyGuard(options?: CollectReplyGuardOptions): Col
   const emitDiagnostic = (event: string, fields: Record<string, string>): void => {
     if (!diagnosticSink) return;
     const parts = Object.entries(fields).map(([key, value]) => `${key}=${value}`);
-    const line = `rein-mvp-guard ${event}${parts.length > 0 ? ` ${parts.join(' ')}` : ''}`;
+    const line = `rein-governance-guard ${event}${parts.length > 0 ? ` ${parts.join(' ')}` : ''}`;
     try {
       if (typeof diagnosticSink.info === 'function') diagnosticSink.info(line);
       else if (typeof diagnosticSink.debug === 'function') diagnosticSink.debug(line);
