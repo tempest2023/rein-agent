@@ -1160,11 +1160,14 @@ test('a tampered, re-dated or re-aimed token is refused before the write', async
     return { result, calls: fakes.calls };
   };
 
-  // A flipped character in the sealed blob fails authentication rather than decoding to something.
-  const flipped = parts =>
-    parts.map((part, index) =>
-      index === 3 ? part.slice(0, -1) + (part.at(-1) === 'A' ? 'B' : 'A') : part,
-    );
+  // One flipped byte in the sealed blob fails authentication rather than decoding to something. The
+  // tamper runs on the decoded bytes and re-encodes, so only the authenticated content changes: the
+  // token keeps a canonical spelling and the case no longer depends on the last character's low bits.
+  const flipped = parts => {
+    const raw = Buffer.from(parts[3], 'base64url');
+    raw[0] ^= 0x01;
+    return [...parts.slice(0, 3), raw.toString('base64url')];
+  };
   const bodyTamper = await forge(flipped);
   assert.equal(bodyTamper.result.details.error, 'proposal_confirmation_invalid');
   assert.deepEqual(bodyTamper.calls.submitProposal, [], 'a tampered token never reaches the writer');
@@ -1194,6 +1197,61 @@ test('a tampered, re-dated or re-aimed token is refused before the write', async
     .execute('call-1', { ...args, ...settle(foreignToken) });
   assert.equal(stolen.details.error, 'proposal_confirmation_invalid');
   assert.deepEqual(strangerTurn.calls.submitProposal, [], 'a cross-author token writes nothing');
+});
+
+test('a non-canonical spelling of a valid sealed blob is refused instead of decoded', async () => {
+  // Base64url drops the trailing bits that carry no byte, so one sealed blob also has sibling
+  // spellings that decode to exactly the same bytes. The verifier has to reject those: taken as the
+  // token, a sibling spelling would decode to a valid document while standing in for the issued
+  // token. The sibling is found by enumerating the final character, so the case is exercised on
+  // every run instead of waiting for a tamper whose last bits happen to be unused.
+  const args = { voteType: VOTE_TYPE, title: 'Repair workshop', summary: 'Fix the roof tiles' };
+  const fakes = createFakes();
+  const buildTurn = () => build({ fakes, channel: PROPOSAL_CHANNEL });
+  const token = await prepareProposal(buildTurn().tool('rein_governance_proposal_submit'), 'call-1', args);
+  const parts = token.split('.');
+  const sealed = parts[3];
+  const bytes = Buffer.from(sealed, 'base64url');
+  assert.equal(bytes.toString('base64url'), sealed, 'the minted token is already canonical');
+
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const head = sealed.slice(0, -1);
+  const alias = [...alphabet]
+    .map(character => `${head}${character}`)
+    .find(candidate => candidate !== sealed && Buffer.from(candidate, 'base64url').equals(bytes));
+  assert.ok(alias, 'the trailing bits leave a sibling spelling for the alias case');
+  assert.notEqual(alias, sealed);
+  assert.ok(
+    Buffer.from(alias, 'base64url').equals(bytes),
+    'the alias decodes to the same sealed bytes',
+  );
+  assert.notEqual(
+    alias,
+    Buffer.from(alias, 'base64url').toString('base64url'),
+    'the alias differs from its own canonical re-encoding',
+  );
+
+  const aliased = await buildTurn()
+    .tool('rein_governance_proposal_submit')
+    .execute('call-1', {
+      ...args,
+      confirmationToken: [...parts.slice(0, 3), alias].join('.'),
+      confirmPronouncedByAuthor: true,
+    });
+  assert.equal(aliased.details.error, 'proposal_confirmation_invalid', JSON.stringify(aliased.details));
+  assert.deepEqual(fakes.calls.submitProposal, [], 'the alias is refused before the writer');
+
+  // The same sealed bytes in their canonical spelling still confirm in a fresh turn, so the refusal
+  // above tracks the spelling and not the blob.
+  const controlFakes = createFakes();
+  const control = await confirmProposal(
+    build({ fakes: controlFakes, channel: PROPOSAL_CHANNEL }).tool('rein_governance_proposal_submit'),
+    'call-1',
+    args,
+    token,
+  );
+  assert.equal(control.details.ok, true, JSON.stringify(control.details));
+  assert.equal(controlFakes.calls.submitProposal.length, 1, 'the canonical token reaches the writer once');
 });
 
 test('the longest legal summary prepares and confirms across turns, in ASCII and non-ASCII', async () => {
