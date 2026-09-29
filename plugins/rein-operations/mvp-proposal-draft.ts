@@ -265,6 +265,10 @@ const openDocument = (
 ): { payload: DraftPayload; proposalId: string | null } | null => {
   if (!/^[A-Za-z0-9_-]+$/.test(sealed)) return null;
   const buffer = Buffer.from(sealed, 'base64url');
+  // Base64url drops the trailing bits that carry no byte, so one sealed blob has several spellings
+  // that decode to exactly the same bytes. Accept only the canonical spelling the mint side produced:
+  // a sibling spelling would decode to a valid draft and could stand in for the issued token.
+  if (buffer.toString('base64url') !== sealed) return null;
   if (buffer.length <= NONCE_BYTES + TAG_BYTES) return null;
   const nonce = buffer.subarray(0, NONCE_BYTES);
   const ciphertext = buffer.subarray(NONCE_BYTES, buffer.length - TAG_BYTES);

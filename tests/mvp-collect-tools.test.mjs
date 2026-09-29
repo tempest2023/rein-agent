@@ -557,6 +557,72 @@ test('a carried draft whose token is tampered or expired is refused', async () =
   );
 });
 
+test('a non-canonical spelling of a valid draft blob is refused instead of decoded', async () => {
+  // Base64url drops the trailing bits that carry no byte, so one sealed draft blob also has sibling
+  // spellings that decode to exactly the same bytes. The draft verifier has to reject those: taken as
+  // a carried token, a sibling spelling would decode to a valid draft while standing in for the token
+  // the server issued. The sibling is found by enumerating the final character, so the case is
+  // exercised on every run instead of waiting for a blob whose last bits happen to be unused.
+  const fakes = createFakes();
+  const first = build({ fakes });
+  const one = await first.tool().execute('call-1', { title: 'Meetup', summary: 'Venue and tea break' });
+  assert.equal(one.details.ok, true, JSON.stringify(one.details));
+  const parts = one.details.draftToken.split('.');
+  assert.deepEqual(parts.slice(0, 2), ['rein_proposal_draft', 'rpd1']);
+  const sealed = parts[3];
+  const bytes = Buffer.from(sealed, 'base64url');
+  assert.equal(bytes.toString('base64url'), sealed, 'the minted token is already canonical');
+  assert.notEqual(bytes.length % 3, 0, 'the sealed blob leaves trailing bits, so a sibling spelling exists');
+
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const head = sealed.slice(0, -1);
+  const alias = [...alphabet]
+    .map(character => `${head}${character}`)
+    .find(candidate => candidate !== sealed && Buffer.from(candidate, 'base64url').equals(bytes));
+  assert.ok(alias, 'the trailing bits leave a sibling spelling for the alias case');
+  assert.notEqual(alias, sealed);
+  assert.ok(Buffer.from(alias, 'base64url').equals(bytes), 'the alias decodes to the same sealed bytes');
+  assert.notEqual(
+    alias,
+    Buffer.from(alias, 'base64url').toString('base64url'),
+    'the alias differs from its own canonical re-encoding',
+  );
+
+  const readsBefore = fakes.calls.listVoteTypes.length;
+  const proposalsBefore = fakes.calls.getProposal.length;
+  const aliased = build({ fakes, now: () => new Date(LATER) });
+  const refused = await aliased
+    .tool()
+    .execute('call-2', { draftToken: [...parts.slice(0, 3), alias].join('.'), title: 'Meetup' });
+  assert.equal(refused.details.error, 'draft_token_invalid', JSON.stringify(refused.details));
+  // The alias is refused before any stored read: the refused turn adds no vote-type table read and no
+  // proposal read, so a sibling spelling can never steer a database call while standing in for the
+  // issued token.
+  assert.equal(fakes.calls.listVoteTypes.length, readsBefore, 'the alias adds no vote-type read');
+  assert.equal(fakes.calls.getProposal.length, proposalsBefore, 'the alias adds no proposal read');
+
+  // Padding and an out-of-alphabet character are the same class of non-canonical input: each is a
+  // spelling this module never mints, and each is refused rather than decoded.
+  for (const malformed of [`${sealed}==`, `${sealed.slice(0, -1)}=`, `${sealed.slice(0, -1)}+`, `${sealed.slice(0, -1)}/`]) {
+    const carried = build({ fakes: createFakes(), now: () => new Date(LATER) });
+    const result = await carried
+      .tool()
+      .execute('call-3', { draftToken: [...parts.slice(0, 3), malformed].join('.'), title: 'Meetup' });
+    assert.equal(result.details.error, 'draft_token_invalid', `"${malformed}" must be refused`);
+  }
+
+  // The same sealed bytes in their canonical spelling still resume the draft, so the refusal above
+  // tracks the spelling and not the blob.
+  const controlFakes = createFakes();
+  const control = build({ fakes: controlFakes, now: () => new Date(LATER) });
+  const resumed = await control
+    .tool()
+    .execute('call-4', { draftToken: one.details.draftToken, title: 'September community sharing session' });
+  assert.equal(resumed.details.ok, true, JSON.stringify(resumed.details));
+  assert.equal(resumed.details.collected.title, 'September community sharing session');
+  assert.equal(resumed.details.collected.summary, 'Venue and tea break');
+});
+
 test('a fresh collect discards nothing silently: an empty argument clears a carried value', async () => {
   const fakes = createFakes();
   const first = build({ fakes });
