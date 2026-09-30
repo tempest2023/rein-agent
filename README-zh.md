@@ -1,6 +1,6 @@
 # Rein Agent
 
-<img src="workspace/avatars/rein-agent.png" alt="Rein Agent Bot Icon" width="192" height="192">
+<img src="workspace/avatars/rein-agent.png" alt="Nori official avatar" width="192" height="192">
 
 [English](README.md)
 
@@ -131,7 +131,7 @@ Contributor 提案 → 信息确认与评估 → 零预算授权快速通道 / B
 - [P0 实施与验收清单](docs/roadmap.md)
 - [v0.1 治理验收记录（2026-09-28）](docs/governance-acceptance-2026-09-28.md)
 - [待决事项](docs/decisions.md)
-- [正式 Bot Icon 与设计历史](assets/brand/README.md)
+- [Nori 正式头像](assets/brand/README.md)
 
 ## 协作
 

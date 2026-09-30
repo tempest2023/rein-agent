@@ -1,6 +1,6 @@
 # Rein Agent
 
-<img src="workspace/avatars/rein-agent.png" alt="Rein Agent Bot Icon" width="192" height="192">
+<img src="workspace/avatars/rein-agent.png" alt="Nori official avatar" width="192" height="192">
 
 [中文说明](README-zh.md)
 
@@ -170,7 +170,7 @@ social-media image and text publishing, and DAO integration belong to later phas
 - [Updating OpenClaw](docs/upstream.md)
 - [P0 implementation and acceptance checklist](docs/roadmap.md)
 - [Open decisions](docs/decisions.md)
-- [Official Bot Icon and design history](assets/brand/README.md)
+- [Nori official avatar](assets/brand/README.md)
 
 ## Contributing
 
