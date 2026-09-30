@@ -37,7 +37,7 @@ flowchart LR
   Outbox --> Website[Foundation website adapter: deferred from v0.1]
   Admin[Authorized operators] --> Domain
   Upstream[Upstream OpenClaw releases] -. reviewed pin bump .-> Gateway
-  Data[Foundation Supabase: members, directors, contact identities, link vetoes, funds snapshots] -. read-only reader implemented, no live connection .-> Domain
+  Data[Foundation backend API: governance reads and writes, identity resolution and binding] -. one authenticated service; no database credential in the Agent .-> Domain
 ```
 
 Discord is not drawn: no Discord surface is connected, and its general-participant scope (onboarding,
@@ -50,14 +50,18 @@ proposal and governance modules can be exercised locally; authoritative registry
 budgets, website publishing and production adapters remain pending. A manifest declaration is not
 an authorization check.
 
-An explicit `foundationDb` configuration block instead registers twelve database-backed tools — the
+An explicit `foundationDb` configuration block instead registers twelve backend-backed tools — the
 reads `rein_member_status`, `rein_funds`, `rein_poll_candidates` and `rein_vote_type_resolve`, the
 writes `rein_governance_proposal_submit`, `rein_poll_open`, `rein_poll_vote` and `rein_poll_result`,
 the read-only field-collection tool `rein_proposal_collect`, and the post-result feedback tools
 `rein_proposal_comment_suggest`, `rein_revision_approve` and `rein_revision_apply` — and suppresses
-the synthetic simulators and the legacy proposal bridge. The reads go through
-`foundation-db-reader.ts`, are read-only, and fail closed when `foundationDb.enabled` is absent or
-false. No live database is connected yet.
+the synthetic simulators and the legacy proposal bridge. The block names the backend, not a
+database: `platform`, `workspaces` (each an `id` with a non-empty native channel ID list),
+`proposalChannelIds`, `boardChannelIds`, the environment variables for the backend base URL, the
+Agent caller ID and the Agent credential, and the optional `voteTypeAliases`. Every governance read
+and write, identity resolution and identity binding is one authenticated call to that backend; the
+Agent holds no database credential and fails closed when `foundationDb.enabled` is absent or false.
+No live backend is connected yet.
 
 Nothing else is registered. The remaining deterministic modules, including the weighted governance
 rounds, are exercised through their module APIs in local tests and stay unregistered because v0.1
@@ -79,7 +83,7 @@ proposal, a simple Board approval vote with a recorded result, and a read-only f
 
 ```mermaid
 flowchart LR
-  Identify[Bot reads the sender's Slack email and matches one contact identity row] --> Propose[Matched Contributor submits a simple proposal]
+  Identify[Agent relays the event; the backend resolves a canonical verified link] --> Propose[Resolved Contributor submits a simple proposal]
   Propose --> Vote[Eligible directors record approvals or abstain]
   Vote --> Result[Agent records the result and returns it to the call]
   Funds[Latest human-entered funds snapshot] -. read-only .-> Result
@@ -88,40 +92,39 @@ flowchart LR
 
 | v0.1 step | Local code today | Still required |
 | --- | --- | --- |
-| Slack identity | `request-context.ts` binds a host sender; `foundation-db-reader.ts` and `governance-read-tools.ts` resolve a sender. Under D13 that resolver matches the sender's Slack profile email against exactly one `<env>_contact_identities` row at each request when it is on, with no persisted link and with a revoked or conflicting link row kept only as a veto. The resolver exists in `slack-email-lookup.ts` plus the reader's email-first path and is covered by local tests, but it is opt-in and off by default (`foundationDb.identityEmailMatch`), and the `users:read` / `users:read.email` bot scopes and bot token it needs are not installed or configured, so by default the reader still resolves against the identity-link table. The snapshot validator behind the older authoritative-registry path is unreachable from this runtime slice; its implementation moved to a follow-up PR. | The installed bot scopes, a configured bot token, the resolver enabled, a Slack app, approved workspace and channel IDs, and the reviewed identity records, plus a live database connection from the Agent. The identity-link migration is committed in the sibling repository `tempest2023/ReinProtocolFoundation` (PR #13, head `78281fa`) and applied to the linked project, but no tool has used it. |
-| Contributor proposal | `proposals.ts` and `proposal-store.ts` with the optional proposal bridge, plus the database-backed `rein_governance_proposal_submit` in `governance-write-tools.ts`. | A Slack conversation wired to the bridge plus the database-backed active-Contributor source. |
-| Board approval vote and result | `governance-write-tools.ts` registers `rein_poll_open`, `rein_poll_vote` and `rein_poll_result`. The round takes its candidate cap from the stored vote type and the tool reads the candidate pool from the database itself, so no caller supplies candidates, a cap or an option label; an options-only call is refused with `legacy_options_unsupported`. `rein_poll_vote` accepts `approvedProposalIds` only, bounded by the poll's own `maxApprovalsPerVoter`, and an empty list is the abstention; the database freezes the candidate list and both limits at insert time. `vote-tally.ts` counts a frozen eligible list at one equal weight per member, and `governance.ts` holds the older weighted round model that stays unregistered. | An approved voter list and confirmation of the highest-count tie rule. No tool posts to Slack, so the result returns to the calling turn only. |
-| Read-only funds snapshot | `foundation-db-reader.ts` reads the append-only snapshot table and `governance-read-tools.ts` exposes `rein_funds` to approved Board channels. | A live database connection from the Agent. The snapshot migration is committed in the sibling repository `tempest2023/ReinProtocolFoundation` (PR #13, head `78281fa`) and applied to the linked project, but no tool has read it. |
+| Slack identity | `request-context.ts` binds a host sender; the plugin relays the ingress tuple through `backend-transport.ts` and resolves the sender through `backend-db-adapter.ts` and `governance-read-tools.ts`. Under D13 the backend resolves the contact and its current role from canonical verified links and returns a private signed proof bound to the sender, channel and caller; the Agent resolves nothing itself and reads no profile email. An unlinked sender can start a bind, which returns a website URL and completes with a short code the person carries back, with no email argument. | The connected backend service, the registered caller ID and credential, the approved workspace and channel IDs in `foundationDb.workspaces`, and the reviewed canonical links and role records behind the backend. The service's schema is committed in the sibling repository `tempest2023/ReinProtocolFoundation` (PR #13, head `78281fa`) and applied to the linked project, but no tool has exercised the backend end to end. |
+| Contributor proposal | `proposals.ts` and `proposal-store.ts` with the optional proposal bridge, plus the backend-backed `rein_governance_proposal_submit` in `governance-write-tools.ts`. | A Slack conversation wired to the bridge plus the backend-backed active-Contributor source. |
+| Board approval vote and result | `governance-write-tools.ts` registers `rein_poll_open`, `rein_poll_vote` and `rein_poll_result`. The round takes its candidate cap from the stored vote type and the tool reads the candidate pool from the backend itself, so no caller supplies candidates, a cap or an option label; an options-only call is refused with `legacy_options_unsupported`. `rein_poll_vote` accepts `approvedProposalIds` only, bounded by the poll's own `maxApprovalsPerVoter`, and an empty list is the abstention; the backend freezes the candidate list and both limits at insert time. `vote-tally.ts` counts a frozen eligible list at one equal weight per member, and `governance.ts` holds the older weighted round model that stays unregistered. | An approved voter list and confirmation of the highest-count tie rule. No tool posts to Slack, so the result returns to the calling turn only. |
+| Read-only funds snapshot | `backend-db-adapter.ts` calls the backend's `available_funds` operation and `governance-read-tools.ts` exposes `rein_funds` to approved Board channels. | A live backend connection from the Agent. The snapshot schema is committed in the sibling repository `tempest2023/ReinProtocolFoundation` (PR #13, head `78281fa`) and applied to the linked project, but no tool has read it. |
 
 Weighted rounds, quorum, recusal, competing-budget allocation, payments, activity spaces, reminders,
 articles, website publication and oversight are deferred from v0.1. The activity, change,
 oversight and outbox cores are unreachable from this runtime slice and their implementation moved to
 a follow-up PR; the remaining deferred modules stay unregistered.
 
-One installation serves exactly one Slack workspace. The pinned runtime supplies a trusted
-per-message sender (`requesterSenderId`) in an admitted Slack DM and equally in an admitted channel
-or group message, so channel traffic is not a weaker source of identity than a DM. What the
-version-2 tool context does not carry is a Slack team or workspace ID, so the team is fixed
-operator configuration and pointing one installation at several workspaces would resolve senders
-against the wrong community records. The community identity behind that sender is resolved under
-D13: the bot reads the sender's current Slack profile email with `users.info` (bot scopes
-`users:read` and `users:read.email`), normalizes it, and requires an exact match to exactly one
-`<env>_contact_identities` row, deriving the contact and its current role without persisting a link.
-A missing, hidden, unmatched or ambiguous email fails closed, and a retained revoked or conflicting
-link row vetoes the sender. That path is opt-in and off by default: the resolver ships in
-`slack-email-lookup.ts` with local tests, but the scopes and bot token are not installed or
-configured, no Slack workspace is connected, and without the opt-in the shipped reader still
-resolves through the retained link table.
+The pinned runtime supplies a trusted per-message sender (`requesterSenderId`) in an admitted Slack
+DM and equally in an admitted channel or group message, so channel traffic is not a weaker source of
+identity than a DM. The Agent turns that into a private, backend-signed proof: it relays the inbound
+tuple (platform, workspace, user, channel, event) to the backend and receives the assertion bound to
+it and to the calling Agent, which it presents on every later call. The proof is never a tool
+argument, never a tool result and never a status field, and no tool accepts a model-supplied actor.
+The community identity behind the sender is resolved under D13 by the backend alone, from canonical
+verified links it holds; the Agent reads no profile or email, and one contact may hold several
+bindings with consent. A sender the backend cannot resolve fails closed, and an unlinked sender can
+start a bind that returns a website URL and completes with a short code the person carries back. The
+transport and identity path ship in `backend-transport.ts`, `backend-db-adapter.ts` and
+`ingress-proof.ts` with local synthetic tests, but no backend is connected and the Agent is not
+deployed.
 
 Channel roles are separated (D12). Slack is the internal governance surface for the core circle,
 meaning core board members and core contributors; Board voting, fund review and event review happen
 there. Discord is the general-participant surface and is a later, separate scope: it is not
 connected, and in the early Agent period it carries onboarding, free-resource navigation and
-participation paths only. Identity links are held per platform and per space, so a Discord link is
-evidence for the general-participant surface alone and never confers Slack governance rights; one
-platform's role or channel membership never substitutes for another platform's eligibility check.
-Each platform's surface stays its own scope, and no generic cross-channel business framework is
-planned.
+participation paths only. A binding made on one platform or space is evidence for that surface
+alone and never confers Slack governance rights; one platform's role or channel membership never
+substitutes for another platform's eligibility check, and a contact may hold several bindings by
+consent. Each platform's surface stays its own scope, and no generic cross-channel business
+framework is planned.
 
 ## Proposed service boundaries
 
@@ -130,7 +133,7 @@ above, plus a read-only view of Finance. Activities, Outcomes and Oversight are 
 
 | Boundary | Responsibilities | PRD |
 | --- | --- | --- |
-| Identity | Verified platform-account mapping held per platform and space; current role validity; audience scopes | R01–R03 |
+| Identity | Verified platform-account bindings, each scoped to the platform and space it was made in; current role validity; audience scopes | R01–R03 |
 | Proposals | Draft and confirmed versions; owner and material-change confirmation | R04–R09 |
 | Governance | Frozen rounds; eligibility; explicit ballots; cutoff; configured tally and allocation | R10–R16 |
 | Activities | Unique activity spaces; tasks, changes, handover and cancellation | R17–R20 |

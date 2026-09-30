@@ -30,12 +30,11 @@ const CANDIDATE_C = 'cccccccc-3333-4333-8333-333333333333';
 const CANDIDATE_D = 'dddddddd-4444-4444-8444-444444444444';
 const VOTE_TYPE = 'event_budget';
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const URL_ENV = 'REIN_SUPABASE_URL';
-const KEY_ENV = 'REIN_SUPABASE_SERVICE_ROLE_KEY';
+const BASE_URL_ENV = 'REIN_BACKEND_BASE_URL';
+const CALLER_ENV = 'REIN_AGENT_CALLER_ID';
+const CREDENTIAL_ENV = 'REIN_AGENT_CREDENTIAL';
 const CONFIRM_ENV = 'REIN_PROPOSAL_CONFIRMATION_KEY';
-const SECRET = 'sb_secret_unit_test_0000000000000000';
-const BOT_TOKEN_ENV = 'REIN_SLACK_BOT_TOKEN';
-const BOT_TOKEN = 'xoxb-unit-test-0000000000000001';
+const SECRET = 'unit-test-agent-credential';
 // A distinct server-only signing key for the proposal confirmation token. The rehearsal injects it
 // directly, so no real credential is read from the ambient environment.
 const CONFIRM_KEY = 'unit-test-proposal-confirmation-signing-key-0001';
@@ -46,13 +45,26 @@ const NOW = '2026-09-24T10:30:00.000Z';
 const baseConfig = Object.freeze({
   enabled: true,
   platform: 'slack',
-  slackTeamId: TEAM,
-  environment: 'dev',
+  workspaces: [
+    {
+      platform: 'slack',
+      workspaceId: TEAM,
+      nativeChannelIds: [PROPOSAL_CHANNEL, BOARD_CHANNEL],
+    },
+  ],
   proposalChannelIds: [PROPOSAL_CHANNEL],
   boardChannelIds: [BOARD_CHANNEL],
-  supabaseUrlEnvVar: URL_ENV,
-  supabaseServiceKeyEnvVar: KEY_ENV,
+  backendApiBaseUrlEnvVar: BASE_URL_ENV,
+  agentCallerIdEnvVar: CALLER_ENV,
+  agentCredentialEnvVar: CREDENTIAL_ENV,
   proposalConfirmationKeyEnvVar: CONFIRM_ENV,
+});
+
+const backendEnv = Object.freeze({
+  [BASE_URL_ENV]: 'https://backend.rein.example',
+  [CALLER_ENV]: 'rein-agent',
+  [CREDENTIAL_ENV]: SECRET,
+  [CONFIRM_ENV]: CONFIRM_KEY,
 });
 
 const contributor = (overrides = {}) => ({
@@ -295,7 +307,7 @@ function build({
     reader: fakes.reader,
     writer: fakes.writer,
     confirmationSigningKey: CONFIRM_KEY,
-    env,
+    env: env ?? backendEnv,
     now: now ?? (() => CLOCK.at),
   });
   const tools = registration.create(ctx);
@@ -366,13 +378,13 @@ test('no v0.1 write tool registers without an explicit enabled block', () => {
 test('an enabled but incomplete foundationDb block fails loudly instead of registering silently', () => {
   const fakes = createFakes();
   const cases = [
-    [{ ...baseConfig, platform: 'discord' }, /platform must be "slack"/],
-    [{ ...baseConfig, slackTeamId: undefined }, /slackTeamId must be one Slack team ID/],
+    [{ ...baseConfig, platform: 'Not A Platform' }, /platform must name the governance platform/],
+    [{ ...baseConfig, workspaces: [] }, /workspaces must list at least one approved workspace/],
     [{ ...baseConfig, proposalChannelIds: [] }, /proposalChannelIds must list at least one/],
     [{ ...baseConfig, boardChannelIds: ['  '] }, /boardChannelIds must contain non-empty/],
-    [{ ...baseConfig, environment: 'staging' }, /environment must be 'dev' or 'prod'/],
-    [{ ...baseConfig, supabaseUrlEnvVar: undefined }, /supabaseUrlEnvVar must name a server environment variable/],
-    [{ ...baseConfig, supabaseServiceKeyEnvVar: 'NOT A NAME' }, /supabaseServiceKeyEnvVar must name a server environment variable/],
+    [{ ...baseConfig, boardChannelIds: ['C_OTHER'] }, /must appear in some workspaces/],
+    [{ ...baseConfig, backendApiBaseUrlEnvVar: undefined }, /backendApiBaseUrlEnvVar must name a server environment variable/],
+    [{ ...baseConfig, agentCredentialEnvVar: 'NOT A NAME' }, /agentCredentialEnvVar must name a server environment variable/],
   ];
   for (const [config, expected] of cases) {
     assert.throws(
@@ -382,6 +394,7 @@ test('an enabled but incomplete foundationDb block fails loudly instead of regis
           reader: fakes.reader,
           writer: fakes.writer,
           confirmationSigningKey: CONFIRM_KEY,
+          env: backendEnv,
         }),
       expected,
     );
@@ -405,6 +418,7 @@ test('an enabled but incomplete foundationDb block fails loudly instead of regis
           reader: fakes.reader,
           writer: partial,
           confirmationSigningKey: CONFIRM_KEY,
+          env: backendEnv,
         }),
       /must implement submitProposal, createPoll, getPoll, listBallots, castBallot, getVoteType, listVoteTypes, listCandidateProposals and finalizePoll/,
       missing,
@@ -412,14 +426,38 @@ test('an enabled but incomplete foundationDb block fails loudly instead of regis
   }
 });
 
-test('the Supabase key is read from the server environment and never appears in the tools', () => {
+test('the earlier database-shaped keys are refused instead of read as a fallback', () => {
+  const fakes = createFakes();
+  for (const key of [
+    'slackTeamId',
+    'environment',
+    'supabaseUrlEnvVar',
+    'supabaseServiceKeyEnvVar',
+    'identityEmailMatch',
+    'slackBotTokenEnvVar',
+  ]) {
+    assert.throws(
+      () =>
+        createGovernanceWriteToolRegistration({
+          config: { ...baseConfig, [key]: 'anything' },
+          reader: fakes.reader,
+          writer: fakes.writer,
+          confirmationSigningKey: CONFIRM_KEY,
+          env: backendEnv,
+        }),
+      new RegExp(`foundationDb\\.${key} is no longer accepted`),
+    );
+  }
+});
+
+test('the backend base URL, caller ID, credential and signing key are read from the server environment and never appear in the tools', () => {
   assert.throws(
     () => createGovernanceWriteToolRegistration({ config: baseConfig, env: {} }),
-    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(URL_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(BASE_URL_ENV),
   );
   assert.throws(
-    () => createGovernanceWriteToolRegistration({ config: baseConfig, env: { [URL_ENV]: 'https://project-ref.supabase.co' } }),
-    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(KEY_ENV),
+    () => createGovernanceWriteToolRegistration({ config: baseConfig, env: { [BASE_URL_ENV]: 'https://backend.rein.example' } }),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(CALLER_ENV),
   );
   // The confirmation signing key is a third server-only secret, read the same way and named only by
   // its environment variable. A deployment missing it fails loudly instead of signing with an
@@ -428,14 +466,16 @@ test('the Supabase key is read from the server environment and never appears in 
     () =>
       createGovernanceWriteToolRegistration({
         config: baseConfig,
-        env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET },
+        env: { [BASE_URL_ENV]: 'https://backend.rein.example', [CALLER_ENV]: 'rein-agent', [CREDENTIAL_ENV]: SECRET },
+        reader: createFakes().reader,
+        writer: createFakes().writer,
       }),
     error => error.code === 'foundation_db_env_value_missing' && error.message.includes(CONFIRM_ENV),
   );
 
   const registration = createGovernanceWriteToolRegistration({
     config: baseConfig,
-    env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET, [CONFIRM_ENV]: CONFIRM_KEY },
+    env: backendEnv,
   });
   const tools = registration.create({
     messageChannel: 'slack',
@@ -448,133 +488,6 @@ test('the Supabase key is read from the server environment and never appears in 
   assert.ok(!JSON.stringify(tools).includes(CONFIRM_KEY), 'the confirmation key never appears in a tool');
   assert.ok(!JSON.stringify(tools).includes('project-ref.supabase.co'));
 });
-
-test('email identity matching is off by default and an injected reader needs no bot token', () => {
-  for (const config of [
-    baseConfig,
-    { ...baseConfig, identityEmailMatch: 'disabled' },
-    { ...baseConfig, identityEmailMatch: 'enabled' },
-  ]) {
-    const fakes = createFakes();
-    const registration = createGovernanceWriteToolRegistration({
-      config,
-      reader: fakes.reader,
-      writer: fakes.writer,
-      confirmationSigningKey: CONFIRM_KEY,
-    });
-    const tools = registration.create({
-      messageChannel: 'slack',
-      nativeChannelId: BOARD_CHANNEL,
-      requesterSenderId: SENDER,
-      assertInvocationCurrent() {},
-    });
-    assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_WRITE_TOOL_NAMES]);
-  }
-});
-
-test('an unknown identityEmailMatch value fails loudly instead of being ignored', () => {
-  const fakes = createFakes();
-  for (const value of ['yes', 'true', 1]) {
-    assert.throws(
-      () =>
-        createGovernanceWriteToolRegistration({
-          config: { ...baseConfig, identityEmailMatch: value },
-          reader: fakes.reader,
-          writer: fakes.writer,
-          confirmationSigningKey: CONFIRM_KEY,
-        }),
-      /identityEmailMatch must be "enabled" or "disabled"/,
-    );
-  }
-});
-
-test('enabled email matching names the bot token variable and never echoes its value', () => {
-  const fakes = createFakes();
-  const enabled = { ...baseConfig, identityEmailMatch: 'enabled' };
-  const resolve = (config, env) =>
-    createGovernanceWriteToolRegistration({ config, writer: fakes.writer, confirmationSigningKey: CONFIRM_KEY, env });
-
-  assert.throws(
-    () => resolve(enabled, {}),
-    /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
-  );
-  assert.throws(
-    () => resolve({ ...enabled, slackBotTokenEnvVar: 'NOT A NAME' }, {}),
-    /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
-  );
-  const named = { ...enabled, slackBotTokenEnvVar: BOT_TOKEN_ENV };
-  assert.throws(
-    () => resolve(named, { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET, [CONFIRM_ENV]: CONFIRM_KEY }),
-    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(BOT_TOKEN_ENV),
-  );
-
-  const registration = resolve(named, {
-    [URL_ENV]: 'https://project-ref.supabase.co',
-    [KEY_ENV]: SECRET,
-    [BOT_TOKEN_ENV]: BOT_TOKEN,
-  });
-  const tools = registration.create({
-    messageChannel: 'slack',
-    nativeChannelId: BOARD_CHANNEL,
-    requesterSenderId: SENDER,
-    assertInvocationCurrent() {},
-  });
-  assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_WRITE_TOOL_NAMES]);
-  assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN), 'the bot token never appears in a tool');
-  assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN_ENV), 'the variable name never appears in a tool');
-});
-
-test('enabled email matching builds one lookup in this slice and presents the token only as a header', async () => {
-  const requests = [];
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (url, init = {}) => {
-    requests.push({ url: String(url), headers: init.headers ?? {} });
-    if (String(url).startsWith('https://slack.com/')) {
-      return new Response(JSON.stringify({ ok: false, error: 'user_not_found' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    }
-    return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
-  };
-  try {
-    const fakes = createFakes();
-    const registration = createGovernanceWriteToolRegistration({
-      config: { ...baseConfig, identityEmailMatch: 'enabled', slackBotTokenEnvVar: BOT_TOKEN_ENV },
-      writer: fakes.writer,
-      confirmationSigningKey: CONFIRM_KEY,
-      env: {
-        [URL_ENV]: 'https://project-ref.supabase.co',
-        [KEY_ENV]: SECRET,
-        [BOT_TOKEN_ENV]: BOT_TOKEN,
-      },
-    });
-    const tools = registration.create({
-      messageChannel: 'slack',
-      nativeChannelId: BOARD_CHANNEL,
-      requesterSenderId: SENDER,
-      assertInvocationCurrent() {},
-    });
-    const result = await tools
-      .find(tool => tool.name === 'rein_poll_vote')
-      .execute('call-1', { pollId: POLL });
-
-    // The sender resolves as unlinked, so the ballot is refused before any writer call.
-    assert.equal(result.details.error, 'identity_link_required');
-    assert.deepEqual(fakes.calls.castBallot, []);
-    const slackRequest = requests.find(request => request.url.startsWith('https://slack.com/api/users.info?'));
-    assert.ok(slackRequest, 'the enabled email matching must probe the Slack profile');
-    assert.equal(slackRequest.headers.authorization, `Bearer ${BOT_TOKEN}`);
-    assert.ok(requests.every(request => !request.url.includes(BOT_TOKEN)), 'the token never travels in a URL');
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-// ---------------------------------------------------------------------------------------------
-// rein_governance_proposal_submit
-// ---------------------------------------------------------------------------------------------
-
 test('an active Contributor submits one proposal only after the prepared version is confirmed', async () => {
   const fakes = createFakes();
   const prepareTurn = build({ fakes, channel: PROPOSAL_CHANNEL });

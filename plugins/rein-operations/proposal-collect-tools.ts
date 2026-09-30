@@ -21,8 +21,8 @@
 //   never as an unlinked account.
 // - `assertCurrentInvocation` runs before the answer leaves the turn, so a cancelled or stale turn
 //   cannot return collected fields.
-// - Every refusal collapses to a fixed reason code; no credential, Supabase URL, Slack team id or
-//   private contact id reaches a result.
+// - Every refusal collapses to a fixed reason code; no credential, backend base URL, workspace id
+//   or private contact id reaches a result.
 //
 // Confidentiality. The token this tool mints is the same sealed-binding shape the prepare step of
 // `rein_governance_proposal_submit` uses, but under its own purpose: `proposal-draft.ts` derives one
@@ -41,12 +41,19 @@
 // in the proposal summary the author reads back before submit. The tool never invents a date from it.
 
 import { Type } from 'typebox';
-import { createFoundationDbReader } from './foundation-db-reader.ts';
-import { createFoundationDbWriter } from './foundation-db-writer.ts';
-import { createSlackEmailLookup } from './slack-email-lookup.ts';
+import {
+  createConfiguredTransport,
+  createInvocationAdapters,
+  parseBackendConfig,
+  resolveTrustedWorkspace,
+  type ResolvedBackendConfig,
+} from './backend-config.ts';
+import type { ToolProofProvider } from './backend-db-adapter.ts';
+import type { BackendTransport } from './backend-transport.ts';
 import {
   COLLECT_DRAFT_TTL_MS,
   COLLECT_TOKEN_CAP,
+  draftProposalId,
   draftPreview,
   issueProposalDraft,
   verifyProposalDraft,
@@ -82,15 +89,18 @@ export type ProposalCollectToolWriter = Pick<FoundationDbWriter, 'listVoteTypes'
 
 export interface ProposalCollectToolsOptions {
   /**
-   * The `foundationDb` block of plugin config, read as untrusted input. Same keys as the read and write
-   * slices: `enabled`, `platform` (`slack`), `slackTeamId`, `environment` (`dev` or `prod`),
-   * `proposalChannelIds`, `boardChannelIds`, `supabaseUrlEnvVar`, `supabaseServiceKeyEnvVar`,
-   * `proposalConfirmationKeyEnvVar`, the optional `identityEmailMatch` and the optional
-   * `slackBotTokenEnvVar`. Absent or `enabled: false` registers no tool.
+   * The `foundationDb` block of plugin config, read as untrusted input. Same keys as the read and
+   * write slices: `enabled`, `platform`, `workspaces`, `proposalChannelIds`, `boardChannelIds`,
+   * `voteTypeAliases`, and the environment variables naming the backend base URL, the Agent caller
+   * ID, the Agent credential and the draft signing key. Absent or `enabled: false` registers no tool.
    */
   config?: Record<string, unknown>;
   /** Server environment holding the referenced values. Defaults to `process.env`. */
   env?: Record<string, string | undefined>;
+  /** Injectable backend transport for tests and local rehearsal; skips the env-var lookups. */
+  transport?: BackendTransport;
+  /** Runtime ingress proof for one tool invocation. Called at execution time, never at registration. */
+  proofProvider?: ToolProofProvider;
   /** Injectable reader for tests and local rehearsal; skips the env-var lookups. */
   reader?: ProposalCollectToolReader;
   /** Injectable read-only writer for tests and local rehearsal; skips the env-var lookups. */
@@ -105,19 +115,20 @@ export interface ProposalCollectToolsOptions {
   now?: () => Date;
 }
 
-interface ResolvedProposalCollectConfig {
-  platform: 'slack';
+export interface ResolvedProposalCollectConfig {
+  config: ResolvedBackendConfig;
   proposalChannelIds: string[];
-  reader: ProposalCollectToolReader;
-  writer: ProposalCollectToolWriter | null;
+  transport: BackendTransport;
+  proofProvider?: ToolProofProvider;
+  reader?: ProposalCollectToolReader;
+  writer?: ProposalCollectToolWriter;
   /** Server-only key that seals one draft token. Never leaves the process. */
   signingKey: string;
   now: () => Date;
 }
 
-const SLACK_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-const ENV_VAR_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const VOTE_TYPE_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 const ISO_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
 const MAX_TITLE_LENGTH = 200;
@@ -176,45 +187,15 @@ const describe = (error: unknown) => (error instanceof Error ? error.message : S
 const asVoteType = (value: unknown): string | null =>
   typeof value === 'string' && VOTE_TYPE_PATTERN.test(value) ? value : null;
 
+const asProposalId = (value: unknown): string | null =>
+  typeof value === 'string' && UUID_PATTERN.test(value) ? value : null;
+
 function configError(message: string): never {
   throw new ProposalCollectToolError('foundation_db_config_invalid', `foundationDb proposal collect tool: ${message}`);
 }
 
-function readChannelIds(field: string, value: unknown): string[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    configError(`foundationDb.${field} must list at least one approved native channel ID`);
-  }
-  const channels = (value as unknown[]).map(id => (typeof id === 'string' ? id.trim() : ''));
-  if (channels.some(id => !id)) {
-    configError(`foundationDb.${field} must contain non-empty native channel ID strings`);
-  }
-  return channels;
-}
-
-/** Validate one environment-variable reference. Only the variable *name* is ever reported. */
-function readEnvReference(reference: unknown, field: string): string {
-  if (typeof reference !== 'string' || !ENV_VAR_NAME_PATTERN.test(reference.trim())) {
-    configError(`foundationDb.${field} must name a server environment variable`);
-  }
-  return (reference as string).trim();
-}
-
-function readIdentityEmailMatch(value: unknown): 'enabled' | 'disabled' {
-  if (value === undefined || value === null) return 'disabled';
-  if (value === 'enabled' || value === 'disabled') return value;
-  configError('foundationDb.identityEmailMatch must be "enabled" or "disabled"');
-}
-
-/** Resolve one referenced value from the server environment, or fail without echoing it. */
-function readEnvValue(env: Record<string, string | undefined>, name: string, field: string): string {
-  const value = env?.[name];
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new ProposalCollectToolError(
-      'foundation_db_env_value_missing',
-      `foundationDb proposal collect tool: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
-    );
-  }
-  return value.trim();
+function envValueError(message: string): never {
+  throw new ProposalCollectToolError('foundation_db_env_value_missing', `foundationDb proposal collect tool: ${message}`);
 }
 
 /**
@@ -222,81 +203,39 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
  * block is absent or disabled; throws on an enabled-but-incomplete block.
  */
 function resolveProposalCollectConfig(options?: ProposalCollectToolsOptions): ResolvedProposalCollectConfig | null {
-  const config = options?.config;
-  if (!config || typeof config !== 'object' || config.enabled !== true) return null;
+  const config = parseBackendConfig({
+    config: options?.config,
+    env: options?.env,
+    requireConfirmationKey: true,
+    ...(options?.signingKey === undefined ? {} : { confirmationSigningKey: options.signingKey }),
+    error: configError,
+    envError: envValueError,
+  });
+  if (!config) return null;
 
-  if (config.platform !== 'slack') {
-    configError('foundationDb.platform must be "slack"; this tool acts on Slack host context only');
-  }
-  const slackTeamId = typeof config.slackTeamId === 'string' ? config.slackTeamId.trim() : '';
-  if (!SLACK_ID_PATTERN.test(slackTeamId)) {
-    configError('foundationDb.slackTeamId must be one Slack team ID such as T01234567 (one workspace per installation)');
-  }
-  const proposalChannelIds = readChannelIds('proposalChannelIds', config.proposalChannelIds);
-  const environment = config.environment;
-  if (environment !== 'dev' && environment !== 'prod') {
-    configError("foundationDb.environment must be 'dev' or 'prod'; it chooses the database table set");
-  }
-
-  // The configuration always names the server environment variables; the values are only read when
-  // the caller injected neither a reader nor a writer, so a rehearsal can supply its own.
-  const urlReference = readEnvReference(config.supabaseUrlEnvVar, 'supabaseUrlEnvVar');
-  const keyReference = readEnvReference(config.supabaseServiceKeyEnvVar, 'supabaseServiceKeyEnvVar');
-  const signingKeyReference = readEnvReference(
-    config.proposalConfirmationKeyEnvVar,
-    'proposalConfirmationKeyEnvVar',
-  );
-  // Optional email-first identity evidence. A name that is present at all is still checked, because
-  // a typo in the variable name is a configuration error either way.
-  const identityEmailMatch = readIdentityEmailMatch(config.identityEmailMatch);
-  const botTokenReference =
-    config.slackBotTokenEnvVar === undefined
-      ? null
-      : readEnvReference(config.slackBotTokenEnvVar, 'slackBotTokenEnvVar');
-
-  const env = options?.env ?? process.env;
-  let reader: ProposalCollectToolReader | undefined = options?.reader;
-  let writer: ProposalCollectToolWriter | undefined = options?.writer;
-  let signingKey =
-    typeof options?.signingKey === 'string' && options.signingKey.trim()
-      ? options.signingKey.trim()
-      : undefined;
-
-  const supabaseUrl = !reader || !writer ? readEnvValue(env, urlReference, 'supabaseUrlEnvVar') : '';
-  const serviceRoleKey = !reader || !writer ? readEnvValue(env, keyReference, 'supabaseServiceKeyEnvVar') : '';
-  if (!reader) {
-    const tokenReference =
-      identityEmailMatch === 'enabled' && botTokenReference !== null ? botTokenReference : null;
-    const emailLookup =
-      tokenReference !== null
-        ? createSlackEmailLookup({
-            botToken: readEnvValue(env, tokenReference, 'slackBotTokenEnvVar'),
-            slackTeamId,
-          })
-        : undefined;
-    reader = createFoundationDbReader({
-      supabaseUrl,
-      serviceRoleKey,
-      environment,
-      slackTeamId,
-      ...(emailLookup ? { emailLookup } : {}),
-    });
-  }
-  if (!writer) {
-    writer = createFoundationDbWriter({ supabaseUrl, serviceRoleKey, environment });
-  }
-  if (!signingKey) {
-    signingKey = readEnvValue(env, signingKeyReference, 'proposalConfirmationKeyEnvVar');
-  }
-  if (typeof reader.resolveSlackMember !== 'function') {
+  const proposalChannelIds = config.workspaces.flatMap(workspace => [...workspace.proposalChannelIds]);
+  const transport = options?.transport ?? createConfiguredTransport(config);
+  if (options?.reader && typeof options.reader.resolveSlackMember !== 'function') {
     configError('the injected reader must implement resolveSlackMember');
   }
-  if (typeof writer.listVoteTypes !== 'function' || typeof writer.getProposal !== 'function') {
+  if (
+    options?.writer &&
+    (typeof options.writer.listVoteTypes !== 'function' || typeof options.writer.getProposal !== 'function')
+  ) {
     configError('the injected writer must implement listVoteTypes and getProposal');
   }
 
   const now = typeof options?.now === 'function' ? options.now : () => new Date();
-  return { platform: 'slack', proposalChannelIds, reader, writer, signingKey, now };
+  return {
+    config,
+    proposalChannelIds,
+    transport,
+    ...(options?.proofProvider === undefined ? {} : { proofProvider: options.proofProvider }),
+    ...(options?.reader === undefined ? {} : { reader: options.reader }),
+    ...(options?.writer === undefined ? {} : { writer: options.writer }),
+    signingKey: config.confirmationSigningKey as string,
+    now,
+  };
 }
 
 function assertNoImpersonationArgs(args: unknown) {
@@ -337,14 +276,36 @@ function errorResult(tool: string, error: unknown) {
 }
 
 function buildTools(config: ResolvedProposalCollectConfig, ctx: any) {
-  const { proposalChannelIds, reader, writer, signingKey, now } = config;
+  const { proposalChannelIds, signingKey, now } = config;
 
   const nativeChannelId = typeof ctx?.nativeChannelId === 'string' ? ctx.nativeChannelId.trim() : '';
   const senderId = typeof ctx?.requesterSenderId === 'string' ? ctx.requesterSenderId.trim() : '';
 
+  // Trusted platform plus channel pick one approved workspace; this call's reader and read-only
+  // writer are built against the backend with a per-call proof, resolved on every backend call.
+  const workspace = resolveTrustedWorkspace(config.config, ctx);
+  const bound = createInvocationAdapters({
+    transport: config.transport,
+    identity: workspace,
+    ...(config.proofProvider === undefined ? {} : { proofProvider: config.proofProvider }),
+    ctx,
+  });
+  const reader: ProposalCollectToolReader | null = config.reader ?? bound?.reader ?? null;
+  const writer: ProposalCollectToolWriter | null = config.writer ?? bound?.writer ?? null;
+
   const requester = (): Promise<SlackMemberResolution> => {
-    if (ctx?.messageChannel !== 'slack') {
-      throw new ProposalCollectToolError('platform_out_of_scope', 'This tool acts on Slack host context only.');
+    if (typeof ctx?.messageChannel !== 'string' || !ctx.messageChannel.trim()) {
+      throw new ProposalCollectToolError('platform_out_of_scope', 'The host did not supply a chat platform.');
+    }
+    if (workspace === null) {
+      if (/^[a-z][a-z0-9_-]{1,31}$/.test(String(ctx.messageChannel).trim()) &&
+          config.config.workspaces.some(item => item.platform === String(ctx.messageChannel).trim())) {
+        throw new ProposalCollectToolError(
+          'channel_out_of_scope',
+          'This channel is outside the approved proposal workspace channels.',
+        );
+      }
+      throw new ProposalCollectToolError('platform_out_of_scope', 'This platform is not an approved governance surface.');
     }
     if (!senderId) {
       throw new ProposalCollectToolError('trusted_requester_unavailable', 'The host did not supply a sender ID.');
@@ -355,7 +316,14 @@ function buildTools(config: ResolvedProposalCollectConfig, ctx: any) {
         'This tool is limited to its approved proposal channel.',
       );
     }
-    return reader.resolveSlackMember(senderId);
+    if (!reader) {
+      throw new ProposalCollectToolError(
+        'identity_source_unavailable',
+        'This installation has no backend workspace configured for this channel, so no member record is available.',
+      );
+    }
+    const resolved: ProposalCollectToolReader = reader;
+    return resolved.resolveSlackMember(senderId);
   };
 
   /**
@@ -409,7 +377,7 @@ function buildTools(config: ResolvedProposalCollectConfig, ctx: any) {
         'The configured proposal types could not be read, so no type could be checked.',
       );
     }
-    const result = await writer.listVoteTypes({ limit: MAX_CONFIGURED_VOTE_TYPES });
+    const result = await requireWriter().listVoteTypes({ limit: MAX_CONFIGURED_VOTE_TYPES });
     if (!result.ok || !result.voteTypes) {
       throw new ProposalCollectToolError(
         'vote_type_configuration_unavailable',
@@ -442,6 +410,20 @@ function buildTools(config: ResolvedProposalCollectConfig, ctx: any) {
     }
     const text = value.trim();
     return text.length === 0 ? null : text;
+  };
+
+  /**
+   * The read-only backend surface, or a refusal when this invocation has no configured workspace.
+   * A missing workspace is reported as its own unavailable source, never as an empty configuration.
+   */
+  const requireWriter = (): ProposalCollectToolWriter => {
+    if (!writer) {
+      throw new ProposalCollectToolError(
+        'candidate_source_unavailable',
+        'This installation has no backend workspace configured for this channel, so no stored proposal type could be read.',
+      );
+    }
+    return writer;
   };
 
   /**
@@ -640,6 +622,7 @@ function buildTools(config: ResolvedProposalCollectConfig, ctx: any) {
           const at = instant();
 
           let carriedPayload: DraftPayload | null = null;
+          let verificationIsCurrent = false;
           if (args?.draftToken !== undefined && args?.draftToken !== null) {
             const verification = verifyProposalDraft(args.draftToken, member.contactId, signingKey, new Date(at));
             if (!verification.ok) {
@@ -654,12 +637,19 @@ function buildTools(config: ResolvedProposalCollectConfig, ctx: any) {
               );
             }
             carriedPayload = verification.payload;
+            verificationIsCurrent = true;
           }
 
           const rawTitle = merge(args?.title, carriedPayload?.title ?? null);
           const rawSummary = merge(args?.summary, carriedPayload?.summary ?? null);
           const rawVoteType = merge(args?.voteType, carriedPayload?.voteType ?? null);
           const rawWhen = merge(args?.approximateWhen, carriedPayload?.approximateWhen ?? null);
+          // A carried `proposalId` names a prepared-but-unsubmitted proposal whose exact version
+          // already exists; a title the backend can answer for is reported, never invented.
+          const carriedProposalId = !verificationIsCurrent
+            ? null
+            : draftProposalId(args?.draftToken, member.contactId, signingKey, new Date(at));
+          const proposalId = carriedProposalId === null ? null : asProposalId(carriedProposalId);
           const hasFreshRequest = args?.requestedMinor !== undefined || args?.currency !== undefined;
 
           let request: { requestedMinor: number | null; currency: string | null };
@@ -693,12 +683,9 @@ function buildTools(config: ResolvedProposalCollectConfig, ctx: any) {
             approximateWhen,
           };
 
-          // A carried `proposalId` names a prepared-but-unsubmitted proposal whose exact version
-          // already exists; a title the database can answer for is reported, never invented.
-          const proposalId = carriedPayload?.proposalId ?? null;
           let preparedTitle: string | null = null;
-          if (proposalId !== null && writer) {
-            const read = await writer.getProposal(proposalId);
+          if (proposalId !== null) {
+            const read = await requireWriter().getProposal(proposalId);
             preparedTitle = read.ok && read.proposal ? read.proposal.title : null;
           }
 
