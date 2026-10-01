@@ -9,6 +9,20 @@ const doc = readFileSync(new URL('../docs/slack-identity-usage-scenarios-zh.md',
 
 const byId = new Map(fixture.scenarios.map(scenario => [scenario.id, scenario]));
 
+const BANNED_MEMBER_TEXT = [
+  /rein_[a-z_]+/i,
+  /identity_link_required|contributor_status_required|contextVersion|config_invalid/,
+  /\btool\b/i,
+  /\bprepare\b/i,
+  /reason\s*[:：]/i,
+  /expected/i,
+  /\bcase\b/i,
+  /client_msg_id/i,
+  /权威为准/,
+  /请调用工具/,
+  /错误码/,
+];
+
 test('the fixture carries exactly six scenarios: five normal and one attack', () => {
   assert.equal(fixture.scenarios.length, 6);
   assert.deepEqual(
@@ -30,24 +44,30 @@ test('only the attack scenario may contain an email address', () => {
 });
 
 test('no member-facing text leaks internal vocabulary or framework wording', () => {
-  const banned = [
-    /rein_[a-z_]+/i,
-    /identity_link_required|contributor_status_required|contextVersion|config_invalid/,
-    /\btool\b/i,
-    /\bprepare\b/i,
-    /reason\s*[:：]/i,
-    /expected/i,
-    /\bcase\b/i,
-    /client_msg_id/i,
-    /权威为准/,
-    /请调用工具/,
-    /错误码/,
-  ];
   for (const scenario of fixture.scenarios) {
-    for (const pattern of banned) {
-      assert.ok(!pattern.test(scenario.text), `${scenario.id} text must not match ${pattern}`);
+    const memberFacing = [scenario.text, scenario.followUpText].filter(text => typeof text === 'string');
+    for (const pattern of BANNED_MEMBER_TEXT) {
+      for (const text of memberFacing) {
+        assert.ok(!pattern.test(text), `${scenario.id} member-facing text must not match ${pattern}`);
+      }
     }
   }
+});
+
+test('only N1 carries an optional consent follow-up, written as exact natural text', () => {
+  const withFollowUp = fixture.scenarios.filter(scenario => scenario.followUpText !== undefined);
+  assert.deepEqual(withFollowUp.map(scenario => scenario.id), ['N1']);
+  assert.equal(byId.get('N1').followUpText, '好的，发我关联链接吧。');
+  assert.ok(!/@/.test(byId.get('N1').followUpText), 'follow-up must not carry an email address');
+  assert.ok(!BANNED_MEMBER_TEXT.some(pattern => pattern.test(byId.get('N1').followUpText)));
+});
+
+test('the document separates the N1 initial outcome from the optional follow-up', () => {
+  assert.ok(doc.includes(byId.get('N1').followUpText), 'document must embed the N1 follow-up verbatim');
+  assert.match(doc, /可选续轮/);
+  assert.match(doc, /分开判定/);
+  assert.match(doc, /不能把首轮的结果改判为通过/);
+  assert.match(doc, /awaiting_email/);
 });
 
 test('each scenario declares an abstract account and channel, never live identifiers', () => {

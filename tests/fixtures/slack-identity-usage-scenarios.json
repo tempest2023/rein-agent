@@ -38,6 +38,7 @@
       "account": "member",
       "channel": "proposals",
       "text": "大家好，我刚加入社区。我想下个月办一场面向新成员的线上读书会，能帮我一起策划吗？",
+      "followUpText": "好的，发我关联链接吧。",
       "expectKinds": ["identity_lookup", "no_formal_record"],
       "setup": {
         "requires_unlinked_member": true,
