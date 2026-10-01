@@ -32,10 +32,11 @@ const SENDER = 'U0123456ABC';
 const CONTACT = '11111111-1111-4111-8111-111111111111';
 const OTHER_CONTACT = '22222222-2222-4222-8222-222222222222';
 const VOTE_TYPE = 'event_budget';
-const URL_ENV = 'REIN_SUPABASE_URL';
-const KEY_ENV = 'REIN_SUPABASE_SERVICE_ROLE_KEY';
+const BASE_URL_ENV = 'REIN_BACKEND_BASE_URL';
+const CALLER_ENV = 'REIN_AGENT_CALLER_ID';
+const CREDENTIAL_ENV = 'REIN_AGENT_CREDENTIAL';
 const CONFIRM_ENV = 'REIN_PROPOSAL_CONFIRMATION_KEY';
-const SECRET = 'sb_secret_unit_test_0000000000000000';
+const SECRET = 'unit-test-agent-credential';
 const SIGNING_KEY = 'unit-test-proposal-draft-signing-key-0001';
 const NOW = '2026-09-27T10:00:00.000Z';
 const LATER = '2026-09-27T10:30:00.000Z';
@@ -43,13 +44,26 @@ const LATER = '2026-09-27T10:30:00.000Z';
 const baseConfig = Object.freeze({
   enabled: true,
   platform: 'slack',
-  slackTeamId: TEAM,
-  environment: 'dev',
+  workspaces: [
+    {
+      platform: 'slack',
+      workspaceId: TEAM,
+      nativeChannelIds: [PROPOSAL_CHANNEL, BOARD_CHANNEL],
+    },
+  ],
   proposalChannelIds: [PROPOSAL_CHANNEL],
   boardChannelIds: [BOARD_CHANNEL],
-  supabaseUrlEnvVar: URL_ENV,
-  supabaseServiceKeyEnvVar: KEY_ENV,
+  backendApiBaseUrlEnvVar: BASE_URL_ENV,
+  agentCallerIdEnvVar: CALLER_ENV,
+  agentCredentialEnvVar: CREDENTIAL_ENV,
   proposalConfirmationKeyEnvVar: CONFIRM_ENV,
+});
+
+const backendEnv = Object.freeze({
+  [BASE_URL_ENV]: 'https://backend.rein.example',
+  [CALLER_ENV]: 'rein-agent',
+  [CREDENTIAL_ENV]: SECRET,
+  [CONFIRM_ENV]: SIGNING_KEY,
 });
 
 const contributor = (overrides = {}) => ({
@@ -118,6 +132,7 @@ function build({
     reader: fakes.reader,
     writer: fakes.writer,
     signingKey: SIGNING_KEY,
+    env: backendEnv,
     now: now ?? (() => CLOCK.at),
   });
   const tools = registration.create(ctx);
@@ -144,16 +159,22 @@ test('no collect tool registers without an explicit enabled block', () => {
 test('an enabled but incomplete block fails loudly instead of registering silently', () => {
   const fakes = createFakes();
   const cases = [
-    [{ ...baseConfig, platform: 'discord' }, /platform must be "slack"/],
-    [{ ...baseConfig, slackTeamId: undefined }, /slackTeamId must be one Slack team ID/],
+    [{ ...baseConfig, platform: 'Not A Platform' }, /platform must name the governance platform/],
+    [{ ...baseConfig, workspaces: [] }, /workspaces must list at least one approved workspace/],
     [{ ...baseConfig, proposalChannelIds: [] }, /proposalChannelIds must list at least one/],
-    [{ ...baseConfig, environment: 'staging' }, /environment must be 'dev' or 'prod'/],
-    [{ ...baseConfig, supabaseUrlEnvVar: undefined }, /supabaseUrlEnvVar must name a server environment variable/],
+    [{ ...baseConfig, boardChannelIds: ['C_OTHER'] }, /must appear in some workspaces/],
+    [{ ...baseConfig, backendApiBaseUrlEnvVar: undefined }, /backendApiBaseUrlEnvVar must name a server environment variable/],
   ];
   for (const [config, expected] of cases) {
     assert.throws(
-      () => createProposalCollectToolRegistration({ config, reader: fakes.reader, writer: fakes.writer, signingKey: SIGNING_KEY }),
+      () => createProposalCollectToolRegistration({ config, reader: fakes.reader, writer: fakes.writer, signingKey: SIGNING_KEY, env: backendEnv }),
       expected,
+    );
+  }
+  for (const key of ['slackTeamId', 'environment', 'supabaseUrlEnvVar', 'supabaseServiceKeyEnvVar', 'identityEmailMatch', 'slackBotTokenEnvVar']) {
+    assert.throws(
+      () => createProposalCollectToolRegistration({ config: { ...baseConfig, [key]: 'anything' }, reader: fakes.reader, writer: fakes.writer, signingKey: SIGNING_KEY, env: backendEnv }),
+      new RegExp(`foundationDb\\.${key} is no longer accepted`),
     );
   }
   for (const missing of ['listVoteTypes', 'getProposal']) {
@@ -165,6 +186,7 @@ test('an enabled but incomplete block fails loudly instead of registering silent
           reader: fakes.reader,
           writer: partial,
           signingKey: SIGNING_KEY,
+          env: backendEnv,
         }),
       /must implement listVoteTypes and getProposal/,
       missing,
@@ -175,11 +197,11 @@ test('an enabled but incomplete block fails loudly instead of registering silent
 test('the signing key is read from the server environment and never appears in a result', async () => {
   assert.throws(
     () => createProposalCollectToolRegistration({ config: baseConfig, env: {} }),
-    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(URL_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(BASE_URL_ENV),
   );
   assert.throws(
-    () => createProposalCollectToolRegistration({ config: baseConfig, env: { [URL_ENV]: 'https://project-ref.supabase.co' } }),
-    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(KEY_ENV),
+    () => createProposalCollectToolRegistration({ config: baseConfig, env: { [BASE_URL_ENV]: 'https://backend.rein.example' } }),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(CALLER_ENV),
   );
   const built = build({ fakes: createFakes() });
   const result = await built.tool().execute('call-1', { title: 'September meetup' });

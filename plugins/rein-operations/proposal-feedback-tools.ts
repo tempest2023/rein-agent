@@ -20,7 +20,7 @@
 //
 // This module registers only under the explicit `foundationDb` config block, exactly like
 // `governance-read-tools.ts` and `governance-write-tools.ts`, and every wired path reaches only the writer methods
-// `foundation-db-writer.ts` exposes.
+// the backend adapter exposes.
 //
 // Trust boundary, matching the other governance slices:
 // - The acting account comes only from `ctx.requesterSenderId`, the approved channel only from
@@ -38,9 +38,15 @@
 
 import { randomUUID } from 'node:crypto';
 import { Type } from 'typebox';
-import { createFoundationDbReader } from './foundation-db-reader.ts';
-import { createFoundationDbWriter } from './foundation-db-writer.ts';
-import { createSlackEmailLookup } from './slack-email-lookup.ts';
+import {
+  createConfiguredTransport,
+  createInvocationAdapters,
+  parseBackendConfig,
+  resolveTrustedWorkspace,
+  type ResolvedBackendConfig,
+} from './backend-config.ts';
+import type { ToolProofProvider } from './backend-db-adapter.ts';
+import type { BackendTransport } from './backend-transport.ts';
 import { assertCurrentInvocation } from './request-context.ts';
 import type {
   FoundationDbWriter,
@@ -89,21 +95,25 @@ export interface ProposalFeedbackToolsOptions {
   config?: Record<string, unknown>;
   /** Server environment holding the referenced values. Defaults to `process.env`. */
   env?: Record<string, string | undefined>;
+  /** Injectable backend transport for tests and local rehearsal; skips the env-var lookups. */
+  transport?: BackendTransport;
+  /** Runtime ingress proof for one tool invocation. Called at execution time, never at registration. */
+  proofProvider?: ToolProofProvider;
   /** Injectable reader for tests and local rehearsal; skips the env-var lookups. */
   reader?: ProposalFeedbackToolReader;
   /** Injectable writer for tests and local rehearsal; skips the env-var lookups. */
   writer?: ProposalFeedbackToolWriter;
 }
 
-interface ResolvedProposalFeedbackConfig {
-  platform: 'slack';
+export interface ResolvedProposalFeedbackConfig {
+  config: ResolvedBackendConfig;
   boardChannelIds: string[];
-  reader: ProposalFeedbackToolReader;
-  writer: ProposalFeedbackToolWriter;
+  transport: BackendTransport;
+  proofProvider?: ToolProofProvider;
+  reader?: ProposalFeedbackToolReader;
+  writer?: ProposalFeedbackToolWriter;
 }
 
-const SLACK_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-const ENV_VAR_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 
@@ -198,46 +208,8 @@ function configError(message: string): never {
   throw new ProposalFeedbackToolError('foundation_db_config_invalid', `foundationDb feedback tools: ${message}`);
 }
 
-function readChannelIds(field: string, value: unknown): string[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    configError(`foundationDb.${field} must list at least one approved native channel ID`);
-  }
-  const channels = (value as unknown[]).map(id => (typeof id === 'string' ? id.trim() : ''));
-  if (channels.some(id => !id)) {
-    configError(`foundationDb.${field} must contain non-empty native channel ID strings`);
-  }
-  return channels;
-}
-
-/** Validate one environment-variable reference. Only the variable *name* is ever reported. */
-function readEnvReference(reference: unknown, field: string): string {
-  if (typeof reference !== 'string' || !ENV_VAR_NAME_PATTERN.test(reference.trim())) {
-    configError(`foundationDb.${field} must name a server environment variable`);
-  }
-  return (reference as string).trim();
-}
-
-/**
- * Read the email-first identity matching mode. It is opt-in: absent or `disabled` keeps the
- * database-only behavior this slice had before the option existed, and any other value is an
- * operator error rather than a silently ignored typo.
- */
-function readIdentityEmailMatch(value: unknown): 'enabled' | 'disabled' {
-  if (value === undefined || value === null) return 'disabled';
-  if (value === 'enabled' || value === 'disabled') return value;
-  configError('foundationDb.identityEmailMatch must be "enabled" or "disabled"');
-}
-
-/** Resolve one referenced value from the server environment, or fail without echoing it. */
-function readEnvValue(env: Record<string, string | undefined>, name: string, field: string): string {
-  const value = env?.[name];
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new ProposalFeedbackToolError(
-      'foundation_db_env_value_missing',
-      `foundationDb feedback tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
-    );
-  }
-  return value.trim();
+function envValueError(message: string): never {
+  throw new ProposalFeedbackToolError('foundation_db_env_value_missing', `foundationDb feedback tools: ${message}`);
 }
 
 /**
@@ -246,87 +218,28 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
  * block so a misconfiguration fails loudly.
  */
 function resolveProposalFeedbackConfig(options?: ProposalFeedbackToolsOptions): ResolvedProposalFeedbackConfig | null {
-  const config = options?.config;
-  if (!config || typeof config !== 'object' || config.enabled !== true) return null;
+  const config = parseBackendConfig({
+    config: options?.config,
+    env: options?.env,
+    error: configError,
+    envError: envValueError,
+  });
+  if (!config) return null;
 
-  // P0 uses exactly one chat platform, and this slice is Slack-only.
-  if (config.platform !== 'slack') {
-    configError('foundationDb.platform must be "slack"; these tools act on Slack host context only');
-  }
-  const slackTeamId = typeof config.slackTeamId === 'string' ? config.slackTeamId.trim() : '';
-  if (!SLACK_ID_PATTERN.test(slackTeamId)) {
-    configError('foundationDb.slackTeamId must be one Slack team ID such as T01234567 (one workspace per installation)');
-  }
   // The proposal channel is validated because one block configures every v0.1 slice, but it is not
-  // the feedback scope: C15 feedback comes from the voters, who act in the Board channel.
-  readChannelIds('proposalChannelIds', config.proposalChannelIds);
-  const boardChannelIds = readChannelIds('boardChannelIds', config.boardChannelIds);
-  const environment = config.environment;
-  if (environment !== 'dev' && environment !== 'prod') {
-    configError("foundationDb.environment must be 'dev' or 'prod'; it chooses the database table set");
-  }
-
-  // The configuration always names the server environment variables; the values are only read when
-  // the caller injected neither a reader nor a writer, so a rehearsal can supply its own without
-  // credentials.
-  const urlReference = readEnvReference(config.supabaseUrlEnvVar, 'supabaseUrlEnvVar');
-  const keyReference = readEnvReference(config.supabaseServiceKeyEnvVar, 'supabaseServiceKeyEnvVar');
-
-  // Optional email-first identity evidence. Off by default, and the bot token is only demanded when
-  // this process builds its own reader. A name that is present at all is still checked, because a
-  // typo in the variable name is a configuration error either way.
-  const identityEmailMatch = readIdentityEmailMatch(config.identityEmailMatch);
-  const botTokenReference =
-    identityEmailMatch === 'enabled' && config.slackBotTokenEnvVar !== undefined
-      ? readEnvReference(config.slackBotTokenEnvVar, 'slackBotTokenEnvVar')
-      : null;
-
-  let reader: ProposalFeedbackToolReader | undefined = options?.reader;
-  let writer: ProposalFeedbackToolWriter | undefined = options?.writer;
-  if (!reader || !writer) {
-    const env = options?.env ?? process.env;
-    // With email matching on and no injected reader, the bot token variable must be named before
-    // any value is read, so a missing name fails on the configuration instead of behind an
-    // unrelated missing value.
-    const tokenReference =
-      identityEmailMatch === 'enabled' && !reader
-        ? (botTokenReference ?? readEnvReference(config.slackBotTokenEnvVar, 'slackBotTokenEnvVar'))
-        : null;
-    const supabaseUrl = readEnvValue(env, urlReference, 'supabaseUrlEnvVar');
-    const serviceRoleKey = readEnvValue(env, keyReference, 'supabaseServiceKeyEnvVar');
-    if (!reader) {
-      // The reader gets one lookup bound to this workspace and one bot token. The token is read from
-      // the named server environment variable and never reaches config, a status, a result or an
-      // error message.
-      const emailLookup =
-        tokenReference !== null
-          ? createSlackEmailLookup({
-              botToken: readEnvValue(env, tokenReference, 'slackBotTokenEnvVar'),
-              slackTeamId,
-            })
-          : undefined;
-      reader = createFoundationDbReader({
-        supabaseUrl,
-        serviceRoleKey,
-        environment,
-        slackTeamId,
-        ...(emailLookup ? { emailLookup } : {}),
-      });
-    }
-    if (!writer) {
-      writer = createFoundationDbWriter({ supabaseUrl, serviceRoleKey, environment });
-    }
-  }
-  if (!reader || typeof reader.resolveSlackMember !== 'function') {
+  // the feedback scope: feedback comes from the voters, who act in the Board channel.
+  const boardChannelIds = config.workspaces.flatMap(workspace => [...workspace.boardChannelIds]);
+  const transport = options?.transport ?? createConfiguredTransport(config);
+  if (options?.reader && typeof options.reader.resolveSlackMember !== 'function') {
     configError('the injected reader must implement resolveSlackMember');
   }
   if (
-    !writer ||
-    typeof writer.getProposal !== 'function' ||
-    typeof writer.getRevision !== 'function' ||
-    typeof writer.recordProposalRevision !== 'function' ||
-    typeof writer.approveProposalRevision !== 'function' ||
-    typeof writer.applyProposalRevision !== 'function'
+    options?.writer &&
+    (typeof options.writer.getProposal !== 'function' ||
+      typeof options.writer.getRevision !== 'function' ||
+      typeof options.writer.recordProposalRevision !== 'function' ||
+      typeof options.writer.approveProposalRevision !== 'function' ||
+      typeof options.writer.applyProposalRevision !== 'function')
   ) {
     configError(
       'the injected writer must implement getProposal, getRevision, recordProposalRevision, approveProposalRevision and applyProposalRevision',
@@ -336,10 +249,12 @@ function resolveProposalFeedbackConfig(options?: ProposalFeedbackToolsOptions): 
   // Neither scope is a new operator field: a comment, a suggested revision, an approval and an
   // apply are all Board calls, so the approved Board channel is the one channel this slice reads.
   return {
-    platform: 'slack',
+    config,
     boardChannelIds,
-    reader,
-    writer,
+    transport,
+    ...(options?.proofProvider === undefined ? {} : { proofProvider: options.proofProvider }),
+    ...(options?.reader === undefined ? {} : { reader: options.reader }),
+    ...(options?.writer === undefined ? {} : { writer: options.writer }),
   };
 }
 
@@ -377,16 +292,52 @@ function errorResult(tool: string, error: unknown) {
 }
 
 function buildTools(config: ResolvedProposalFeedbackConfig, ctx: any) {
-  const { boardChannelIds, reader, writer } = config;
+  const { boardChannelIds } = config;
 
   const nativeChannelId = typeof ctx?.nativeChannelId === 'string' ? ctx.nativeChannelId.trim() : '';
   const senderId = typeof ctx?.requesterSenderId === 'string' ? ctx.requesterSenderId.trim() : '';
 
+  // Trusted platform plus channel pick one approved workspace; this call's reader and writer are
+  // built against the backend with a per-call proof, resolved on every backend call.
+  const workspace = resolveTrustedWorkspace(config.config, ctx);
+  const bound = createInvocationAdapters({
+    transport: config.transport,
+    identity: workspace,
+    ...(config.proofProvider === undefined ? {} : { proofProvider: config.proofProvider }),
+    ctx,
+  });
+  const reader: ProposalFeedbackToolReader | null = config.reader ?? bound?.reader ?? null;
+  const writer: ProposalFeedbackToolWriter | null = config.writer ?? bound?.writer ?? null;
+
+  /**
+   * The feedback write surface, or a refusal when this invocation has no configured workspace. A
+   * missing workspace is reported as its own unavailable source instead of a failed write.
+   */
+  const requireWriter = (): ProposalFeedbackToolWriter => {
+    if (!writer) {
+      throw new ProposalFeedbackToolError(
+        'feedback_source_unavailable',
+        'This installation has no backend workspace configured for this channel, so no revision record is available.',
+      );
+    }
+    return writer;
+  };
+
   // Resolve the trusted sender, or refuse before any database call. The acting account is never
   // taken from arguments.
   const requester = (audience: string, scoped: string[]) => {
-    if (ctx?.messageChannel !== 'slack') {
-      throw new ProposalFeedbackToolError('platform_out_of_scope', 'These tools act on Slack host context only.');
+    if (typeof ctx?.messageChannel !== 'string' || !ctx.messageChannel.trim()) {
+      throw new ProposalFeedbackToolError('platform_out_of_scope', 'The host did not supply a chat platform.');
+    }
+    if (workspace === null) {
+      if (/^[a-z][a-z0-9_-]{1,31}$/.test(String(ctx.messageChannel).trim()) &&
+          config.config.workspaces.some(item => item.platform === String(ctx.messageChannel).trim())) {
+        throw new ProposalFeedbackToolError(
+          'channel_out_of_scope',
+          `This channel is outside the approved ${audience} workspace channels.`,
+        );
+      }
+      throw new ProposalFeedbackToolError('platform_out_of_scope', 'This platform is not an approved governance surface.');
     }
     if (!senderId) {
       throw new ProposalFeedbackToolError('trusted_requester_unavailable', 'The host did not supply a sender ID.');
@@ -397,7 +348,14 @@ function buildTools(config: ResolvedProposalFeedbackConfig, ctx: any) {
         `This tool is limited to its approved ${audience} channel.`,
       );
     }
-    return reader.resolveSlackMember(senderId);
+    if (!reader) {
+      throw new ProposalFeedbackToolError(
+        'identity_source_unavailable',
+        'This installation has no backend workspace configured for this channel, so no member record is available.',
+      );
+    }
+    const resolved: ProposalFeedbackToolReader = reader;
+    return resolved.resolveSlackMember(senderId);
   };
 
   const linkRequired = (audience: string) =>
@@ -570,7 +528,7 @@ function buildTools(config: ResolvedProposalFeedbackConfig, ctx: any) {
    * caller cannot mistake an outage for a record that was never written.
    */
   const readProposal = async (proposalId: string): Promise<ProposalRecord> => {
-    const result = await writer.getProposal(proposalId);
+    const result = await requireWriter().getProposal(proposalId);
     if (!result.ok || !result.proposal) {
       if (result.reason === 'proposal_not_found') {
         throw new ProposalFeedbackToolError('proposal_not_found', 'No stored proposal has that identifier.');
@@ -582,7 +540,7 @@ function buildTools(config: ResolvedProposalFeedbackConfig, ctx: any) {
 
   /** Read one recorded revision, with the same refusal shapes as the proposal read. */
   const readRevision = async (revisionId: string): Promise<ProposalRevisionRecord> => {
-    const result = await writer.getRevision(revisionId);
+    const result = await requireWriter().getRevision(revisionId);
     if (!result.ok || !result.revision) {
       if (result.reason === 'revision_not_found') {
         throw new ProposalFeedbackToolError('revision_not_found', 'No recorded revision has that identifier.');
@@ -701,7 +659,7 @@ function buildTools(config: ResolvedProposalFeedbackConfig, ctx: any) {
           const id = recordId(toolCallId);
           // Final authority check immediately before the write: a stale turn cannot commit.
           assertCurrentInvocation(ctx);
-          const written = await writer.recordProposalRevision({
+          const written = await requireWriter().recordProposalRevision({
             id,
             proposalId,
             authorContactId: member.contactId,
@@ -784,7 +742,7 @@ function buildTools(config: ResolvedProposalFeedbackConfig, ctx: any) {
           }
           // Final authority check immediately before the write: a stale turn cannot approve.
           assertCurrentInvocation(ctx);
-          const written = await writer.approveProposalRevision({
+          const written = await requireWriter().approveProposalRevision({
             revisionId,
             approverContactId: member.contactId,
           });
@@ -883,7 +841,7 @@ function buildTools(config: ResolvedProposalFeedbackConfig, ctx: any) {
           }
           // Final authority check immediately before the write: a stale turn cannot apply.
           assertCurrentInvocation(ctx);
-          const written = await writer.applyProposalRevision({ revisionId });
+          const written = await requireWriter().applyProposalRevision({ revisionId });
           if (!written.ok || !written.version) {
             throw new ProposalFeedbackToolError(
               written.reason || 'revision_apply_failed',

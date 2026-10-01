@@ -1023,8 +1023,9 @@ test('a malformed event never throws out of either hook', () => {
 
 /** Register the real plugin with a fake host api and hand back the hooks it registered. */
 function registerPlugin() {
-  process.env.REIN_VOTE_GUARD_TEST_URL = 'https://project-ref.supabase.co';
-  process.env.REIN_VOTE_GUARD_TEST_KEY = 'sb_secret_vote_guard_test_0000000000000000';
+  process.env.REIN_VOTE_GUARD_TEST_BASE_URL = 'https://backend.rein.example';
+  process.env.REIN_VOTE_GUARD_TEST_CALLER = 'rein-agent';
+  process.env.REIN_VOTE_GUARD_TEST_CREDENTIAL = 'guard-test-agent-credential';
   process.env.REIN_VOTE_GUARD_TEST_CONFIRM = 'vote-guard-test-proposal-confirmation-key-0001';
   const hooks = [];
   plugin.register({
@@ -1033,12 +1034,14 @@ function registerPlugin() {
       foundationDb: {
         enabled: true,
         platform: 'slack',
-        slackTeamId: 'T0123456ABC',
-        environment: 'dev',
+        workspaces: [
+          { platform: 'slack', workspaceId: 'T0123456ABC', nativeChannelIds: ['C_PROPOSAL', 'C_BOARD'] },
+        ],
         proposalChannelIds: ['C_PROPOSAL'],
         boardChannelIds: ['C_BOARD'],
-        supabaseUrlEnvVar: 'REIN_VOTE_GUARD_TEST_URL',
-        supabaseServiceKeyEnvVar: 'REIN_VOTE_GUARD_TEST_KEY',
+        backendApiBaseUrlEnvVar: 'REIN_VOTE_GUARD_TEST_BASE_URL',
+        agentCallerIdEnvVar: 'REIN_VOTE_GUARD_TEST_CALLER',
+        agentCredentialEnvVar: 'REIN_VOTE_GUARD_TEST_CREDENTIAL',
         proposalConfirmationKeyEnvVar: 'REIN_VOTE_GUARD_TEST_CONFIRM',
       },
     },

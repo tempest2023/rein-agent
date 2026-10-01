@@ -13,6 +13,8 @@ import { COLLECT_REPLY_GUARD_TOOL_NAMES, createCollectReplyGuard } from "./propo
 import type { GuardDiagnosticSink } from "./proposal-collect-reply-guard.ts";
 import { POLL_REPLY_GUARD_TOOL_NAMES, createPollReplyGuard } from "./poll-reply-guard.ts";
 import { VOTE_REPLY_GUARD_TOOL_NAMES, createVoteReplyGuard } from "./vote-reply-guard.ts";
+import { createBackendRuntime } from "./backend-runtime.ts";
+import { IDENTITY_BIND_TOOL_NAMES, createIdentityToolsRegistration } from "./identity-tools.ts";
 
 // This first tool proves the external-plugin boundary without enabling business actions.
 export default definePluginEntry({
@@ -25,6 +27,21 @@ export default definePluginEntry({
     const foundationDbConfig = api.pluginConfig?.foundationDb;
     const governanceToolsEnabled = Boolean(foundationDbConfig && typeof foundationDbConfig === 'object' && (foundationDbConfig as Record<string, unknown>).enabled === true);
     if (governanceToolsEnabled) {
+      // The backend runtime owns the only credential the Agent holds: the Agent credential named by
+      // foundationDb.agentCredentialEnvVar, presented as a Bearer token to the backend. The proof the
+      // governance and identity tools carry is minted here, per tool call, from the host's own tool
+      // context and never from a tool argument. It is minted by relaying the trusted inbound tuple to
+      // POST /api/ingress/relay under the enrolled caller, then kept in a private WeakMap keyed by that
+      // context, so it reaches the backend call and never a model-visible field or result. An enabled
+      // but incomplete block, an unset environment variable, a channel outside the configured
+      // workspaces or a missing current-invocation guard fails closed with no backend call.
+      const runtime = createBackendRuntime({
+        config: foundationDbConfig as Record<string, unknown>,
+      });
+      if (!runtime) {
+        throw new Error('foundationDb is enabled but the backend runtime could not be constructed');
+      }
+      const proofProvider = runtime.proofProvider;
       // Field collection answers the model with structured detail that names internal vocabulary
       // (the configured vote type code, missing-field names, the sealed draft token). Prompt text
       // alone did not stop that vocabulary reaching the member, so the member-facing boundary is
@@ -81,26 +98,59 @@ export default definePluginEntry({
       }
       // governance mode exposes the database-backed read and write tools instead of the synthetic
       // simulators and the legacy local-ledger proposal tools. Configuration is validated here so
-      // an enabled but incomplete block fails loudly; the Supabase key is read from the server
-      // environment and never stored in plugin config.
-      api.registerTool(createGovernanceReadToolRegistration({ config: foundationDbConfig as Record<string, unknown> }), {
-        names: [...GOVERNANCE_READ_TOOL_NAMES],
-      });
-      api.registerTool(createGovernanceWriteToolRegistration({ config: foundationDbConfig as Record<string, unknown> }), {
-        names: [...GOVERNANCE_WRITE_TOOL_NAMES],
-      });
+      // an enabled but incomplete block fails loudly. The Agent holds no database credential: the
+      // only secret it carries is the backend Agent credential, read from the server environment
+      // named by foundationDb.agentCredentialEnvVar and never stored in plugin config.
+      api.registerTool(
+        runtime.wrapRegistration(
+          createGovernanceReadToolRegistration({
+            config: foundationDbConfig as Record<string, unknown>,
+            proofProvider,
+          }),
+        ),
+        { names: [...GOVERNANCE_READ_TOOL_NAMES] },
+      );
+      api.registerTool(
+        runtime.wrapRegistration(
+          createGovernanceWriteToolRegistration({
+            config: foundationDbConfig as Record<string, unknown>,
+            proofProvider,
+          }),
+        ),
+        { names: [...GOVERNANCE_WRITE_TOOL_NAMES] },
+      );
       // Multi-turn field collection registers with the same explicit block and is read-only: it
       // states which fields a submit still needs and returns a short prompt, but stores nothing and
       // never submits even once every required field is present (case 3, PRD §2.3 step 2).
-      api.registerTool(createProposalCollectToolRegistration({ config: foundationDbConfig as Record<string, unknown> }), {
-        names: [...GOVERNANCE_COLLECT_TOOL_NAMES],
-      });
+      api.registerTool(
+        runtime.wrapRegistration(
+          createProposalCollectToolRegistration({
+            config: foundationDbConfig as Record<string, unknown>,
+            proofProvider,
+          }),
+        ),
+        { names: [...GOVERNANCE_COLLECT_TOOL_NAMES] },
+      );
       // Post-result feedback registers with the same explicit block: a comment or suggested
       // revision, a director's approval of a material revision, and the guarded apply step. The
       // database refuses a material revision until a current director's approval is recorded.
-      api.registerTool(createProposalFeedbackToolRegistration({ config: foundationDbConfig as Record<string, unknown> }), {
-        names: [...GOVERNANCE_FEEDBACK_TOOL_NAMES],
-      });
+      api.registerTool(
+        runtime.wrapRegistration(
+          createProposalFeedbackToolRegistration({
+            config: foundationDbConfig as Record<string, unknown>,
+            proofProvider,
+          }),
+        ),
+        { names: [...GOVERNANCE_FEEDBACK_TOOL_NAMES] },
+      );
+      // Identity binding is the one surface an unidentified person may still use: starting a bind
+      // returns a website URL, and completing it takes only the short code the person carries back.
+      // Neither tool accepts an email, contact, user id or any other claimed identity, and the acting
+      // account comes only from the host context through the same minted proof.
+      api.registerTool(
+        runtime.wrapRegistration(createIdentityToolsRegistration({ runtime, proofProvider })),
+        { names: [...IDENTITY_BIND_TOOL_NAMES] },
+      );
     } else if (proposalEnabled) {
       const configured = proposalConfig as Record<string, unknown>;
       const platform = configured.platform;
@@ -125,7 +175,7 @@ export default definePluginEntry({
         const details = {
           stage: "development",
           implemented: governanceToolsEnabled
-            ? ["rein_status", ...GOVERNANCE_READ_TOOL_NAMES, ...GOVERNANCE_WRITE_TOOL_NAMES, ...GOVERNANCE_COLLECT_TOOL_NAMES, ...GOVERNANCE_FEEDBACK_TOOL_NAMES]
+            ? ["rein_status", ...GOVERNANCE_READ_TOOL_NAMES, ...GOVERNANCE_WRITE_TOOL_NAMES, ...GOVERNANCE_COLLECT_TOOL_NAMES, ...GOVERNANCE_FEEDBACK_TOOL_NAMES, ...IDENTITY_BIND_TOOL_NAMES]
             : ["rein_status", "rein_simulate_vote", "rein_simulate_proposal", ...(proposalEnabled ? [...PROPOSAL_TOOL_NAMES] : [])],
           automationEnabled: false,
           foundationDbReadToolsEnabled: governanceToolsEnabled,
@@ -133,16 +183,18 @@ export default definePluginEntry({
           // The field-collection tool is its own read-only surface inside foundationDb mode.
           foundationDbCollectToolsEnabled: governanceToolsEnabled,
           foundationDbFeedbackToolsEnabled: governanceToolsEnabled,
+          identityBindToolsEnabled: governanceToolsEnabled,
           proposalToolsEnabled: proposalEnabled && !governanceToolsEnabled,
           formalProposalActionsEnabled: false,
           integrations: {
             chat: governanceToolsEnabled ? "host-context-only" : proposalEnabled ? "host-context-only" : "not-connected",
-            memberRegistry: governanceToolsEnabled ? "database-read-only" : "not-connected",
+            memberRegistry: governanceToolsEnabled ? "backend-read-only" : "not-connected",
             website: "not-connected",
-            finance: governanceToolsEnabled ? "snapshot-read-only" : "not-connected",
+            finance: governanceToolsEnabled ? "backend-snapshot-read-only" : "not-connected",
+            identityBinding: governanceToolsEnabled ? "backend-host-context-only" : "not-connected",
           },
           pending: governanceToolsEnabled
-            ? ["production-slack-app", "ballot-audit-export", "activity-follow-up-adapter", "website-publishing-adapter"]
+            ? ["ballot-audit-export", "activity-follow-up-adapter", "website-publishing-adapter"]
             : ["authoritative-member-registry-adapter", "live-voting-adapter", "activity-follow-up-adapter", "website-publishing-adapter"],
         };
         return {

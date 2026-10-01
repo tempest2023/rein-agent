@@ -122,8 +122,9 @@ test('proposal simulation identifies missing information and never authorizes ap
 test('governance mode registers the database-backed read tools instead of the simulators and legacy proposal tools', async () => {
   const manifest = JSON.parse(readFileSync(new URL('../plugins/rein-operations/openclaw.plugin.json', import.meta.url)));
   const dir = mkdtempSync(join(tmpdir(), 'rein-plugin-governance-'));
-  process.env.REIN_TEST_GOVERNANCE_SUPABASE_URL = 'https://project-ref.supabase.co';
-  process.env.REIN_TEST_GOVERNANCE_SUPABASE_SERVICE_KEY = 'sb_secret_plugin_test_0000000000000000';
+  process.env.REIN_TEST_GOVERNANCE_BACKEND_URL = 'https://rein.example.org';
+  process.env.REIN_TEST_GOVERNANCE_CALLER_ID = 'rein-agent';
+  process.env.REIN_TEST_GOVERNANCE_CREDENTIAL = 'plugin-test-agent-credential-0000000000';
   process.env.REIN_TEST_GOVERNANCE_CONFIRMATION_KEY = 'plugin-test-proposal-confirmation-key-0001';
   try {
     const registrations = [];
@@ -133,12 +134,14 @@ test('governance mode registers the database-backed read tools instead of the si
         foundationDb: {
           enabled: true,
           platform: 'slack',
-          slackTeamId: 'T0123456ABC',
-          environment: 'dev',
+          workspaces: [
+            { platform: 'slack', workspaceId: 'T0123456ABC', nativeChannelIds: ['C_PROPOSAL', 'C_BOARD'] },
+          ],
+          backendApiBaseUrlEnvVar: 'REIN_TEST_GOVERNANCE_BACKEND_URL',
+          agentCallerIdEnvVar: 'REIN_TEST_GOVERNANCE_CALLER_ID',
+          agentCredentialEnvVar: 'REIN_TEST_GOVERNANCE_CREDENTIAL',
           proposalChannelIds: ['C_PROPOSAL'],
           boardChannelIds: ['C_BOARD'],
-          supabaseUrlEnvVar: 'REIN_TEST_GOVERNANCE_SUPABASE_URL',
-          supabaseServiceKeyEnvVar: 'REIN_TEST_GOVERNANCE_SUPABASE_SERVICE_KEY',
           proposalConfirmationKeyEnvVar: 'REIN_TEST_GOVERNANCE_CONFIRMATION_KEY',
         },
         // Configured but superseded: governance mode exposes the real read slice, not local rehearsals.
@@ -152,6 +155,7 @@ test('governance mode registers the database-backed read tools instead of the si
       'rein_governance_proposal_submit,rein_poll_open,rein_poll_vote,rein_poll_result',
       'rein_proposal_collect',
       'rein_proposal_comment_suggest,rein_revision_approve,rein_revision_apply',
+      'rein_identity_bind_start,rein_identity_bind_complete',
       'rein_status',
     ]);
     const governance = registrations.find(entry => entry.options?.names?.includes('rein_member_status'));
@@ -191,13 +195,44 @@ test('governance mode registers the database-backed read tools instead of the si
     const feedback = registrations.find(entry => entry.options?.names?.includes('rein_revision_apply'));
     assert.ok(feedback, 'governance mode must register the post-result feedback tools');
     assert.equal(feedback.tool.contextVersion, 2);
-    assert.deepEqual(feedback.options.names, manifest.contracts.tools.slice(16));
+    // Select by the feedback surface's own names rather than by manifest position, so a tool
+    // appended to the manifest later cannot silently widen or shift this assertion.
+    assert.deepEqual(
+      feedback.options.names,
+      manifest.contracts.tools.filter(name =>
+        ['rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply'].includes(name),
+      ),
+    );
     assert.deepEqual(feedback.tool.create({
       messageChannel: 'slack',
       nativeChannelId: 'C_BOARD',
       requesterSenderId: 'U0123456ABC',
+      sessionId: 'S0SESSION',
       assertInvocationCurrent() {},
-    }).map(tool => tool.name), [...feedback.options.names]);
+    }).map(tool => tool.name), [
+      'rein_proposal_comment_suggest',
+      'rein_revision_approve',
+      'rein_revision_apply',
+    ]);
+
+    // Identity binding registers from the same explicit block, through the same wrapped runtime.
+    const identity = registrations.find(entry => entry.options?.names?.includes('rein_identity_bind_start'));
+    assert.ok(identity, 'governance mode must register the identity bind tools');
+    assert.equal(identity.tool.contextVersion, 2);
+    assert.deepEqual(identity.options.names, [
+      'rein_identity_bind_start',
+      'rein_identity_bind_complete',
+    ]);
+    assert.deepEqual(identity.tool.create({
+      sessionId: 'S0SESSION',
+      messageChannel: 'slack',
+      nativeChannelId: 'C_PROPOSAL',
+      requesterSenderId: 'U0123456ABC',
+      assertInvocationCurrent() {},
+    }).map(tool => tool.name), [
+      'rein_identity_bind_start',
+      'rein_identity_bind_complete',
+    ]);
 
     const status = registrations.find(entry => entry.tool.name === 'rein_status');
     const result = await status.tool.execute('status-call', {});
@@ -207,22 +242,27 @@ test('governance mode registers the database-backed read tools instead of the si
       'rein_governance_proposal_submit', 'rein_poll_open', 'rein_poll_vote', 'rein_poll_result',
       'rein_proposal_collect',
       'rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply',
+      'rein_identity_bind_start', 'rein_identity_bind_complete',
     ]);
     assert.equal(result.details.foundationDbReadToolsEnabled, true);
     assert.equal(result.details.foundationDbWriteToolsEnabled, true);
     assert.equal(result.details.foundationDbCollectToolsEnabled, true);
     assert.equal(result.details.foundationDbFeedbackToolsEnabled, true);
+    assert.equal(result.details.identityBindToolsEnabled, true);
     assert.equal(result.details.proposalToolsEnabled, false);
     assert.equal(result.details.automationEnabled, false);
     assert.equal(result.details.formalProposalActionsEnabled, false);
     assert.equal(result.details.integrations.chat, 'host-context-only');
-    assert.equal(result.details.integrations.memberRegistry, 'database-read-only');
-    assert.equal(result.details.integrations.finance, 'snapshot-read-only');
-    assert.ok(!result.content[0].text.includes('sb_secret_plugin_test'));
-    assert.ok(!result.content[0].text.includes('REIN_TEST_GOVERNANCE_SUPABASE'));
+    assert.equal(result.details.integrations.memberRegistry, 'backend-read-only');
+    assert.equal(result.details.integrations.finance, 'backend-snapshot-read-only');
+    assert.equal(result.details.integrations.identityBinding, 'backend-host-context-only');
+    assert.ok(!result.content[0].text.includes('plugin-test-agent-credential-0000000000'));
+    assert.ok(!result.content[0].text.includes('REIN_TEST_GOVERNANCE_CREDENTIAL'));
   } finally {
-    delete process.env.REIN_TEST_GOVERNANCE_SUPABASE_URL;
-    delete process.env.REIN_TEST_GOVERNANCE_SUPABASE_SERVICE_KEY;
+    delete process.env.REIN_TEST_GOVERNANCE_BACKEND_URL;
+    delete process.env.REIN_TEST_GOVERNANCE_CALLER_ID;
+    delete process.env.REIN_TEST_GOVERNANCE_CREDENTIAL;
+    delete process.env.REIN_TEST_GOVERNANCE_CONFIRMATION_KEY;
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -232,27 +272,43 @@ test('governance mode refuses to load with an incomplete block or an unset refer
   const base = {
     enabled: true,
     platform: 'slack',
-    slackTeamId: 'T0123456ABC',
-    environment: 'dev',
+    workspaces: [
+      { platform: 'slack', workspaceId: 'T0123456ABC', nativeChannelIds: ['C_PROPOSAL', 'C_BOARD'] },
+    ],
+    backendApiBaseUrlEnvVar: 'REIN_TEST_GOVERNANCE_BACKEND_URL',
+    agentCallerIdEnvVar: 'REIN_TEST_GOVERNANCE_CALLER_ID',
+    agentCredentialEnvVar: 'REIN_TEST_GOVERNANCE_CREDENTIAL',
     proposalChannelIds: ['C_PROPOSAL'],
     boardChannelIds: ['C_BOARD'],
   };
   assert.throws(
-    () => plugin.register({ pluginConfig: { foundationDb: { ...base, platform: 'discord' } }, registerTool }),
-    /platform must be "slack"/,
+    () => plugin.register({ pluginConfig: { foundationDb: { ...base, workspaces: [] } }, registerTool }),
+    /workspaces must list at least one/,
   );
-  // The config names server environment variables; without them nothing registers silently.
+  // The backend names server environment variables; without them nothing registers silently.
   assert.throws(
-    () => plugin.register({ pluginConfig: { foundationDb: base }, registerTool }),
+    () => plugin.register({ pluginConfig: { foundationDb: { ...base, agentCredentialEnvVar: 'not a variable' } }, registerTool }),
     /must name a server environment variable/,
   );
+  process.env.REIN_TEST_GOVERNANCE_BACKEND_URL = 'https://rein.example.org';
+  process.env.REIN_TEST_GOVERNANCE_CALLER_ID = 'rein-agent';
   assert.throws(
     () => plugin.register({
-      pluginConfig: {
-        foundationDb: { ...base, supabaseUrlEnvVar: 'REIN_TEST_ABSENT_URL', supabaseServiceKeyEnvVar: 'REIN_TEST_ABSENT_KEY' },
-      },
+      pluginConfig: { foundationDb: { ...base, agentCredentialEnvVar: 'REIN_TEST_ABSENT_CREDENTIAL' } },
       registerTool,
     }),
-    error => error.code === 'foundation_db_env_value_missing' && error.message.includes('REIN_TEST_ABSENT_URL'),
+    error =>
+      error.code === 'foundation_db_env_value_missing' &&
+      error.message.includes('REIN_TEST_ABSENT_CREDENTIAL'),
+  );
+  delete process.env.REIN_TEST_GOVERNANCE_BACKEND_URL;
+  delete process.env.REIN_TEST_GOVERNANCE_CALLER_ID;
+  // The retired Supabase and Slack keys are operator errors, not silently ignored options.
+  assert.throws(
+    () => plugin.register({
+      pluginConfig: { foundationDb: { ...base, slackTeamId: 'T0123456ABC' } },
+      registerTool,
+    }),
+    /no longer accepted/,
   );
 });

@@ -33,8 +33,9 @@ const PROPOSAL = '33333333-3333-4333-8333-333333333333';
 const OTHER_PROPOSAL = '44444444-4444-4444-8444-444444444444';
 const REVISION = '55555555-5555-4555-8555-555555555555';
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const URL_ENV = 'REIN_SUPABASE_URL';
-const KEY_ENV = 'REIN_SUPABASE_SERVICE_ROLE_KEY';
+const BASE_URL_ENV = 'REIN_BACKEND_BASE_URL';
+const CALLER_ENV = 'REIN_AGENT_CALLER_ID';
+const CREDENTIAL_ENV = 'REIN_AGENT_CREDENTIAL';
 const SECRET = 'sb_secret_unit_test_0000000000000000';
 const BOT_TOKEN_ENV = 'REIN_SLACK_BOT_TOKEN';
 const BOT_TOKEN = 'xoxb-unit-test-0000000000000001';
@@ -44,12 +45,24 @@ const APPROVED_AT = '2026-09-24T11:00:00.000Z';
 const baseConfig = Object.freeze({
   enabled: true,
   platform: 'slack',
-  slackTeamId: TEAM,
-  environment: 'dev',
+  workspaces: [
+    {
+      platform: 'slack',
+      workspaceId: TEAM,
+      nativeChannelIds: [PROPOSAL_CHANNEL, BOARD_CHANNEL],
+    },
+  ],
   proposalChannelIds: [PROPOSAL_CHANNEL],
   boardChannelIds: [BOARD_CHANNEL],
-  supabaseUrlEnvVar: URL_ENV,
-  supabaseServiceKeyEnvVar: KEY_ENV,
+  backendApiBaseUrlEnvVar: BASE_URL_ENV,
+  agentCallerIdEnvVar: CALLER_ENV,
+  agentCredentialEnvVar: CREDENTIAL_ENV,
+});
+
+const backendEnv = Object.freeze({
+  [BASE_URL_ENV]: 'https://backend.rein.example',
+  [CALLER_ENV]: 'rein-agent',
+  [CREDENTIAL_ENV]: SECRET,
 });
 
 const contributor = (overrides = {}) => ({
@@ -238,7 +251,7 @@ function build({ config = baseConfig, fakes = createFakes(), ctx: overrides = {}
     config,
     reader: fakes.reader,
     writer: fakes.writer,
-    env,
+    env: env ?? backendEnv,
   });
   const tools = registration.create(ctx);
   return {
@@ -280,30 +293,30 @@ test('the injected writer must implement every feedback method', () => {
     const fakes = createFakes();
     const partial = { ...fakes.writer, [missing]: undefined };
     assert.throws(
-      () => createProposalFeedbackToolRegistration({ config: baseConfig, reader: fakes.reader, writer: partial }),
+      () => createProposalFeedbackToolRegistration({ config: baseConfig, reader: fakes.reader, writer: partial, env: backendEnv }),
       /must implement getProposal, getRevision, recordProposalRevision, approveProposalRevision and applyProposalRevision/,
       missing,
     );
   }
 });
 
-test('the Supabase key is read from the server environment and never appears in the tools', () => {
+test('the backend base URL, caller ID and credential are read from the server environment and never appear in the tools', () => {
   assert.throws(
     () => createProposalFeedbackToolRegistration({ config: baseConfig, env: {} }),
-    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(URL_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(BASE_URL_ENV),
   );
   assert.throws(
     () =>
       createProposalFeedbackToolRegistration({
         config: baseConfig,
-        env: { [URL_ENV]: 'https://project-ref.supabase.co' },
+        env: { [BASE_URL_ENV]: 'https://backend.rein.example' },
       }),
-    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(KEY_ENV),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(CALLER_ENV),
   );
 
   const registration = createProposalFeedbackToolRegistration({
     config: baseConfig,
-    env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET },
+    env: backendEnv,
   });
   const tools = registration.create({
     messageChannel: 'slack',
@@ -313,144 +326,31 @@ test('the Supabase key is read from the server environment and never appears in 
   });
   assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_FEEDBACK_TOOL_NAMES]);
   assert.ok(!JSON.stringify(tools).includes(SECRET));
-  assert.ok(!JSON.stringify(tools).includes('project-ref.supabase.co'));
+  assert.ok(!JSON.stringify(tools).includes(BASE_URL_ENV));
 });
-
-test('email identity matching is off by default and an injected reader needs no bot token', () => {
-  for (const config of [
-    baseConfig,
-    { ...baseConfig, identityEmailMatch: 'disabled' },
-    { ...baseConfig, identityEmailMatch: 'enabled' },
-  ]) {
-    const fakes = createFakes();
-    const registration = createProposalFeedbackToolRegistration({
-      config,
-      reader: fakes.reader,
-      writer: fakes.writer,
-    });
-    const tools = registration.create({
-      messageChannel: 'slack',
-      nativeChannelId: BOARD_CHANNEL,
-      requesterSenderId: SENDER,
-      assertInvocationCurrent() {},
-    });
-    assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_FEEDBACK_TOOL_NAMES]);
-  }
-});
-
-test('an unknown identityEmailMatch value fails loudly instead of being ignored', () => {
-  const fakes = createFakes();
-  for (const value of ['yes', 'true', 1]) {
-    assert.throws(
-      () =>
-        createProposalFeedbackToolRegistration({
-          config: { ...baseConfig, identityEmailMatch: value },
-          reader: fakes.reader,
-          writer: fakes.writer,
-        }),
-      /identityEmailMatch must be "enabled" or "disabled"/,
-    );
-  }
-});
-
-test('enabled email matching names the bot token variable and never echoes its value', () => {
-  const fakes = createFakes();
-  const enabled = { ...baseConfig, identityEmailMatch: 'enabled' };
-  const resolve = (config, env) =>
-    createProposalFeedbackToolRegistration({ config, writer: fakes.writer, env });
-
-  assert.throws(
-    () => resolve(enabled, {}),
-    /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
-  );
-  assert.throws(
-    () => resolve({ ...enabled, slackBotTokenEnvVar: 'NOT A NAME' }, {}),
-    /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
-  );
-  const named = { ...enabled, slackBotTokenEnvVar: BOT_TOKEN_ENV };
-  assert.throws(
-    () => resolve(named, { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET }),
-    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(BOT_TOKEN_ENV),
-  );
-
-  const registration = resolve(named, {
-    [URL_ENV]: 'https://project-ref.supabase.co',
-    [KEY_ENV]: SECRET,
-    [BOT_TOKEN_ENV]: BOT_TOKEN,
-  });
-  const tools = registration.create({
-    messageChannel: 'slack',
-    nativeChannelId: BOARD_CHANNEL,
-    requesterSenderId: SENDER,
-    assertInvocationCurrent() {},
-  });
-  assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_FEEDBACK_TOOL_NAMES]);
-  assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN), 'the bot token never appears in a tool');
-  assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN_ENV), 'the variable name never appears in a tool');
-});
-
-test('enabled email matching builds one lookup in this slice and presents the token only as a header', async () => {
-  const requests = [];
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (url, init = {}) => {
-    requests.push({ url: String(url), headers: init.headers ?? {} });
-    if (String(url).startsWith('https://slack.com/')) {
-      return new Response(JSON.stringify({ ok: false, error: 'user_not_found' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    }
-    return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
-  };
-  try {
-    const fakes = createFakes();
-    const registration = createProposalFeedbackToolRegistration({
-      config: { ...baseConfig, identityEmailMatch: 'enabled', slackBotTokenEnvVar: BOT_TOKEN_ENV },
-      writer: fakes.writer,
-      env: {
-        [URL_ENV]: 'https://project-ref.supabase.co',
-        [KEY_ENV]: SECRET,
-        [BOT_TOKEN_ENV]: BOT_TOKEN,
-      },
-    });
-    const tools = registration.create({
-      messageChannel: 'slack',
-      nativeChannelId: BOARD_CHANNEL,
-      requesterSenderId: SENDER,
-      assertInvocationCurrent() {},
-    });
-    const result = await tools
-      .find(tool => tool.name === 'rein_revision_approve')
-      .execute('call-1', { revisionId: REVISION });
-
-    // The sender resolves as unlinked, so the approval is refused before any writer call.
-    assert.equal(result.details.error, 'identity_link_required');
-    assert.deepEqual(fakes.calls.approveProposalRevision, []);
-    const slackRequest = requests.find(request => request.url.startsWith('https://slack.com/api/users.info?'));
-    assert.ok(slackRequest, 'the enabled email matching must probe the Slack profile');
-    assert.equal(slackRequest.headers.authorization, `Bearer ${BOT_TOKEN}`);
-    assert.ok(requests.every(request => !request.url.includes(BOT_TOKEN)), 'the token never travels in a URL');
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
 test('an enabled-but-incomplete block fails loudly instead of registering part of the slice', () => {
   const fakes = createFakes();
   const incomplete = { ...baseConfig, boardChannelIds: [] };
   assert.throws(
-    () => createProposalFeedbackToolRegistration({ config: incomplete, reader: fakes.reader, writer: fakes.writer }),
+    () => createProposalFeedbackToolRegistration({ config: incomplete, reader: fakes.reader, writer: fakes.writer, env: backendEnv }),
     /boardChannelIds must list at least one/,
   );
   assert.throws(
     () =>
       createProposalFeedbackToolRegistration({
-        config: { ...baseConfig, platform: 'discord' },
+        config: { ...baseConfig, platform: 'Not A Platform' },
         reader: fakes.reader,
         writer: fakes.writer,
+        env: backendEnv,
       }),
-    /platform must be "slack"/,
+    /platform must name the governance platform/,
   );
+  for (const key of ['slackTeamId', 'environment', 'supabaseUrlEnvVar', 'supabaseServiceKeyEnvVar', 'identityEmailMatch', 'slackBotTokenEnvVar']) {
+    assert.throws(
+      () => createProposalFeedbackToolRegistration({ config: { ...baseConfig, [key]: 'anything' }, reader: fakes.reader, writer: fakes.writer, env: backendEnv }),
+      new RegExp(`foundationDb\\.${key} is no longer accepted`),
+    );
+  }
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -1094,13 +994,13 @@ test('no tool result leaks a private contact id, the team id, a credential or th
     await board.tool('rein_revision_apply').execute('call-3', { revisionId: REVISION }),
   ];
   const serialized = JSON.stringify(outputs.map(output => output.details));
-  for (const secret of [CONTACT, OTHER_CONTACT, TEAM, SECRET, 'project-ref.supabase.co', SENDER]) {
+  for (const secret of [CONTACT, OTHER_CONTACT, TEAM, SECRET, 'backend.rein.example', SENDER]) {
     assert.ok(!serialized.includes(secret), `the result must not include ${secret}`);
   }
   assert.ok(!serialized.includes('contactId'));
   assert.ok(!serialized.toLowerCase().includes('authorizesspending": true'));
-  assert.ok(!serialized.includes(URL_ENV));
-  assert.ok(!serialized.includes(KEY_ENV));
+  assert.ok(!serialized.includes(BASE_URL_ENV));
+  assert.ok(!serialized.includes(CALLER_ENV));
 });
 
 test('an unavailable provider is never reported as a missing proposal or revision', async () => {
