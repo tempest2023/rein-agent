@@ -37,6 +37,7 @@ export interface BackendTransport {
   resolveIdentity(proof: BackendProof): Promise<BackendResponse>;
   relayIngress(tuple: BackendIngressTuple): Promise<BackendResponse>;
   linkStart(proof: BackendProof): Promise<BackendResponse>;
+  linkStatus(sessionId: string, proof: BackendProof): Promise<BackendResponse>;
   linkComplete(bindingCode: string, proof: BackendProof): Promise<BackendResponse>;
 }
 
@@ -45,6 +46,7 @@ export const OPERATION_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 const MAX_ASSERTION_LENGTH = 8192;
 const MAX_BINDING_CODE_LENGTH = 512;
+const MAX_LINK_SESSION_ID_LENGTH = 256;
 
 const configError = (message: string): Error => new Error(`backend transport config: ${message}`);
 
@@ -167,6 +169,15 @@ export function createBackendTransport(config: BackendTransportConfig): BackendT
     return post('/api/identity/link/start', { proof });
   };
 
+  const linkStatus = async (sessionId: string, proof: BackendProof): Promise<BackendResponse> => {
+    if (!isBackendProof(proof)) return { ok: false, reason: 'invalid_request', httpStatus: null };
+    const id = typeof sessionId === 'string' ? sessionId.trim() : '';
+    if (!id || id.length > MAX_LINK_SESSION_ID_LENGTH) {
+      return { ok: false, reason: 'invalid_request', httpStatus: null };
+    }
+    return post('/api/identity/link/status', { session_id: id, proof });
+  };
+
   const linkComplete = async (bindingCode: string, proof: BackendProof): Promise<BackendResponse> => {
     if (!isBackendProof(proof)) return { ok: false, reason: 'invalid_request', httpStatus: null };
     const code = typeof bindingCode === 'string' ? bindingCode.trim() : '';
@@ -176,5 +187,5 @@ export function createBackendTransport(config: BackendTransportConfig): BackendT
     return post('/api/identity/link/complete', { binding_code: code, proof });
   };
 
-  return Object.freeze({ baseUrl, operations, resolveIdentity, relayIngress, linkStart, linkComplete });
+  return Object.freeze({ baseUrl, operations, resolveIdentity, relayIngress, linkStart, linkStatus, linkComplete });
 }

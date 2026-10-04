@@ -4,6 +4,7 @@ import type { BackendRuntime, ToolProofProvider } from './backend-runtime.ts';
 
 export const IDENTITY_BIND_TOOL_NAMES = Object.freeze([
   'rein_identity_bind_start',
+  'rein_identity_bind_status',
   'rein_identity_bind_complete',
 ] as const);
 
@@ -18,6 +19,14 @@ export interface IdentityToolsRegistration {
 }
 
 const MAX_BINDING_CODE_LENGTH = 512;
+const MAX_LINK_SESSION_ID_LENGTH = 256;
+const LINK_STATES = new Set([
+  'awaiting_email',
+  'email_verified',
+  'registration_required',
+  'completed',
+  'cancelled',
+]);
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
  typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -64,6 +73,16 @@ const readBindCompleteBody = (body: unknown): { status: string; linkId: string; 
   return { status: optionalString(body.status) ?? 'completed', linkId, contactId };
 };
 
+const readBindStatusBody = (
+  body: unknown,
+): { state: string; linked: boolean; expiresAt: string | null } | null => {
+  if (!isPlainObject(body) || body.ok !== true) return null;
+  const state = optionalString(body.state);
+  if (!state || !LINK_STATES.has(state) || typeof body.linked !== 'boolean') return null;
+  if (body.linked !== (state === 'completed')) return null;
+  return { state, linked: body.linked, expiresAt: optionalString(body.expires_at) };
+};
+
 const closed = (details: Record<string, unknown>) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(details) }],
   details,
@@ -84,6 +103,13 @@ function readBindingCode(args: unknown): string | null {
   const code = typeof args.bindingCode === 'string' ? args.bindingCode.trim() : '';
   if (!code || code.length > MAX_BINDING_CODE_LENGTH) return null;
   return code;
+}
+
+function readSessionId(args: unknown): string | null {
+  if (!isPlainObject(args)) return null;
+  const sessionId = typeof args.sessionId === 'string' ? args.sessionId.trim() : '';
+  if (!sessionId || sessionId.length > MAX_LINK_SESSION_ID_LENGTH) return null;
+  return sessionId;
 }
 
 export function createIdentityToolsRegistration(options: IdentityToolsOptions): IdentityToolsRegistration {
@@ -215,7 +241,76 @@ export function createIdentityToolsRegistration(options: IdentityToolsOptions): 
       },
     };
 
-    return [start, complete];
+    const status = {
+      name: 'rein_identity_bind_status',
+      description:
+        'Check the authoritative backend state of a binding session previously started for the current chat account. Use this after the person returns from the website without a binding code. The session id is the only argument; the backend binds it to the current platform account and never returns an email address.',
+      parameters: Type.Object(
+        {
+          sessionId: Type.String({
+            maxLength: MAX_LINK_SESSION_ID_LENGTH,
+            description: 'The session id returned by rein_identity_bind_start.',
+          }),
+        },
+        { additionalProperties: false },
+      ),
+      async execute(_toolCallId: unknown, args: unknown) {
+        const sessionId = readSessionId(args);
+        if (!sessionId) {
+          return closed({
+            ok: false,
+            status: 'invalid_request',
+            reason: 'binding_session_invalid',
+            recorded: false,
+          });
+        }
+        const proof = resolveProof(provider, ctx);
+        if (!proof) {
+          return closed({
+            ok: false,
+            status: 'unavailable',
+            reason: IDENTITY_BIND_CLOSED_REASON,
+            recorded: false,
+          });
+        }
+        const response = await runtime.transport.linkStatus(sessionId, proof);
+        if (!response.ok) {
+          return closed({
+            ok: false,
+            status: 'unavailable',
+            reason: response.reason,
+            httpStatus: response.httpStatus,
+            recorded: false,
+          });
+        }
+        const current = readBindStatusBody(response.body);
+        if (!current) {
+          return closed({
+            ok: false,
+            status: 'unavailable',
+            reason: 'binding_status_malformed',
+            httpStatus: response.httpStatus,
+            recorded: false,
+          });
+        }
+        const registrationRequired = current.state === 'registration_required';
+        return closed({
+          ok: true,
+          status: current.state,
+          linked: current.linked,
+          expiresAt: current.expiresAt,
+          registrationRequired,
+          nextStep: registrationRequired ? 'contact_administrator_to_register' : null,
+          message: registrationRequired
+            ? 'This verified email is not registered with the Rein community. Contact an administrator to register before linking this chat account.'
+            : null,
+          recorded: false,
+          authorizesSpending: false,
+        });
+      },
+    };
+
+    return [start, status, complete];
   };
 
   return {

@@ -41,6 +41,7 @@ const GOVERNANCE_FEEDBACK_TOOL_NAMES = [
 // same explicit block and belongs in the reported surface.
 const GOVERNANCE_BIND_TOOL_NAMES = [
   'rein_identity_bind_start',
+  'rein_identity_bind_status',
   'rein_identity_bind_complete',
 ];
 const PROPOSAL_TOOL_NAMES = [

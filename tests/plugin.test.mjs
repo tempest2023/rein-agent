@@ -155,7 +155,7 @@ test('governance mode registers the database-backed read tools instead of the si
       'rein_governance_proposal_submit,rein_poll_open,rein_poll_vote,rein_poll_result',
       'rein_proposal_collect',
       'rein_proposal_comment_suggest,rein_revision_approve,rein_revision_apply',
-      'rein_identity_bind_start,rein_identity_bind_complete',
+      'rein_identity_bind_start,rein_identity_bind_status,rein_identity_bind_complete',
       'rein_status',
     ]);
     const governance = registrations.find(entry => entry.options?.names?.includes('rein_member_status'));
@@ -221,6 +221,7 @@ test('governance mode registers the database-backed read tools instead of the si
     assert.equal(identity.tool.contextVersion, 2);
     assert.deepEqual(identity.options.names, [
       'rein_identity_bind_start',
+      'rein_identity_bind_status',
       'rein_identity_bind_complete',
     ]);
     assert.deepEqual(identity.tool.create({
@@ -231,6 +232,7 @@ test('governance mode registers the database-backed read tools instead of the si
       assertInvocationCurrent() {},
     }).map(tool => tool.name), [
       'rein_identity_bind_start',
+      'rein_identity_bind_status',
       'rein_identity_bind_complete',
     ]);
 
@@ -242,7 +244,7 @@ test('governance mode registers the database-backed read tools instead of the si
       'rein_governance_proposal_submit', 'rein_poll_open', 'rein_poll_vote', 'rein_poll_result',
       'rein_proposal_collect',
       'rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply',
-      'rein_identity_bind_start', 'rein_identity_bind_complete',
+      'rein_identity_bind_start', 'rein_identity_bind_status', 'rein_identity_bind_complete',
     ]);
     assert.equal(result.details.foundationDbReadToolsEnabled, true);
     assert.equal(result.details.foundationDbWriteToolsEnabled, true);

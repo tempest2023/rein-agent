@@ -91,10 +91,21 @@ test('an unusable operation name or proof is refused before any request', async 
     'invalid_request',
   );
   assert.equal((await transport.resolveIdentity(null)).reason, 'invalid_request');
+  assert.equal((await transport.linkStatus('', proof())).reason, 'invalid_request');
   assert.equal((await transport.linkComplete('', proof())).reason, 'invalid_request');
   assert.equal(calls.length, 0);
   assert.ok(OPERATION_PATTERN.test('get_proposal'));
   assert.ok(!OPERATION_PATTERN.test('Get-Proposal'));
+});
+
+test('binding status sends only the backend session id and proof', async () => {
+  const { transport, calls } = transportWith([{ ok: true, status: 200, body: { ok: true, state: 'awaiting_email', linked: false } }]);
+  await transport.linkStatus('  link_session_1  ', proof());
+  assert.equal(calls[0].url, `${BASE}/api/identity/link/status`);
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    session_id: 'link_session_1',
+    proof: { kind: 'assertion', assertion: 'opaque-assertion-value' },
+  });
 });
 
 test('the relay body carries the exact snake_case tuple the backend expects', async () => {

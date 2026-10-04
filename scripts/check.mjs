@@ -38,7 +38,7 @@ assert.deepEqual(manifest.contracts.tools, [
   'rein_governance_proposal_submit', 'rein_poll_open', 'rein_poll_vote', 'rein_poll_result',
   'rein_proposal_collect',
   'rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply',
-  'rein_identity_bind_start', 'rein_identity_bind_complete',
+  'rein_identity_bind_start', 'rein_identity_bind_status', 'rein_identity_bind_complete',
 ]);
 // Every backend-backed tool registers only from explicit configuration, and that block names an
 // authenticated backend service by environment variable: the Agent holds no database credential and

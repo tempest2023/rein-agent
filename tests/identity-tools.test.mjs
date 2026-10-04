@@ -25,6 +25,11 @@ function runtimeStub(responses) {
         index += 1;
         return next();
       },
+      async linkStatus(sessionId, requestProof) {
+        calls.push({ path: 'status', sessionId, proof: requestProof });
+        index += 1;
+        return next();
+      },
       async linkComplete(bindingCode, requestProof) {
         calls.push({ path: 'complete', bindingCode, proof: requestProof });
         index += 1;
@@ -41,9 +46,10 @@ const registrationWith = (stub, resolution) =>
 
 const readDetails = (result) => JSON.parse(result.content[0].text);
 
-test('the bind tools carry their two names and nothing else', () => {
+test('the bind tools carry their three names and nothing else', () => {
   assert.deepEqual([...IDENTITY_BIND_TOOL_NAMES], [
     'rein_identity_bind_start',
+    'rein_identity_bind_status',
     'rein_identity_bind_complete',
   ]);
 });
@@ -111,6 +117,61 @@ test('binding complete takes the code as its only argument', async () => {
   assert.equal(details.linkId, 'link_1');
   assert.equal(stub.calls[0].bindingCode, 'ABC-123');
   assert.equal(stub.calls[0].path, 'complete');
+});
+
+test('binding status reports an unregistered verified address with the administrator next step', async () => {
+  const stub = runtimeStub([{
+    ok: true,
+    httpStatus: 200,
+    body: {
+      ok: true,
+      state: 'registration_required',
+      linked: false,
+      contact_id: null,
+      expires_at: '2026-09-30T17:15:00Z',
+    },
+  }]);
+  const registration = registrationWith(stub, { ok: true, proof: proof() });
+  const status = registration.create({}).find(tool => tool.name === 'rein_identity_bind_status');
+  assert.deepEqual(Object.keys(status.parameters.properties), ['sessionId']);
+
+  const details = readDetails(await status.execute('call_1', { sessionId: ' link_session_1 ' }));
+  assert.equal(details.ok, true);
+  assert.equal(details.status, 'registration_required');
+  assert.equal(details.linked, false);
+  assert.equal(details.registrationRequired, true);
+  assert.equal(details.nextStep, 'contact_administrator_to_register');
+  assert.match(details.message, /administrator/);
+  assert.equal(details.recorded, false);
+  assert.equal(stub.calls[0].sessionId, 'link_session_1');
+  assert.ok(!JSON.stringify(details).includes('contact_id'));
+});
+
+test('binding status refuses bad session ids and malformed backend states', async () => {
+  const invalidStub = runtimeStub([{ ok: true, httpStatus: 200, body: {} }]);
+  const invalid = registrationWith(invalidStub, { ok: true, proof: proof() })
+    .create({})
+    .find(tool => tool.name === 'rein_identity_bind_status');
+  for (const args of [undefined, {}, { sessionId: '' }, { sessionId: 'x'.repeat(300) }]) {
+    const details = readDetails(await invalid.execute('call_1', args));
+    assert.equal(details.reason, 'binding_session_invalid');
+  }
+  assert.equal(invalidStub.calls.length, 0);
+
+  for (const body of [
+    {},
+    { ok: true, state: 'registration_required' },
+    { ok: true, state: 'unknown', linked: false },
+    { ok: true, state: 'completed', linked: false },
+  ]) {
+    const stub = runtimeStub([{ ok: true, httpStatus: 200, body }]);
+    const status = registrationWith(stub, { ok: true, proof: proof() })
+      .create({})
+      .find(tool => tool.name === 'rein_identity_bind_status');
+    const details = readDetails(await status.execute('call_1', { sessionId: 'link_session_1' }));
+    assert.equal(details.reason, 'binding_status_malformed');
+    assert.equal(details.recorded, false);
+  }
 });
 
 test('a 200 that denies the bind is reported as unavailable rather than success', async () => {
@@ -192,7 +253,7 @@ test('binding complete refuses an empty, missing or oversized code without calli
   assert.equal(stub.calls.length, 0);
 });
 
-test('both tools fail closed when the host context carries no proof', async () => {
+test('all binding tools fail closed when the host context carries no proof', async () => {
   const stub = runtimeStub([{ ok: true, httpStatus: 200, body: {} }]);
   for (const resolution of [{ ok: false, reason: 'proof_unavailable' }, null, undefined]) {
     const registration = registrationWith(stub, resolution);
@@ -205,10 +266,17 @@ test('both tools fail closed when the host context carries no proof', async () =
         .find(tool => tool.name === 'rein_identity_bind_complete')
         .execute('call_1', { bindingCode: 'ABC' }),
     );
+    const status = readDetails(
+      await tools
+        .find(tool => tool.name === 'rein_identity_bind_status')
+        .execute('call_1', { sessionId: 'link_session_1' }),
+    );
     assert.equal(start.ok, false);
     assert.equal(start.reason, IDENTITY_BIND_CLOSED_REASON);
     assert.equal(complete.ok, false);
     assert.equal(complete.reason, IDENTITY_BIND_CLOSED_REASON);
+    assert.equal(status.ok, false);
+    assert.equal(status.reason, IDENTITY_BIND_CLOSED_REASON);
   }
   assert.equal(stub.calls.length, 0);
 });
