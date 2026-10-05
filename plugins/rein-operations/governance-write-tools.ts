@@ -58,16 +58,22 @@
 //   A title the database cannot answer for stays null and the answer says so, and two frozen
 //   candidates that share one title are named as ambiguous, so a caller asks which one is meant
 //   instead of this module mapping a spoken name onto an identifier.
-// - Every wired path reaches only the writer methods `foundation-db-writer.ts` already exposes.
+// - Every wired path reaches only the writer methods the backend adapter exposes.
 //
 // Nothing in this module posts a message, and no tool here authorizes, moves or records money: a
 // stored proposal is a request and a poll outcome is a decision record.
 
 import { randomUUID } from 'node:crypto';
 import { Type } from 'typebox';
-import { createFoundationDbReader } from './foundation-db-reader.ts';
-import { createFoundationDbWriter } from './foundation-db-writer.ts';
-import { createSlackEmailLookup } from './slack-email-lookup.ts';
+import {
+  createConfiguredTransport,
+  createInvocationAdapters,
+  parseBackendConfig,
+  resolveTrustedWorkspace,
+  type ResolvedBackendConfig,
+} from './backend-config.ts';
+import type { ToolProofProvider } from './backend-db-adapter.ts';
+import type { BackendTransport } from './backend-transport.ts';
 import {
   MAX_CONFIRMATION_TOKEN_LENGTH,
   confirmationPreview,
@@ -135,15 +141,18 @@ export type GovernanceWriteToolWriter = Pick<
 export interface GovernanceWriteToolsOptions {
   /**
    * The `foundationDb` block of plugin config, read as untrusted input. Expected keys: `enabled`, `platform`
-   * (`slack`), `slackTeamId`, `environment` (`dev` or `prod`), `proposalChannelIds`,
-   * `boardChannelIds`, `supabaseUrlEnvVar`, `supabaseServiceKeyEnvVar`,
-   * `proposalConfirmationKeyEnvVar`, the optional `identityEmailMatch` (`enabled` or `disabled`)
-   * and the optional `slackBotTokenEnvVar`. The environment-variable keys name server variables; no
+   * `workspaces`, `proposalChannelIds`, `boardChannelIds`, `voteTypeAliases`, and the environment
+   * variables naming the backend base URL, the Agent caller ID, the Agent credential and the
+   * proposal-confirmation signing key. The environment-variable keys name server variables; no
    * credential is ever read from config. Absent or `enabled: false` registers no tools.
    */
   config?: Record<string, unknown>;
   /** Server environment holding the referenced values. Defaults to `process.env`. */
   env?: Record<string, string | undefined>;
+  /** Injectable backend transport for tests and local rehearsal; skips the env-var lookups. */
+  transport?: BackendTransport;
+  /** Runtime ingress proof for one tool invocation. Called at execution time, never at registration. */
+  proofProvider?: ToolProofProvider;
   /** Injectable reader for tests and local rehearsal; skips the env-var lookups. */
   reader?: GovernanceWriteToolReader;
   /** Injectable writer for tests and local rehearsal; skips the env-var lookups. */
@@ -157,19 +166,19 @@ export interface GovernanceWriteToolsOptions {
   now?: () => Date;
 }
 
-interface ResolvedGovernanceWriteConfig {
-  platform: 'slack';
+export interface ResolvedGovernanceWriteConfig {
+  config: ResolvedBackendConfig;
   proposalChannelIds: string[];
   boardChannelIds: string[];
-  reader: GovernanceWriteToolReader;
-  writer: GovernanceWriteToolWriter;
+  transport: BackendTransport;
+  proofProvider?: ToolProofProvider;
+  reader?: GovernanceWriteToolReader;
+  writer?: GovernanceWriteToolWriter;
   /** Server-only key that signs one proposal confirmation token. Never leaves the process. */
   confirmationSigningKey: string;
   now: () => Date;
 }
 
-const SLACK_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-const ENV_VAR_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
 /** Lower snake case, exactly the shape the vote type table stores. */
@@ -240,46 +249,8 @@ function configError(message: string): never {
   throw new GovernanceWriteToolError('foundation_db_config_invalid', `foundationDb write tools: ${message}`);
 }
 
-function readChannelIds(field: string, value: unknown): string[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    configError(`foundationDb.${field} must list at least one approved native channel ID`);
-  }
-  const channels = (value as unknown[]).map(id => (typeof id === 'string' ? id.trim() : ''));
-  if (channels.some(id => !id)) {
-    configError(`foundationDb.${field} must contain non-empty native channel ID strings`);
-  }
-  return channels;
-}
-
-/** Validate one environment-variable reference. Only the variable *name* is ever reported. */
-function readEnvReference(reference: unknown, field: string): string {
-  if (typeof reference !== 'string' || !ENV_VAR_NAME_PATTERN.test(reference.trim())) {
-    configError(`foundationDb.${field} must name a server environment variable`);
-  }
-  return (reference as string).trim();
-}
-
-/**
- * Read the email-first identity matching mode. It is opt-in: absent or `disabled` keeps the
- * database-only behavior this slice had before the option existed, and any other value is an
- * operator error rather than a silently ignored typo.
- */
-function readIdentityEmailMatch(value: unknown): 'enabled' | 'disabled' {
-  if (value === undefined || value === null) return 'disabled';
-  if (value === 'enabled' || value === 'disabled') return value;
-  configError('foundationDb.identityEmailMatch must be "enabled" or "disabled"');
-}
-
-/** Resolve one referenced value from the server environment, or fail without echoing it. */
-function readEnvValue(env: Record<string, string | undefined>, name: string, field: string): string {
-  const value = env?.[name];
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new GovernanceWriteToolError(
-      'foundation_db_env_value_missing',
-      `foundationDb write tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
-    );
-  }
-  return value.trim();
+function envValueError(message: string): never {
+  throw new GovernanceWriteToolError('foundation_db_env_value_missing', `foundationDb write tools: ${message}`);
 }
 
 /**
@@ -289,109 +260,39 @@ function readEnvValue(env: Record<string, string | undefined>, name: string, fie
  * checks and reason codes match `governance-read-tools.ts`.
  */
 function resolveGovernanceWriteConfig(options?: GovernanceWriteToolsOptions): ResolvedGovernanceWriteConfig | null {
-  const config = options?.config;
-  if (!config || typeof config !== 'object' || config.enabled !== true) return null;
+  const config = parseBackendConfig({
+    config: options?.config,
+    env: options?.env,
+    requireConfirmationKey: true,
+    ...(options?.confirmationSigningKey === undefined
+      ? {}
+      : { confirmationSigningKey: options.confirmationSigningKey }),
+    error: configError,
+    envError: envValueError,
+  });
+  if (!config) return null;
 
-  // P0 uses exactly one chat platform, and this slice is Slack-only.
-  if (config.platform !== 'slack') {
-    configError('foundationDb.platform must be "slack"; these tools act on Slack host context only');
-  }
-  const slackTeamId = typeof config.slackTeamId === 'string' ? config.slackTeamId.trim() : '';
-  if (!SLACK_ID_PATTERN.test(slackTeamId)) {
-    configError('foundationDb.slackTeamId must be one Slack team ID such as T01234567 (one workspace per installation)');
-  }
-  const proposalChannelIds = readChannelIds('proposalChannelIds', config.proposalChannelIds);
-  const boardChannelIds = readChannelIds('boardChannelIds', config.boardChannelIds);
-  const environment = config.environment;
-  if (environment !== 'dev' && environment !== 'prod') {
-    configError("foundationDb.environment must be 'dev' or 'prod'; it chooses the database table set");
-  }
+  const proposalChannelIds = config.workspaces.flatMap(workspace => [...workspace.proposalChannelIds]);
+  const boardChannelIds = config.workspaces.flatMap(workspace => [...workspace.boardChannelIds]);
+  const transport = options?.transport ?? createConfiguredTransport(config);
 
-  // The configuration always names the server environment variables; the values are only read when
-  // the caller injected neither a reader nor a writer, so a rehearsal can supply its own without
-  // credentials.
-  const urlReference = readEnvReference(config.supabaseUrlEnvVar, 'supabaseUrlEnvVar');
-  const keyReference = readEnvReference(config.supabaseServiceKeyEnvVar, 'supabaseServiceKeyEnvVar');
-  const confirmationKeyReference = readEnvReference(
-    config.proposalConfirmationKeyEnvVar,
-    'proposalConfirmationKeyEnvVar',
-  );
-
-  // Optional email-first identity evidence. Off by default, and the bot token is only demanded when
-  // this process builds its own reader. A name that is present at all is still checked, because a
-  // typo in the variable name is a configuration error either way.
-  const identityEmailMatch = readIdentityEmailMatch(config.identityEmailMatch);
-  const botTokenReference =
-    identityEmailMatch === 'enabled' && config.slackBotTokenEnvVar !== undefined
-      ? readEnvReference(config.slackBotTokenEnvVar, 'slackBotTokenEnvVar')
-      : null;
-
-  let reader: GovernanceWriteToolReader | undefined = options?.reader;
-  let writer: GovernanceWriteToolWriter | undefined = options?.writer;
-  let confirmationSigningKey: string | undefined =
-    typeof options?.confirmationSigningKey === 'string' && options.confirmationSigningKey.trim()
-      ? options.confirmationSigningKey.trim()
-      : undefined;
-  if (!reader || !writer) {
-    const env = options?.env ?? process.env;
-    // With email matching on and no injected reader, the bot token variable must be named before
-    // any value is read, so a missing name fails on the configuration instead of behind an
-    // unrelated missing value.
-    const tokenReference =
-      identityEmailMatch === 'enabled' && !reader
-        ? (botTokenReference ?? readEnvReference(config.slackBotTokenEnvVar, 'slackBotTokenEnvVar'))
-        : null;
-    const supabaseUrl = readEnvValue(env, urlReference, 'supabaseUrlEnvVar');
-    const serviceRoleKey = readEnvValue(env, keyReference, 'supabaseServiceKeyEnvVar');
-    if (!reader) {
-      // The reader gets one lookup bound to this workspace and one bot token. The token is read from
-      // the named server environment variable and never reaches config, a status, a result or an
-      // error message.
-      const emailLookup =
-        tokenReference !== null
-          ? createSlackEmailLookup({
-              botToken: readEnvValue(env, tokenReference, 'slackBotTokenEnvVar'),
-              slackTeamId,
-            })
-          : undefined;
-      reader = createFoundationDbReader({
-        supabaseUrl,
-        serviceRoleKey,
-        environment,
-        slackTeamId,
-        ...(emailLookup ? { emailLookup } : {}),
-      });
-    }
-    if (!writer) {
-      writer = createFoundationDbWriter({ supabaseUrl, serviceRoleKey, environment });
-    }
-    if (!confirmationSigningKey) {
-      confirmationSigningKey = readEnvValue(env, confirmationKeyReference, 'proposalConfirmationKeyEnvVar');
-    }
-  }
-  // A rehearsal that injects both a reader and a writer still needs a signing key, because the
-  // confirmation step is part of the tool contract and not an optional extra.
-  if (!confirmationSigningKey) {
-    confirmationSigningKey = readEnvValue(
-      options?.env ?? process.env,
-      confirmationKeyReference,
-      'proposalConfirmationKeyEnvVar',
-    );
-  }
-  if (!reader || typeof reader.resolveSlackMember !== 'function') {
+  if (
+    options?.reader &&
+    typeof options.reader.resolveSlackMember !== 'function'
+  ) {
     configError('the injected reader must implement resolveSlackMember');
   }
   if (
-    !writer ||
-    typeof writer.submitProposal !== 'function' ||
-    typeof writer.createPoll !== 'function' ||
-    typeof writer.getPoll !== 'function' ||
-    typeof writer.listBallots !== 'function' ||
-    typeof writer.castBallot !== 'function' ||
-    typeof writer.getVoteType !== 'function' ||
-    typeof writer.listVoteTypes !== 'function' ||
-    typeof writer.listCandidateProposals !== 'function' ||
-    typeof writer.finalizePoll !== 'function'
+    options?.writer &&
+    (typeof options.writer.submitProposal !== 'function' ||
+      typeof options.writer.createPoll !== 'function' ||
+      typeof options.writer.getPoll !== 'function' ||
+      typeof options.writer.listBallots !== 'function' ||
+      typeof options.writer.castBallot !== 'function' ||
+      typeof options.writer.getVoteType !== 'function' ||
+      typeof options.writer.listVoteTypes !== 'function' ||
+      typeof options.writer.listCandidateProposals !== 'function' ||
+      typeof options.writer.finalizePoll !== 'function')
   ) {
     configError(
       'the injected writer must implement submitProposal, createPoll, getPoll, listBallots, castBallot, getVoteType, listVoteTypes, listCandidateProposals and finalizePoll',
@@ -400,12 +301,14 @@ function resolveGovernanceWriteConfig(options?: GovernanceWriteToolsOptions): Re
 
   const now = typeof options?.now === 'function' ? options.now : () => new Date();
   return {
-    platform: 'slack',
+    config,
     proposalChannelIds,
     boardChannelIds,
-    reader,
-    writer,
-    confirmationSigningKey,
+    transport,
+    ...(options?.proofProvider === undefined ? {} : { proofProvider: options.proofProvider }),
+    ...(options?.reader === undefined ? {} : { reader: options.reader }),
+    ...(options?.writer === undefined ? {} : { writer: options.writer }),
+    confirmationSigningKey: config.confirmationSigningKey as string,
     now,
   };
 }
@@ -555,16 +458,38 @@ function provisionalResult(
 }
 
 function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
-  const { proposalChannelIds, boardChannelIds, reader, writer, confirmationSigningKey, now } = config;
+  const { proposalChannelIds, boardChannelIds, confirmationSigningKey, now } = config;
 
   const nativeChannelId = typeof ctx?.nativeChannelId === 'string' ? ctx.nativeChannelId.trim() : '';
   const senderId = typeof ctx?.requesterSenderId === 'string' ? ctx.requesterSenderId.trim() : '';
 
+  // Trusted platform plus channel pick one approved workspace; the reader and writer for this call
+  // are built against the backend with a per-call proof, resolved again on every backend call.
+  const workspace = resolveTrustedWorkspace(config.config, ctx);
+  const bound = createInvocationAdapters({
+    transport: config.transport,
+    identity: workspace,
+    ...(config.proofProvider === undefined ? {} : { proofProvider: config.proofProvider }),
+    ctx,
+  });
+  const reader: GovernanceWriteToolReader | null = config.reader ?? bound?.reader ?? null;
+  const writer: GovernanceWriteToolWriter | null = config.writer ?? bound?.writer ?? null;
+
   // Resolve the trusted sender, or refuse before any database call. `audience` narrows which
   // approved channels may call this tool; the acting account is never taken from arguments.
   const requester = (audience: string, scoped: string[]) => {
-    if (ctx?.messageChannel !== 'slack') {
-      throw new GovernanceWriteToolError('platform_out_of_scope', 'These tools act on Slack host context only.');
+    if (typeof ctx?.messageChannel !== 'string' || !ctx.messageChannel.trim()) {
+      throw new GovernanceWriteToolError('platform_out_of_scope', 'The host did not supply a chat platform.');
+    }
+    if (workspace === null) {
+      if (/^[a-z][a-z0-9_-]{1,31}$/.test(String(ctx.messageChannel).trim()) &&
+          config.config.workspaces.some(item => item.platform === String(ctx.messageChannel).trim())) {
+        throw new GovernanceWriteToolError(
+          'channel_out_of_scope',
+          `This channel is outside the approved ${audience} workspace channels.`,
+        );
+      }
+      throw new GovernanceWriteToolError('platform_out_of_scope', 'This platform is not an approved governance surface.');
     }
     if (!senderId) {
       throw new GovernanceWriteToolError('trusted_requester_unavailable', 'The host did not supply a sender ID.');
@@ -575,7 +500,14 @@ function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
         `This tool is limited to its approved ${audience} channel.`,
       );
     }
-    return reader.resolveSlackMember(senderId);
+    if (!reader) {
+      throw new GovernanceWriteToolError(
+        'identity_source_unavailable',
+        'This installation has no backend workspace configured for this channel, so no member record is available.',
+      );
+    }
+    const resolved: GovernanceWriteToolReader = reader;
+    return resolved.resolveSlackMember(senderId);
   };
 
   const linkRequired = (audience: string) =>
@@ -583,6 +515,20 @@ function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
       'identity_link_required',
       `This ${audience} tool requires a verified link between your Slack account and a community record.`,
     );
+
+  /**
+   * The write surface, or a refusal when this invocation has no configured backend workspace. A
+   * missing workspace is reported as its own unavailable source instead of an empty or failed write.
+   */
+  const requireWriter = (): GovernanceWriteToolWriter => {
+    if (!writer) {
+      throw new GovernanceWriteToolError(
+        'write_source_unavailable',
+        'This installation has no backend workspace configured for this channel, so no governance write is available.',
+      );
+    }
+    return writer;
+  };
 
   /**
    * A read outage is not a governance answer. When the community record itself could not be read,
@@ -740,7 +686,7 @@ function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
    * empty configuration. An empty table is its own answer: there is no type to choose at all.
    */
   const readConfiguredVoteTypes = async (): Promise<string[]> => {
-    const result = await writer.listVoteTypes({ limit: MAX_CONFIGURED_VOTE_TYPES });
+    const result = await requireWriter().listVoteTypes({ limit: MAX_CONFIGURED_VOTE_TYPES });
     if (!result.ok || !result.voteTypes) {
       throw new GovernanceWriteToolError(
         'vote_type_configuration_unavailable',
@@ -785,7 +731,7 @@ function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
    * cannot mistake an outage for a decision that was never made.
    */
   const readPoll = async (pollId: string): Promise<PollRecord> => {
-    const result = await writer.getPoll(pollId);
+    const result = await requireWriter().getPoll(pollId);
     if (!result.ok || !result.poll) {
       if (result.reason === 'poll_not_found') {
         throw new GovernanceWriteToolError('poll_not_found', 'No stored poll has that identifier.');
@@ -800,7 +746,7 @@ function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
    * round's own limits; an unknown type is refused by name and an outage is never read as one.
    */
   const readVoteType = async (voteType: string): Promise<VoteTypeRecord> => {
-    const result = await writer.getVoteType(voteType);
+    const result = await requireWriter().getVoteType(voteType);
     if (!result.ok || !result.voteType) {
       if (result.reason === 'vote_type_not_found') {
         throw new GovernanceWriteToolError(
@@ -825,7 +771,7 @@ function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
     limit: number,
     submittedSince: string | null,
   ): Promise<ProposalRecord[]> => {
-    const listed = await writer.listCandidateProposals({
+    const listed = await requireWriter().listCandidateProposals({
       voteType,
       limit,
       ...(submittedSince === null ? {} : { submittedSince }),
@@ -865,7 +811,7 @@ function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
         entries.push({ proposalId, title: null });
         continue;
       }
-      const read = await writer.getProposal(proposalId);
+      const read = await requireWriter().getProposal(proposalId);
       entries.push({ proposalId, title: read.ok && read.proposal ? read.proposal.title : null });
     }
     return entries;
@@ -1072,7 +1018,7 @@ function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
           assertCurrentInvocation(ctx);
           // The vote type is stored as given and the database keeps the foreign key as the final
           // authority, so an unconfigured type is still refused there rather than guessed here.
-          const written = await writer.submitProposal({
+          const written = await requireWriter().submitProposal({
             id: confirmedId,
             proposerContactId: verified.payload.proposerContactId,
             title: verified.payload.title,
@@ -1176,7 +1122,7 @@ function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
           assertCurrentInvocation(ctx);
           // No cap and no approval limit travels with this call: the database freezes both from the
           // stored vote type, and it freezes the candidate list it accepts.
-          const written = await writer.createPoll({
+          const written = await requireWriter().createPoll({
             id,
             creatorContactId: member.contactId,
             title,
@@ -1259,7 +1205,7 @@ function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
           const approvedProposalIds = resolveApprovals(args?.approvedProposalIds, poll);
           // Final authority check immediately before the write: a stale turn cannot commit.
           assertCurrentInvocation(ctx);
-          const written = await writer.castBallot({
+          const written = await requireWriter().castBallot({
             pollId,
             voterContactId: member.contactId,
             approvedProposalIds,
@@ -1368,7 +1314,7 @@ function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
           // `finalizePoll` is idempotent: a repeat against a closed row returns the stored record
           // instead of writing a second one, which is what makes a closed round readable here.
           assertCurrentInvocation(ctx);
-          const written = await writer.finalizePoll({ pollId, actorContactId: member.contactId });
+          const written = await requireWriter().finalizePoll({ pollId, actorContactId: member.contactId });
           if (!written.ok || !written.finalization) {
             throw new GovernanceWriteToolError(written.reason || 'finalize_failed', 'The outcome could not be finalized.');
           }
@@ -1386,6 +1332,7 @@ function buildTools(config: ResolvedGovernanceWriteConfig, ctx: any) {
           const details = {
             tool: 'rein_poll_result',
             ok: true,
+            narration: null as Record<string, unknown> | null,
             status: written.status,
             reason: written.reason,
             pollId,

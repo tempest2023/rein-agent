@@ -1,4 +1,4 @@
-# v0.1 integration contracts: Slack, database, and money boundary
+# v0.1 integration contracts: Slack, backend API, and money boundary
 
 The v0.1 vertical slice is Slack identity, a Contributor proposal, a Board approval vote with a
 result, and a read-only funds snapshot. This file lists what each boundary must supply, and what
@@ -9,24 +9,43 @@ deferred; see [decisions](decisions.md).
 
 | Item | Requirement |
 | --- | --- |
-| Transport | Socket Mode against the official plugin that ships in the pinned upstream checkout; no public webhook path is required. |
-| Credentials | A bot token and an app-level token, supplied through the server environment or the runtime's own secret store. No token, signing secret or team ID may appear in this repository, in plugin config, or in any tool result. |
-| Workspace | Exactly one Slack workspace per installation. |
-| Sender | The acting user comes from the runtime's trusted per-message sender (`requesterSenderId`), which admitted channel and group messages carry the same way as DMs. No tool argument, display name or role label establishes identity; the community identity behind that sender is resolved as described below. |
-| Sender email lookup | The receiving bot resolves the trusted sender's current Slack profile email with `users.info`, which requires the governance app to hold the bot scopes `users:read` and `users:read.email`. This path is opt-in and not installed: no Slack workspace is connected, and until the scopes are installed on the governance app the sender stays unresolved. The local human test user app keeps `chat:write` as its only scope and carries no bot scope, so it cannot perform this lookup. |
-| Email to community record | The returned email is normalized and must match exactly one `<env>_contact_identities` row. The contact and its current Contributor or director role are derived from that row at request time. Resolution never creates, updates or persists a Slack link, and the Slack team stays fixed operator configuration. |
-| Legacy link rows | `<env>_rein_slack_links` is retained as a legacy and revocation record, not as a grant. A `revoked` row vetoes the sender, and a `verified` row whose contact conflicts with the matched email also vetoes the sender. The Agent writes no link row. |
-| Unresolved sender | A missing or hidden profile email, an email that matches no row or more than one row, or a matched row with no usable contact fails closed: the sender may ask questions but cannot submit, vote or act, and no governance record is written. |
-| Channels | Explicitly approved proposal and Board channel IDs, in native Slack form. A call from any other channel is refused before any database access. |
-| Missing team ID | The trusted tool context carries the platform, the channel and the sender, but no Slack team or workspace ID. The team is fixed operator configuration, so pointing one installation at several workspaces would resolve senders against the wrong community records. |
+| Transport | Socket Mode against the official plugin that ships in the pinned upstream checkout; no public webhook path is required. Socket Mode and the Discord Gateway deliver events over an authenticated long-lived connection, so there is no per-event signature on those two paths; Slack HTTP mode, when it is used, is HMAC-signed. Ordinary Discord messages are not signed. |
+| Credentials | A bot token and an app-level token, supplied through the server environment or the runtime's own secret store. Config names environment variables, never values, and no token, signing secret or credential may appear in this repository, in plugin config, or in any tool result. |
+| Workspaces | The approved workspaces are operator configuration: `foundationDb.workspaces` lists each workspace `id` with its own non-empty list of native channel IDs. The ingress relay carries the workspace ID the event came from, so a workspace the operator did not list is not a governance surface. |
+| Sender | The acting user comes from the runtime's trusted per-message sender (`requesterSenderId`), which admitted channel and group messages carry the same way as DMs. No tool argument, display name or role label establishes identity. |
+| Proof | A backend-signed assertion bound to (platform, workspace, user, channel, event) and to the calling Agent. The Agent obtains it from `POST /api/ingress/relay` and presents it on its later calls. It is a private closure: never a tool argument, never a tool result, never a status field, and no tool accepts a model-supplied actor. |
+| Identity resolution | `POST /api/identity/resolve` with the proof. Canonical verified links held by the backend are the only identity source; the Agent reads no profile, email or display name, and one contact may hold several bindings with the contact's consent. A sender the backend cannot resolve fails closed: they may ask questions but cannot submit, vote or act. |
+| Identity binding | Starting a bind returns a website URL the person opens in a browser; completing it takes only the short code the person carries back (`POST /api/identity/link/complete` with `binding_code` and the proof). There is no email argument, and the backend derives the actor from the proof. |
+| Channels | Explicitly approved proposal and Board channel IDs, in native Slack form. A call from any other channel is refused before any backend access. |
 | Outbound messages | The v0.1 tools return results to the calling turn and do not post to Slack on their own. The result tool in particular only returns the result; nothing auto-posts it back to the channel. Any future posting must persist intent plus an idempotency key before delivery. |
 
-## Database (organization's own Supabase project)
+### Transport endpoints
 
-Members, directors, Slack identity links, proposals, polls, ballots and available-funds figures live
-in the organization's own database, not in this repository. Development and production share one
-project with isolated `dev_*` and `prod_*` table sets; the environment selector has no implicit
-default.
+Every call is a JSON `POST` authenticated with the registered caller ID in `X-Rein-Caller-Id` and the
+Agent credential in `Authorization: Bearer`. The base URL, the caller ID and the credential are
+named by environment variables in the `foundationDb` block, never stored as values.
+
+| Endpoint | Body | Purpose |
+| --- | --- | --- |
+| `/api/ingress/relay` | `{ platform, workspace_id, platform_user_id, channel_id, event_id, event_ts }` | Exchange an inbound event for a signed assertion; returns `{ assertion, expires_at }`. |
+| `/api/identity/resolve` | `{ proof }` | Resolve the acting contact and its current role from canonical verified links. |
+| `/api/identity/link/start` | `{ proof }` | Begin a binding; returns the website URL the person opens. |
+| `/api/identity/link/complete` | `{ binding_code, proof }` | Finish a binding with the code the person carries back. |
+| `/api/agent/operations` | `{ operation, input, proof }` | Every governance read and write. |
+
+Operation names are lower snake case: `member_status`, `available_funds`, `get_poll`, `get_proposal`,
+`list_ballots`, `get_vote_type`, `list_vote_types`, `list_candidate_proposals`, `get_revision`,
+`submit_proposal`, `create_poll`, `cast_ballot`, `finalize_poll`, `record_proposal_revision`,
+`approve_proposal_revision`, `apply_proposal_revision`.
+
+## Backend API and the Foundation database
+
+Members, directors, canonical identity bindings, proposals, polls, ballots and available-funds
+figures live in the organization's own database, not in this repository. The Agent never opens a
+database connection, holds no database credential and performs no database work: the backend
+service owns the schema and the credential, and the Agent reaches the data only through the
+operations above. Development and production share one project with isolated `dev_*` and `prod_*`
+table sets, and the backend selects the environment; nothing in the Agent defaults it.
 
 The slice's migrations live in the sibling Foundation repository `tempest2023/ReinProtocolFoundation`,
 which carries them on its PR #13 branch (PR #13, open). The current PR head is `78281fa`
@@ -87,24 +106,20 @@ resolve. Applying a migration is a schema step, not evidence that the Agent uses
 live end-to-end verification is still absent.
 
 **What the applied migrations do not prove.** Applying a migration is not the same as the Agent
-using it, and schema registration is not proof of any row. No Slack workspace is connected, the
-Agent has no live database connection, and no end-to-end read, write or vote has run against either
-prefix. Neither the `dev_*` nor the `prod_*` table set has verified data or verified Agent use, and
-the `prod_*` set is not a separate schema step to schedule: the objects already exist there. Every
-tool result in this PR is from local modules and synthetic tests.
+using it, and schema registration is not proof of any row. No Slack workspace is connected, no
+backend service is reachable from the Agent, and no end-to-end read, write or vote has run against
+either prefix. Neither the `dev_*` nor the `prod_*` table set has verified data or verified Agent
+use, and the `prod_*` set is not a separate schema step to schedule: the objects already exist
+there. Every tool result in this PR is from local modules and synthetic tests.
 
 Required contract properties:
 
-- One `<env>_contact_identities` row maps one normalized email to one community contact, and the
-  Slack v0.1 slice resolves a sender by a single exact email match against that table, deriving the contact
-  and its current role at request time. Display names never establish identity, and one person with
-  several Slack accounts that share one email resolves to one canonical contact. A retained link row
-  is a veto rather than a grant: `revoked` blocks the sender, and `verified` with a conflicting
-  contact blocks the sender. A missing, hidden, unmatched or ambiguous email fails closed instead of
-  creating a link or a contact, and the resolver never writes a link row. The `<env>_contact_identities`
-  table is part of the earlier community schema, which the linked project already carries, so the
-  resolver's read target exists there; the email resolver itself is still off by default and has not
-  been exercised against that project.
+- Identity is canonical verified links held by the backend. The earlier email-to-contact path is
+  gone from the Agent: there is no `<env>_contact_identities` email match, no Slack profile lookup
+  and no `users.info` call. A contact may hold more than one binding, because a contact may consent
+  to more than one; no contact-plus-platform-plus-scope uniqueness rule applies. Display names never
+  establish identity, a sender the backend cannot resolve fails closed, and the Agent writes no
+  binding of its own.
 - `contributors.status = 'active'` is the only source of Contributor eligibility, and
   `people.person_type = 'director'` is the only source of Board eligibility. Free-text role fields
   are not consulted.
@@ -118,8 +133,9 @@ Required contract properties:
   an edit. Ballots are immutable and unique per poll and voter, so a repeated identical call is the
   same record and a changed choice is refused rather than overwritten.
 - Every governance table enables RLS, grants nothing to `anon` or `authenticated`, and is reachable
-  only by the server-side secret key. No credential is stored in plugin config; config names the
-  environment variables instead.
+  only by the backend service's server-side key. That key never leaves the backend environment: the
+  Agent holds no database credential, and its plugin config names only the backend base URL, caller
+  ID and credential environment variables.
 - A funds figure is a human-entered snapshot in integer minor units with an explicit currency. It is
   append-only; a correction is a new row, and the newest `recorded_at` wins. An absent or unusable
   snapshot must be reported as explicitly unknown, never as zero.
@@ -136,13 +152,13 @@ Required contract properties:
 `rein_poll_open` refuses a caller-supplied candidate list, cap or option label
 (`policy_argument_rejected`, and `legacy_options_unsupported` at the write layer) and assembles the
 pool from stored proposals of the named vote type; `rein_poll_vote` accepts `approvedProposalIds`
-only, an empty list is the abstention, and the database freezes the candidate list and both limits
+only, an empty list is the abstention, and the backend freezes the candidate list and both limits
 at insert time. The local migrations are the source of that enforcement. They are reviewed and
 committed in the sibling Foundation repository (`tempest2023/ReinProtocolFoundation`) and applied to
-the linked `BeneficenceProtocol` project's `dev_*` set, but no registered tool has exercised them
-against that project: the enforcement described above is proven by local tests only, and nothing
-here is a live end-to-end result. The concrete per-type cap and approval-budget values remain
-unapproved operator configuration.
+the linked `BeneficenceProtocol` project's `dev_*` set, but no registered tool has exercised the
+backend end to end: the enforcement described above is proven by local tests only, and nothing here
+is a live end-to-end result. The concrete per-type cap and approval-budget values remain unapproved
+operator configuration.
 
 ## Naming and the rename migration
 
@@ -200,8 +216,8 @@ broader PRD is deferred.
 
 ## Recovery and replay
 
-- Every refusal collapses to a fixed reason code. Provider text, the Supabase URL, the Slack team ID
-  and the service key are never echoed to a caller.
+- Every refusal collapses to a fixed reason code. Provider text, the backend base URL, the workspace
+  ID and the Agent credential are never echoed to a caller.
 - Proposal and poll identifiers derive from the tool call ID, the acting contact and the action.
   Repeating the same call inside the same turn addresses the same record and is reported as an exact
   duplicate instead of inserting a second row.
@@ -223,16 +239,17 @@ Everything below is a human step with a review; no Agent tool performs it.
    project as of 2026-09-28; the new `<env>_rein_*` names exist there, and the old names still resolve
    through the compatibility views and wrappers. Apply all four to any new environment in the same
    filename order, and never from a script that also runs the Agent.
-2. Seed the email-to-contact identity rows (`<env>_contact_identities`), Contributor and director
-   records, and an initial funds snapshot by hand, or through a reviewed administrative path. Do not
-   seed fabricated people into a live environment.
-3. Create the Slack app, enable Socket Mode, install it into the single target workspace with the
-   bot scopes `users:read` and `users:read.email` that the email resolver needs, and invite the bot
-   to the approved proposal and Board channels. Until those scopes are installed on the governance
-   app, the resolver stays off and every sender is unresolved.
-4. Record the approved native channel IDs and the one workspace ID in operator configuration, and
-   point the two Supabase environment variables at server-side secrets.
-5. Enable the `foundationDb` config block explicitly. Until then, no database-backed tool is
+2. Seed the backing identity and role records in the backend — the canonical verified links, the
+   Contributor and director records — and an initial funds snapshot, by hand or through a reviewed
+   administrative path. Do not seed fabricated people into a live environment.
+3. Create the Slack app, enable Socket Mode, install it into each approved workspace, and invite the
+   bot to the approved proposal and Board channels. The Agent reads no profile email, so no
+   profile-email bot scope is needed for identity.
+4. Record each approved workspace ID with its native proposal and Board channel IDs in
+   `foundationDb.workspaces`, and point `foundationDb.backendApiBaseUrlEnvVar`,
+   `foundationDb.agentCallerIdEnvVar` and `foundationDb.agentCredentialEnvVar` at server-side
+   secrets in the Agent's environment.
+5. Enable the `foundationDb` config block explicitly. Until then, no backend-backed tool is
    registered.
 
 ## Not in this slice

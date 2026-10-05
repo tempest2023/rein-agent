@@ -37,6 +37,13 @@ const GOVERNANCE_FEEDBACK_TOOL_NAMES = [
   'rein_revision_approve',
   'rein_revision_apply',
 ];
+// Identity binding is the one path an unresolved sender may still use, so it registers with the
+// same explicit block and belongs in the reported surface.
+const GOVERNANCE_BIND_TOOL_NAMES = [
+  'rein_identity_bind_start',
+  'rein_identity_bind_status',
+  'rein_identity_bind_complete',
+];
 const PROPOSAL_TOOL_NAMES = [
   'rein_proposal_create',
   'rein_proposal_revise',
@@ -44,7 +51,7 @@ const PROPOSAL_TOOL_NAMES = [
   'rein_proposal_submit',
 ];
 const expectedImplemented = governanceToolsEnabled
-  ? ['rein_status', ...GOVERNANCE_READ_TOOL_NAMES, ...GOVERNANCE_WRITE_TOOL_NAMES, ...GOVERNANCE_COLLECT_TOOL_NAMES, ...GOVERNANCE_FEEDBACK_TOOL_NAMES]
+  ? ['rein_status', ...GOVERNANCE_READ_TOOL_NAMES, ...GOVERNANCE_WRITE_TOOL_NAMES, ...GOVERNANCE_COLLECT_TOOL_NAMES, ...GOVERNANCE_FEEDBACK_TOOL_NAMES, ...GOVERNANCE_BIND_TOOL_NAMES]
   : ['rein_status', 'rein_simulate_vote', 'rein_simulate_proposal', ...(proposalEnabled ? PROPOSAL_TOOL_NAMES : [])];
 
 const response = await fetch(`http://127.0.0.1:${config.gateway.port}/tools/invoke`, {
@@ -68,6 +75,7 @@ assert.equal(body.result.details.foundationDbReadToolsEnabled, governanceToolsEn
 assert.equal(body.result.details.foundationDbWriteToolsEnabled, governanceToolsEnabled);
 assert.equal(body.result.details.foundationDbCollectToolsEnabled, governanceToolsEnabled);
 assert.equal(body.result.details.foundationDbFeedbackToolsEnabled, governanceToolsEnabled);
+assert.equal(body.result.details.identityBindToolsEnabled, governanceToolsEnabled);
 assert.equal(body.result.details.proposalToolsEnabled, proposalEnabled && !governanceToolsEnabled);
 assert.equal(body.result.details.formalProposalActionsEnabled, false);
 const surface = governanceToolsEnabled ? 'v0.1' : proposalEnabled ? 'legacy proposal' : 'default legacy/simulation';

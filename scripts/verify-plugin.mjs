@@ -44,12 +44,14 @@ try {
   rmSync(baseTemp, { recursive: true, force: true });
 }
 
-// The governance read slice registers only from explicit configuration, and the Supabase key comes from the
-// server environment. The dummy values below never leave this process; no live call is made.
-const GOVERNANCE_KEY_ENV = 'REIN_TEST_GOVERNANCE_LOADER_SERVICE_KEY';
-const GOVERNANCE_URL_ENV = 'REIN_TEST_GOVERNANCE_LOADER_URL';
-const GOVERNANCE_KEY = 'sb_secret_loader_test_0000000000000000';
-// The proposal confirmation signing key is a second server-only secret this slice needs; the loader
+// The backend-backed slice registers only from explicit configuration, and that block names an
+// authenticated backend service by environment variable: the Agent holds no database credential.
+// The dummy values below never leave this process; no live call is made.
+const BACKEND_URL_ENV = 'REIN_TEST_GOVERNANCE_LOADER_BACKEND_URL';
+const CALLER_ENV = 'REIN_TEST_GOVERNANCE_LOADER_CALLER_ID';
+const CREDENTIAL_ENV = 'REIN_TEST_GOVERNANCE_LOADER_CREDENTIAL';
+const CREDENTIAL = 'loader-test-agent-credential-0000000000000000';
+// The proposal confirmation signing key is a server-only secret the write slices need; the loader
 // check injects a dummy value so registration can complete without touching a real secret.
 const GOVERNANCE_CONFIRM_ENV = 'REIN_TEST_GOVERNANCE_LOADER_CONFIRMATION_KEY';
 const GOVERNANCE_CONFIRM_KEY = 'loader-test-proposal-confirmation-key-0001';
@@ -66,13 +68,18 @@ try {
           config: {
             foundationDb: {
               enabled: true,
-              platform: 'slack',
-              slackTeamId: 'T0123456ABC',
-              environment: 'dev',
+              workspaces: [
+                {
+                  platform: 'slack',
+                  workspaceId: 'T0123456ABC',
+                  nativeChannelIds: ['C_PROPOSAL', 'C_BOARD'],
+                },
+              ],
               proposalChannelIds: ['C_PROPOSAL'],
               boardChannelIds: ['C_BOARD'],
-              supabaseUrlEnvVar: GOVERNANCE_URL_ENV,
-              supabaseServiceKeyEnvVar: GOVERNANCE_KEY_ENV,
+              backendApiBaseUrlEnvVar: BACKEND_URL_ENV,
+              agentCallerIdEnvVar: CALLER_ENV,
+              agentCredentialEnvVar: CREDENTIAL_ENV,
               proposalConfirmationKeyEnvVar: GOVERNANCE_CONFIRM_ENV,
             },
           },
@@ -84,8 +91,9 @@ try {
     ...environment(),
     OPENCLAW_STATE_DIR: temp,
     OPENCLAW_CONFIG_PATH: configPath,
-    [GOVERNANCE_URL_ENV]: 'https://project-ref.supabase.co',
-    [GOVERNANCE_KEY_ENV]: GOVERNANCE_KEY,
+    [BACKEND_URL_ENV]: 'https://backend.rein.example',
+    [CALLER_ENV]: 'rein-agent',
+    [CREDENTIAL_ENV]: CREDENTIAL,
     [GOVERNANCE_CONFIRM_ENV]: GOVERNANCE_CONFIRM_KEY,
   });
   assert.equal(governance.report.plugin.imported, true);
@@ -97,13 +105,14 @@ try {
       'rein_governance_proposal_submit', 'rein_poll_open', 'rein_poll_vote', 'rein_poll_result',
       'rein_proposal_collect',
       'rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply',
+      'rein_identity_bind_start', 'rein_identity_bind_status', 'rein_identity_bind_complete',
       'rein_status',
     ],
   );
   assert.equal(governance.report.diagnostics.filter(item => item.level === 'error').length, 0);
-  assert.ok(!governance.stdout.includes(GOVERNANCE_KEY), 'the service key must never appear in loader output');
+  assert.ok(!governance.stdout.includes(CREDENTIAL), 'the Agent credential must never appear in loader output');
   assert.ok(!governance.stdout.includes(GOVERNANCE_CONFIRM_KEY), 'the confirmation key must never appear in loader output');
-  console.log('Verified real OpenClaw loader: configured governance read, write and post-result feedback tools registered; simulators and legacy proposal tools hidden; no plugin errors.');
+  console.log('Verified real OpenClaw loader: the configured backend-backed reads, writes, field collection, post-result feedback and identity binding tools registered; simulators and legacy proposal tools hidden; no plugin errors.');
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }

@@ -36,8 +36,9 @@ import { createGovernanceWriteToolRegistration } from '../plugins/rein-operation
 const TEAM = 'T0REHEARSAL';
 const PROPOSAL_CHANNEL = 'C_PROPOSAL';
 const BOARD_CHANNEL = 'C_BOARD';
-const URL_ENV = 'REIN_SUPABASE_URL';
-const KEY_ENV = 'REIN_SUPABASE_SERVICE_ROLE_KEY';
+const BASE_URL_ENV = 'REIN_BACKEND_BASE_URL';
+const CALLER_ENV = 'REIN_AGENT_CALLER_ID';
+const CREDENTIAL_ENV = 'REIN_AGENT_CREDENTIAL';
 const CONFIRM_ENV = 'REIN_PROPOSAL_CONFIRMATION_KEY';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -52,16 +53,29 @@ const APPROVAL_BUDGET = 1;
 const baseConfig = Object.freeze({
   enabled: true,
   platform: 'slack',
-  slackTeamId: TEAM,
-  environment: 'dev',
+  workspaces: [
+    {
+      platform: 'slack',
+      workspaceId: TEAM,
+      nativeChannelIds: [PROPOSAL_CHANNEL, BOARD_CHANNEL],
+    },
+  ],
   proposalChannelIds: [PROPOSAL_CHANNEL],
   boardChannelIds: [BOARD_CHANNEL],
-  supabaseUrlEnvVar: URL_ENV,
-  supabaseServiceKeyEnvVar: KEY_ENV,
+  backendApiBaseUrlEnvVar: BASE_URL_ENV,
+  agentCallerIdEnvVar: CALLER_ENV,
+  agentCredentialEnvVar: CREDENTIAL_ENV,
   proposalConfirmationKeyEnvVar: CONFIRM_ENV,
 });
 
 const CONFIRMATION_KEY = 'rehearsal-proposal-confirmation-signing-key-0001';
+
+const backendEnv = Object.freeze({
+  [BASE_URL_ENV]: 'https://backend.rein.example',
+  [CALLER_ENV]: 'rein-agent',
+  [CREDENTIAL_ENV]: 'rehearsal-agent-credential',
+  [CONFIRM_ENV]: CONFIRMATION_KEY,
+});
 
 // The community record. `contactId` is the private canonical contact the tools resolve and never
 // return; `slackUserId` is the trusted host sender. Only `isActiveContributor` and `isDirector` are
@@ -255,11 +269,12 @@ function createWorld({ funds = null, records = [], rules = {} } = {}) {
       const tools = name => {
         const registration =
           name === 'read'
-            ? createGovernanceReadToolRegistration({ config: baseConfig, reader })
+            ? createGovernanceReadToolRegistration({ config: baseConfig, reader, env: backendEnv })
             : createGovernanceWriteToolRegistration({
                 config: baseConfig,
                 reader,
                 writer: store,
+                env: backendEnv,
                 // The proposal confirmation token is signed with a server-only key; the rehearsal
                 // injects one directly so no ambient credential is read.
                 confirmationSigningKey: CONFIRMATION_KEY,

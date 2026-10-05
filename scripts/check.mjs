@@ -38,35 +38,49 @@ assert.deepEqual(manifest.contracts.tools, [
   'rein_governance_proposal_submit', 'rein_poll_open', 'rein_poll_vote', 'rein_poll_result',
   'rein_proposal_collect',
   'rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply',
+  'rein_identity_bind_start', 'rein_identity_bind_status', 'rein_identity_bind_complete',
 ]);
-// The governance read slice registers only from explicit configuration, and it names server environment
-// variables instead of carrying the Supabase URL or key in plugin config.
+// Every backend-backed tool registers only from explicit configuration, and that block names an
+// authenticated backend service by environment variable: the Agent holds no database credential and
+// performs no database work of its own.
 const foundationDbSchema = manifest.configSchema.properties.foundationDb;
 assert.equal(foundationDbSchema.additionalProperties, false, 'foundationDb config block must reject unknown keys');
 assert.deepEqual(Object.keys(foundationDbSchema.properties).sort(), [
-  'boardChannelIds', 'enabled', 'environment', 'identityEmailMatch', 'platform',
-  'proposalChannelIds', 'proposalConfirmationKeyEnvVar', 'slackBotTokenEnvVar', 'slackTeamId',
-  'supabaseServiceKeyEnvVar', 'supabaseUrlEnvVar', 'voteTypeAliases',
+  'agentCallerIdEnvVar', 'agentCredentialEnvVar', 'backendApiBaseUrlEnvVar', 'boardChannelIds',
+  'enabled', 'platform', 'proposalChannelIds', 'proposalConfirmationKeyEnvVar', 'voteTypeAliases',
+  'workspaces',
 ]);
-for (const field of ['supabaseUrlEnvVar', 'supabaseServiceKeyEnvVar', 'proposalConfirmationKeyEnvVar', 'slackBotTokenEnvVar']) {
+for (const field of ['backendApiBaseUrlEnvVar', 'agentCallerIdEnvVar', 'agentCredentialEnvVar', 'proposalConfirmationKeyEnvVar']) {
   assert.match(foundationDbSchema.properties[field].description, /environment variable/i, `foundationDb.${field} must name a server environment variable`);
 }
-// Email-first identity matching is opt-in and off by default, so the Slack bot token it needs is
-// named but never required while the option is disabled.
-assert.deepEqual(foundationDbSchema.properties.identityEmailMatch.enum, ['enabled', 'disabled']);
-assert.equal(foundationDbSchema.properties.identityEmailMatch.default, 'disabled');
-assert.ok(existsSync(resolve(root, 'plugins/rein-operations/slack-email-lookup.ts')), 'Missing plugins/rein-operations/slack-email-lookup.ts');
+// The earlier database-shaped block is gone: those keys must not come back as a silent fallback.
+for (const legacy of ['slackTeamId', 'environment', 'supabaseUrlEnvVar', 'supabaseServiceKeyEnvVar', 'identityEmailMatch', 'slackBotTokenEnvVar']) {
+  assert.ok(!Object.hasOwn(foundationDbSchema.properties, legacy), `foundationDb.${legacy} must not be a config key`);
+  assert.ok(!/identityEmailMatch|slackBotTokenEnvVar/.test(read('plugins/rein-operations/governance-read-tools.ts')), `governance-read-tools.ts must not read ${legacy}`);
+}
+for (const p of ['backend-transport.ts', 'backend-db-adapter.ts', 'backend-config.ts', 'ingress-proof.ts', 'backend-runtime.ts', 'identity-tools.ts']) {
+  assert.ok(existsSync(resolve(root, 'plugins/rein-operations', p)), `Missing plugins/rein-operations/${p}`);
+  assert.ok(pluginPackage.files.includes(p), `package files must ship ${p}`);
+}
+// The Agent must not reach a database: no service key, no connection string, no PostgREST path.
+for (const p of ['foundation-db-reader.ts', 'foundation-db-writer.ts', 'backend-db-adapter.ts', 'backend-config.ts', 'governance-read-tools.ts', 'governance-write-tools.ts', 'proposal-collect-tools.ts', 'proposal-feedback-tools.ts']) {
+  const source = read(`plugins/rein-operations/${p}`);
+  assert.ok(!/serviceRoleKey|apikey|rest\/v1|createClient\(/.test(source), `${p} must not carry database access`);
+}
+// The only allowed mention of the old Supabase names is the refusal list that keeps them out.
 assert.ok(
-  pluginPackage.files.includes('slack-email-lookup.ts'),
-  'package files must ship slack-email-lookup.ts',
+  !/createClient|rest\/v1|serviceRoleKey\./.test(read('plugins/rein-operations/backend-config.ts')),
+  'backend-config.ts must name the retired keys only to refuse them',
 );
-for (const p of ['governance-read-tools.ts', 'governance-write-tools.ts', 'proposal-feedback-tools.ts']) {
+assert.ok(!existsSync(resolve(root, 'plugins/rein-operations/slack-email-lookup.ts')), 'the Agent must not ship a Slack profile-email lookup');
+assert.ok(!pluginPackage.files.includes('slack-email-lookup.ts'), 'package files must not ship slack-email-lookup.ts');
+for (const p of ['governance-read-tools.ts', 'governance-write-tools.ts', 'proposal-collect-tools.ts', 'proposal-feedback-tools.ts']) {
   const source = read(`plugins/rein-operations/${p}`);
   assert.ok(
-    source.includes("from './slack-email-lookup.ts'") &&
-      source.includes("identityEmailMatch") &&
-      source.includes("slackBotTokenEnvVar"),
-    `${p} must wire the opt-in email identity match through its own config check`,
+    source.includes("from './backend-config.ts'") &&
+      source.includes('parseBackendConfig') &&
+      source.includes('proofProvider'),
+    `${p} must reach the backend through its own config check and a lazy proof provider`,
   );
 }
 assert.ok(existsSync(resolve(root, 'plugins/rein-operations/governance-read-tools.ts')), 'Missing plugins/rein-operations/governance-read-tools.ts');

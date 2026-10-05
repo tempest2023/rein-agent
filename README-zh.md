@@ -14,20 +14,28 @@ Rein Protocol Foundation 的组织运营 Agent：管理员、秘书与线上主�
 只有在明确配置唯一平台、批准的原生频道及本地存储后才会注册四个提案工具。另有提案、治理、
 活动和本地账本模块。
 
-已确认的 P0 切片是一条 Slack 纵向流程：把 Slack 帐号关联到社群记录、提交简单的 Contributor 提案、
-完成一次简单的 Board 投票并公布结果、读取资金快照。合成演练确实经由**真实 Slack 提供方**（测试工作区、
-合成测试身份）与**真实 Supabase 提供方**（读写已链接的 `dev_*` 表集、行均为合成数据）跑过；未发生的是
-生产使用：没有真实成员名册，未写入任何 `prod_*` 业务表，也没有生产部署。切片已落地 12 个工具，对接组织自有数据库：
+已确认的 P0 切片是一条 Slack 纵向流程：通过可信绑定把 Slack 帐号关联到社群记录、提交简单的
+Contributor 提案、完成一次简单的 Board 投票并由 Agent 记录结果、读取资金快照。Agent 不持有数据库
+凭据、也不做任何数据库操作：全部治理读写、身份解析与身份绑定都经由同一个已认证的基金会后端 API，
+Agent 从不依据资料邮箱解析身份。此前的合成演练确实经由**真实 Slack 提供方**（测试工作区、合成测试身份）
+并对已链接的 `dev_*` 表集写入过合成数据；未发生的是生产使用：没有真实成员名册，未写入任何 `prod_*`
+业务表，也没有生产部署。切片已落地 12 个工具，全部经由后端 API 访问：
 只读的 `rein_member_status`、`rein_funds`、`rein_poll_candidates`、`rein_vote_type_resolve`，
 只读字段采集的 `rein_proposal_collect`，写入的 `rein_governance_proposal_submit`、
 `rein_poll_open`、`rein_poll_vote`、`rein_poll_result`，以及结果反馈的
 `rein_proposal_comment_suggest`、`rein_revision_approve`、`rein_revision_apply`。
-它们**只在显式启用 `foundationDb` 配置块时注册**，且启用后会隐藏合成模拟器与旧提案工具。
+它们**只在显式启用 `foundationDb` 配置块时注册**，且启用后会隐藏合成模拟器与旧提案工具。该配置块
+通过环境变量指向后端（`backendApiBaseUrlEnvVar`、`agentCallerIdEnvVar`、`agentCredentialEnvVar`），
+并携带 `platform: 'slack'`、`workspaces` 列表（每个工作区带一组非空的原生频道 ID）、
+`proposalChannelIds`、`boardChannelIds` 与可选的 `voteTypeAliases`。后端会签发一份绑定
+（平台、工作区、用户、频道、事件）与调用方 Agent 的私有凭证；Agent 在每次调用时携带该凭证，
+它绝不会作为工具参数、工具结果或状态字段出现，任何工具都不接受由模型提供的执行者。
 
 接口名称为 `rein_member_status`、`rein_funds`、`rein_poll_candidates`、`rein_vote_type_resolve`、
 `rein_governance_proposal_submit`、`rein_poll_open`、`rein_poll_vote`、`rein_poll_result`、
 `rein_proposal_collect`、`rein_proposal_comment_suggest`、`rein_revision_approve` 与
-`rein_revision_apply`；配置块为 `foundationDb`；表为 `<env>_rein_vote_types`、`<env>_rein_proposals`、
+`rein_revision_apply`；配置块为 `foundationDb`。Agent 从不直接访问表，只调用后端操作；schema 由
+后端拥有，其中表为 `<env>_rein_vote_types`、`<env>_rein_proposals`、
 `<env>_rein_polls`、`<env>_rein_ballots` 与 `<env>_rein_proposal_revisions`；RPC 为
 `<env>_rein_finalize_poll` 与 `<env>_rein_approve_revision`。这些是 v0.1 初版名称；早期开发构建使用带阶段
 前缀的工具名、阶段命名的配置块与带阶段前缀的表／RPC。稳定名称由姊妹仓库中一份已提交的向前迁移
@@ -39,7 +47,7 @@ Rein Protocol Foundation 的组织运营 Agent：管理员、秘书与线上主�
 
 该切片此前的两个数据库迁移已在姊妹仓库提交，并已应用到已链接的 `BeneficenceProtocol` 项目
 （2026-09-27 只读核对）。两者都在同一事务里定义 `dev_*` 与 `prod_*` 两套对象，因此已应用的 schema
-覆盖两个前缀。演练证据显示工具确实读写过 `dev_*` 前缀（行为合成数据），`prod_*` 前缀始终为 0 行。
+覆盖两个前缀。演练证据显示 `dev_*` 前缀确有合成数据读写，`prod_*` 前缀始终为 0 行。
 此处不主张任何生产使用或部署。
 
 尚未接入真实成员名册、Discord、官网或生产数据集；演练只在测试 Slack 工作区与已链接的 `dev_*` 表集上运行。
@@ -55,7 +63,7 @@ Rein Protocol Foundation 的组织运营 Agent：管理员、秘书与线上主�
 | 路径 | 用途 |
 | --- | --- |
 | `vendor/openclaw` | 官方 OpenClaw 源码（git submodule，固定在单个 commit）。属于上游，可直接使用，不要修改。 |
-| `plugins/rein-operations` | Rein 功能的唯一实现位置；含确定性业务模块、三个默认只读工具、四个提案工具，以及 12 个需显式配置的数据库 Slack 工具（4 读、1 个只读字段采集、4 写、3 个结果反馈）。 |
+| `plugins/rein-operations` | Rein 功能的唯一实现位置；含确定性业务模块、三个默认只读工具、四个提案工具，以及 12 个需显式配置的后端 Slack 工具（4 读、1 个只读字段采集、4 写、3 个结果反馈）。 |
 | `workspace/` | 与 OpenClaw 兼容的 Agent 工作区模板：身份、策略与头像。 |
 | `config/operations.example.json` | 拟定的业务配置。它不是 OpenClaw 原生配置，也没有任何执行器加载它。 |
 | `scripts/` | 本地初始化、CLI 包装与上游更新脚本。 |

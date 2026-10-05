@@ -1,4 +1,4 @@
-// Governance read-only Slack tools: a member's own identity status, the latest human-entered
+// Governance read-only tools: a member's own identity status, the latest human-entered
 // available-funds snapshot, the eligible proposals of one configured vote type, and the resolution
 // of one spoken proposal-type phrase against the operator's own display names.
 //
@@ -6,41 +6,50 @@
 // display name never establishes identity), R21 (a finance figure the Agent may only read), D05 (a
 // funding approval is a decision record, not money movement) and D06 (only members with active
 // Contributor status propose or lead; only eligible Board members vote). Every tool here answers
-// from the authoritative database: the status and funds reads through `foundation-db-reader.ts`,
-// and the candidate listing and the configured type names through the read-only slice of
-// `foundation-db-writer.ts`. None of them writes, reserves, approves or spends, none invents a
-// figure the reader reported as unknown, and none selects, withdraws or votes on a proposal.
+// through one authenticated Foundation backend: the status and funds reads through
+// `backend-db-adapter.ts`, and the candidate listing and the configured type names through the
+// read-only slice of the same adapter. The Agent opens no database connection and holds no database
+// credential. None of them writes, reserves, approves or spends, none invents a figure the backend
+// reported as unknown, and none selects, withdraws or votes on a proposal.
 //
 // The candidate listing names one vote type explicitly and never guesses one from prose; the phrase
 // resolver matches only the display names and aliases the operator wrote into `foundationDb.voteTypeAliases`,
 // by exact equality after normalization, reports several matches as ambiguous with no type chosen,
 // and hands a type code back only when the stored type table already has it.
 //
-// Single-workspace installation requirement: OpenClaw's version-2 tool context carries the chat
-// platform, the native channel id and the trusted sender id, but no Slack team id. The team is
-// therefore fixed operator configuration, and one installation must serve exactly one Slack
-// workspace/team. Pointing one installation at several workspaces would resolve senders against the
-// wrong community records, so the tools register only when the operator names that one team.
+// Workspace resolution: OpenClaw's version-2 tool context carries the chat platform, the native
+// channel id and the trusted sender id, but no workspace id. The platform is therefore the host's
+// own `messageChannel`, and the workspace is the one approved `foundationDb.workspaces` entry whose
+// platform equals it and whose native channel list contains the trusted channel. A call that
+// matches no entry, a platform the operator did not configure, or a channel from another workspace
+// is refused before any backend call.
 //
 // Trust boundary:
-// - The acting Slack user id comes only from `ctx.requesterSenderId`. No tool argument is read as an
-//   actor, known impersonation arguments are rejected, and the caller must be inside an approved
-//   native channel before any database read happens.
+// - The acting platform user id comes only from `ctx.requesterSenderId`. No tool argument is read as
+//   an actor, known impersonation arguments are rejected, and the caller must be inside an approved
+//   native channel before any backend call happens.
 // - `assertInvocationCurrent` is rechecked before any answer is returned, so a cancelled or stale
 //   turn cannot read fresh member or funds data.
 // - A refused caller and a failed lookup both collapse to a fixed reason code. Provider text, the
-//   Supabase URL, the Slack team id and the service key never reach a result, status or error.
+//   backend base URL, the workspace id and the Agent credential never reach a result, status or
+//   error.
 //
-// Confidentiality: the private `community_contacts` identifier resolved from the identity link is
-// deliberately dropped from every answer. Callers learn only whether the sender is linked, whether
-// that record is an active Contributor and whether it is a director.
+// Confidentiality: the private contact identifier resolved by the backend is deliberately dropped
+// from every answer. Callers learn only whether the sender is linked, whether that record is an
+// active Contributor and whether it is a director.
 
 import { Type } from 'typebox';
-import { createFoundationDbReader } from './foundation-db-reader.ts';
-import { createFoundationDbWriter } from './foundation-db-writer.ts';
-import { createSlackEmailLookup } from './slack-email-lookup.ts';
-import type { AvailableFunds, FoundationEnvironment, SlackMemberResolution } from './foundation-db-reader.ts';
+import {
+  createConfiguredTransport,
+  createInvocationAdapters,
+  parseBackendConfig,
+  resolveTrustedWorkspace,
+  type ResolvedBackendConfig,
+} from './backend-config.ts';
+import type { ToolProofProvider } from './backend-db-adapter.ts';
+import type { AvailableFunds, SlackMemberResolution } from './foundation-db-reader.ts';
 import type { FoundationDbWriter, ProposalRecord } from './foundation-db-writer.ts';
+import type { BackendTransport } from './backend-transport.ts';
 import { assertCurrentInvocation } from './request-context.ts';
 import {
   VOTE_TYPE_PATTERN,
@@ -84,37 +93,37 @@ export type GovernanceReadToolWriter = Pick<FoundationDbWriter, 'listVoteTypes' 
 export interface GovernanceReadToolsOptions {
   /**
    * The `foundationDb` block of plugin config, read as untrusted input. Expected keys: `enabled`,
-   * `platform` (`slack`), `slackTeamId`, `environment` (`dev` or `prod`), `proposalChannelIds`,
-   * `boardChannelIds`, `supabaseUrlEnvVar`, `supabaseServiceKeyEnvVar`, the optional
-   * `identityEmailMatch` (`enabled` or `disabled`), the optional `slackBotTokenEnvVar` and the
-   * optional `voteTypeAliases` label map. The environment-variable keys name server variables; no
-   * credential is ever read from config. Absent or `enabled: false` registers no tools.
+   * `platform`, `workspaces` (each an `id` with a non-empty native channel ID list),
+   * `proposalChannelIds`, `boardChannelIds`, the optional `voteTypeAliases` label map, and the
+   * environment variables naming the backend base URL, the Agent caller ID and the Agent
+   * credential. The environment-variable keys name server variables; no credential is ever read
+   * from config. Absent or `enabled: false` registers no tools.
    */
   config?: Record<string, unknown>;
   /** Server environment holding the referenced values. Defaults to `process.env`. */
   env?: Record<string, string | undefined>;
-  /** Injectable reader for tests and local rehearsal; skips the env-var lookups. */
+  /** Injectable backend transport for tests and local rehearsal; skips the env-var lookups. */
+  transport?: BackendTransport;
+  /** Runtime ingress proof for one tool invocation. Called at execution time, never at registration. */
+  proofProvider?: ToolProofProvider;
+  /** Injectable reader for tests and local rehearsal; replaces the backend-backed one. */
   reader?: GovernanceReadToolReader;
-  /** Injectable writer for tests and local rehearsal; skips the env-var lookups. */
+  /** Injectable writer for tests and local rehearsal; replaces the backend-backed one. */
   writer?: GovernanceReadToolWriter;
 }
 
-interface ResolvedGovernanceReadConfig {
-  platform: 'slack';
+export interface ResolvedGovernanceReadConfig {
+  config: ResolvedBackendConfig;
   proposalChannelIds: string[];
   boardChannelIds: string[];
   /** The operator's own display names and aliases, already validated; a phrase resolves only from these. */
   voteTypeLabels: VoteTypeLabelMap;
-  reader: GovernanceReadToolReader;
-  /**
-   * The read-only writer slice, or null when this process was given a reader but no writer and no
-   * environment to build one from. A null writer is an unavailable source, reported as such.
-   */
-  writer: GovernanceReadToolWriter | null;
+  transport: BackendTransport;
+  proofProvider?: ToolProofProvider;
+  reader?: GovernanceReadToolReader;
+  writer?: GovernanceReadToolWriter;
 }
 
-const SLACK_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-const ENV_VAR_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
 /** Longest phrase the resolver accepts; a person's own words are short, and this bounds the match. */
@@ -172,35 +181,17 @@ function configError(message: string): never {
   throw new GovernanceReadToolError('foundation_db_config_invalid', `foundationDb read tools: ${message}`);
 }
 
-function readChannelIds(field: string, value: unknown): string[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    configError(`foundationDb.${field} must list at least one approved native channel ID`);
-  }
-  const channels = (value as unknown[]).map(id => (typeof id === 'string' ? id.trim() : ''));
-  if (channels.some(id => !id)) {
-    configError(`foundationDb.${field} must contain non-empty native channel ID strings`);
-  }
-  return channels;
-}
-
-/** Validate one environment-variable reference. Only the variable *name* is ever reported. */
-function readEnvReference(reference: unknown, field: string): string {
-  if (typeof reference !== 'string' || !ENV_VAR_NAME_PATTERN.test(reference.trim())) {
-    configError(`foundationDb.${field} must name a server environment variable`);
-  }
-  return (reference as string).trim();
+function envValueError(message: string): never {
+  throw new GovernanceReadToolError('foundation_db_env_value_missing', `foundationDb read tools: ${message}`);
 }
 
 /**
- * Read the email-first identity matching mode. It is opt-in: absent or `disabled` keeps the
- * database-only behavior this slice had before the option existed, and any other value is an
- * operator error rather than a silently ignored typo.
+ * A writer that answers `foundation_db_config_invalid` is the operator's own block, not a data
+ * path, so an injected writer that fails its contract check is re-thrown as a configuration error
+ * and never surfaces as a per-turn tool refusal.
  */
-function readIdentityEmailMatch(value: unknown): 'enabled' | 'disabled' {
-  if (value === undefined || value === null) return 'disabled';
-  if (value === 'enabled' || value === 'disabled') return value;
-  configError('foundationDb.identityEmailMatch must be "enabled" or "disabled"');
-}
+const isConfigFailure = (error: unknown): boolean =>
+  Boolean(error && typeof error === 'object' && (error as { code?: unknown }).code === 'foundation_db_config_invalid');
 
 /**
  * Read the operator's optional display names for the configured vote types. Validated here so a
@@ -215,111 +206,50 @@ function readVoteTypeLabels(value: unknown): VoteTypeLabelMap {
   }
 }
 
-/** Resolve one referenced value from the server environment, or fail without echoing it. */
-function readEnvValue(env: Record<string, string | undefined>, name: string, field: string): string {
-  const value = env?.[name];
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new GovernanceReadToolError(
-      'foundation_db_env_value_missing',
-      `foundationDb read tools: server environment variable ${name} referenced by foundationDb.${field} is unset or empty`,
-    );
-  }
-  return value.trim();
-}
-
 /**
  * Validate the operator configuration. Returns null when the foundationDb block is absent or disabled so the
  * caller registers no tools; throws on an enabled-but-incomplete block so a misconfiguration fails
  * loudly instead of silently exposing nothing.
  */
 function resolveGovernanceReadConfig(options: GovernanceReadToolsOptions | undefined): ResolvedGovernanceReadConfig | null {
-  const config = options?.config;
-  if (!config || typeof config !== 'object' || config.enabled !== true) return null;
+  const config = parseBackendConfig({
+    config: options?.config,
+    env: options?.env,
+    error: configError,
+    envError: envValueError,
+  });
+  if (!config) return null;
 
-  // P0 uses exactly one chat platform, and this slice is Slack-only.
-  if (config.platform !== 'slack') {
-    configError('foundationDb.platform must be "slack"; these tools read Slack host context only');
-  }
-  const slackTeamId = typeof config.slackTeamId === 'string' ? config.slackTeamId.trim() : '';
-  if (!SLACK_ID_PATTERN.test(slackTeamId)) {
-    configError('foundationDb.slackTeamId must be one Slack team ID such as T01234567 (one workspace per installation)');
-  }
-  const proposalChannelIds = readChannelIds('proposalChannelIds', config.proposalChannelIds);
-  const boardChannelIds = readChannelIds('boardChannelIds', config.boardChannelIds);
   const voteTypeLabels = readVoteTypeLabels(config.voteTypeAliases);
-  const environment = config.environment;
-  if (environment !== 'dev' && environment !== 'prod') {
-    configError("foundationDb.environment must be 'dev' or 'prod'; it chooses the database table set");
-  }
+  const proposalChannelIds = config.workspaces.flatMap(workspace => [...workspace.proposalChannelIds]);
+  const boardChannelIds = config.workspaces.flatMap(workspace => [...workspace.boardChannelIds]);
+  const transport = options?.transport ?? createConfiguredTransport(config);
 
-  // The configuration always names the server environment variables; the values are only read when
-  // no reader was injected, so a rehearsal or test can supply its own reader without credentials.
-  const urlReference = readEnvReference(config.supabaseUrlEnvVar, 'supabaseUrlEnvVar');
-  const keyReference = readEnvReference(config.supabaseServiceKeyEnvVar, 'supabaseServiceKeyEnvVar');
-
-  // Optional email-first identity evidence. Off by default, and the bot token is only demanded when
-  // this process builds its own reader. A name that is present at all is still checked, because a
-  // typo in the variable name is a configuration error either way.
-  const identityEmailMatch = readIdentityEmailMatch(config.identityEmailMatch);
-  const botTokenReference =
-    identityEmailMatch === 'enabled' && config.slackBotTokenEnvVar !== undefined
-      ? readEnvReference(config.slackBotTokenEnvVar, 'slackBotTokenEnvVar')
-      : null;
-
-  let reader: GovernanceReadToolReader | undefined = options?.reader;
-  let writer: GovernanceReadToolWriter | undefined = options?.writer;
-  if (!reader) {
-    const env = options?.env ?? process.env;
-    // With email matching on, the bot token variable must be named before any value is read, so a
-    // missing name fails on the configuration instead of behind an unrelated missing value.
-    const tokenReference =
-      identityEmailMatch === 'enabled'
-        ? (botTokenReference ?? readEnvReference(config.slackBotTokenEnvVar, 'slackBotTokenEnvVar'))
-        : null;
-    const supabaseUrl = readEnvValue(env, urlReference, 'supabaseUrlEnvVar');
-    const serviceRoleKey = readEnvValue(env, keyReference, 'supabaseServiceKeyEnvVar');
-    // The reader gets one lookup bound to this workspace and one bot token. The token is read from
-    // the named server environment variable and never reaches config, a status, a result or an
-    // error message.
-    const emailLookup =
-      tokenReference !== null
-        ? createSlackEmailLookup({
-            botToken: readEnvValue(env, tokenReference, 'slackBotTokenEnvVar'),
-            slackTeamId,
-          })
-        : undefined;
-    reader = createFoundationDbReader({
-      supabaseUrl,
-      serviceRoleKey,
-      environment: environment as FoundationEnvironment,
-      slackTeamId,
-      ...(emailLookup ? { emailLookup } : {}),
-    });
-    // The candidate listing and the resolver read through the writer slice, so the same
-    // environment builds it here. Only the read slice of the writer is reachable from this module,
-    // so no write is possible even by accident.
-    if (!writer) {
-      writer = createFoundationDbWriter({
-        supabaseUrl,
-        serviceRoleKey,
-        environment: environment as FoundationEnvironment,
-      });
-    }
-  }
   if (
-    typeof reader.resolveSlackMember !== 'function' ||
-    typeof reader.readAvailableFunds !== 'function'
+    options?.reader &&
+    (typeof options.reader.resolveSlackMember !== 'function' ||
+      typeof options.reader.readAvailableFunds !== 'function')
   ) {
     configError('the injected reader must implement resolveSlackMember and readAvailableFunds');
   }
   if (
-    writer &&
-    (typeof writer.listCandidateProposals !== 'function' || typeof writer.listVoteTypes !== 'function')
+    options?.writer &&
+    (typeof options.writer.listCandidateProposals !== 'function' ||
+      typeof options.writer.listVoteTypes !== 'function')
   ) {
     configError('the injected writer must implement listVoteTypes and listCandidateProposals');
   }
 
-  return { platform: 'slack', proposalChannelIds, boardChannelIds, voteTypeLabels, reader, writer: writer ?? null };
+  return {
+    config,
+    proposalChannelIds,
+    boardChannelIds,
+    voteTypeLabels,
+    transport,
+    ...(options?.proofProvider === undefined ? {} : { proofProvider: options.proofProvider }),
+    ...(options?.reader === undefined ? {} : { reader: options.reader }),
+    ...(options?.writer === undefined ? {} : { writer: options.writer }),
+  };
 }
 
 function assertNoImpersonationArgs(args: unknown) {
@@ -409,7 +339,9 @@ function requireVoteTypeWriter(writer: GovernanceReadToolWriter | null): Governa
  * unavailable rather than as "nothing is configured", so a caller never reads an outage as an empty
  * configuration. An empty table is its own answer: there is no type to choose at all.
  */
-async function readConfiguredVoteTypes(writer: GovernanceReadToolWriter): Promise<string[]> {
+async function readConfiguredVoteTypes(
+  writer: GovernanceReadToolWriter,
+): Promise<{ status: string; reason: string; voteTypes: string[] }> {
   const listed = await writer.listVoteTypes({ limit: MAX_CONFIGURED_VOTE_TYPES });
   if (!listed.ok || !listed.voteTypes) {
     throw new GovernanceReadToolError(
@@ -417,10 +349,15 @@ async function readConfiguredVoteTypes(writer: GovernanceReadToolWriter): Promis
       'The configured proposal types could not be read, so no type could be checked.',
     );
   }
-  return [...listed.voteTypes];
+  return {
+    status: listed.status,
+    reason: listed.reason,
+    voteTypes: [...listed.voteTypes],
+  };
 }
 
 function errorResult(tool: string, error: unknown) {
+  if (isConfigFailure(error)) throw error;
   const code =
     error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
       ? (error as { code: string }).code
@@ -434,16 +371,42 @@ function errorResult(tool: string, error: unknown) {
 }
 
 function buildTools(config: ResolvedGovernanceReadConfig, ctx: any) {
-  const { proposalChannelIds, boardChannelIds, voteTypeLabels, reader, writer } = config;
+  const { proposalChannelIds, boardChannelIds, voteTypeLabels } = config;
 
   const nativeChannelId = typeof ctx?.nativeChannelId === 'string' ? ctx.nativeChannelId.trim() : '';
   const senderId = typeof ctx?.requesterSenderId === 'string' ? ctx.requesterSenderId.trim() : '';
 
+  // The trusted platform and channel pick exactly one approved workspace, and the reader and writer
+  // for that call are built against the backend with a per-call proof. Building them here keeps the
+  // proof lazy: it is resolved again on every backend call, never snapshotted while the host's
+  // pre-tool attestation may not have run yet.
+  const workspace = resolveTrustedWorkspace(config.config, ctx);
+  const bound = createInvocationAdapters({
+    transport: config.transport,
+    identity: workspace,
+    ...(config.proofProvider === undefined ? {} : { proofProvider: config.proofProvider }),
+    ctx,
+  });
+  const reader: GovernanceReadToolReader | null = config.reader ?? bound?.reader ?? null;
+  const writer: GovernanceReadToolWriter | null = config.writer ?? bound?.writer ?? null;
+
   // Resolve the trusted sender, or refuse before any database read. `audience` narrows which
   // approved channels may call this tool; the acting user is never taken from arguments.
   const requester = (audience: string, scoped: string[]) => {
-    if (ctx?.messageChannel !== 'slack') {
-      throw new GovernanceReadToolError('platform_out_of_scope', 'These tools answer Slack host context only.');
+    if (typeof ctx?.messageChannel !== 'string' || !ctx.messageChannel.trim()) {
+      throw new GovernanceReadToolError('platform_out_of_scope', 'The host did not supply a chat platform.');
+    }
+    // The trusted platform and channel must select exactly one enrolled workspace. A channel that no
+    // workspace of this platform carries is a different scope, not an unlinked account.
+    if (workspace === null) {
+      if (/^[a-z][a-z0-9_-]{1,31}$/.test(String(ctx.messageChannel).trim()) &&
+          config.config.workspaces.some(item => item.platform === String(ctx.messageChannel).trim())) {
+        throw new GovernanceReadToolError(
+          'channel_out_of_scope',
+          `This channel is outside the approved ${audience} workspace channels.`,
+        );
+      }
+      throw new GovernanceReadToolError('platform_out_of_scope', 'This platform is not an approved governance surface.');
     }
     if (!senderId) {
       throw new GovernanceReadToolError('trusted_requester_unavailable', 'The host did not supply a sender ID.');
@@ -454,7 +417,14 @@ function buildTools(config: ResolvedGovernanceReadConfig, ctx: any) {
         `This tool is limited to its approved ${audience} channel.`,
       );
     }
-    return reader.resolveSlackMember(senderId);
+    if (!reader) {
+      throw new GovernanceReadToolError(
+        'identity_source_unavailable',
+        'This installation has no backend workspace configured for this channel, so no member record is available.',
+      );
+    }
+    const resolved: GovernanceReadToolReader = reader;
+    return resolved.resolveSlackMember(senderId);
   };
 
   /**
@@ -524,7 +494,7 @@ function buildTools(config: ResolvedGovernanceReadConfig, ctx: any) {
             );
           }
           const currency = typeof args?.currency === 'string' ? args.currency.trim().toUpperCase() : '';
-          const funds = await reader.readAvailableFunds(currency);
+          const funds = await (reader as GovernanceReadToolReader).readAvailableFunds(currency);
           // Final authority check before the answer leaves the turn.
           assertCurrentInvocation(ctx);
           const details = {
@@ -662,7 +632,7 @@ function buildTools(config: ResolvedGovernanceReadConfig, ctx: any) {
           // The candidate source is required for this tool only. A process given a reader but no
           // writer reports the source as unavailable instead of an empty pool.
           const candidateWriter = requireWriter(writer);
-          const configured = await readConfiguredVoteTypes(candidateWriter);
+          const configured = (await readConfiguredVoteTypes(candidateWriter)).voteTypes;
           if (!configured.includes(voteType)) {
             throw new GovernanceReadToolError(
               'vote_type_not_configured',
@@ -803,13 +773,15 @@ function buildTools(config: ResolvedGovernanceReadConfig, ctx: any) {
           // Both remaining outcomes name the operator's stored types, so the table is read here and
           // a failed read is an outage rather than an empty configuration.
           const typeWriter = requireVoteTypeWriter(writer);
-          const configured = await readConfiguredVoteTypes(typeWriter);
+          const configuredRead = await readConfiguredVoteTypes(typeWriter);
+          const configured = configuredRead.voteTypes;
           if (resolution.status === 'unmapped') {
             assertCurrentInvocation(ctx);
             const details = {
               tool: 'rein_vote_type_resolve',
               ok: true,
               status: 'unmapped',
+              reason: configuredRead.reason,
               phrase: normalizeVoteTypePhrase(phrase),
               // The operator's own words for the types that do exist, and null where the operator
               // wrote no display name; the caller asks rather than inventing one.
@@ -843,6 +815,7 @@ function buildTools(config: ResolvedGovernanceReadConfig, ctx: any) {
             tool: 'rein_vote_type_resolve',
             ok: true,
             status: 'resolved',
+            reason: configuredRead.reason,
             phrase: normalizeVoteTypePhrase(phrase),
             voteType: resolution.voteType,
             displayName: resolution.displayName,

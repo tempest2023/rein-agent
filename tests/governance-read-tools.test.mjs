@@ -19,11 +19,10 @@ const PROPOSAL_CHANNEL = 'C_PROPOSAL';
 const BOARD_CHANNEL = 'C_BOARD';
 const SENDER = 'U0123456ABC';
 const CONTACT = '11111111-1111-4111-8111-111111111111';
-const URL_ENV = 'REIN_SUPABASE_URL';
-const KEY_ENV = 'REIN_SUPABASE_SERVICE_ROLE_KEY';
-const SECRET = 'sb_secret_unit_test_0000000000000000';
-const BOT_TOKEN_ENV = 'REIN_SLACK_BOT_TOKEN';
-const BOT_TOKEN = 'xoxb-unit-test-0000000000000001';
+const BASE_URL_ENV = 'REIN_BACKEND_BASE_URL';
+const CALLER_ENV = 'REIN_AGENT_CALLER_ID';
+const CREDENTIAL_ENV = 'REIN_AGENT_CREDENTIAL';
+const SECRET = 'unit-test-agent-credential';
 const VOTE_TYPE = 'event_single';
 const PROPOSAL_ID_A = '22222222-2222-4222-8222-222222222222';
 const PROPOSAL_ID_B = '33333333-3333-4333-8333-333333333333';
@@ -32,12 +31,25 @@ const PROPOSAL_ID_C = '44444444-4444-4444-8444-444444444444';
 const baseConfig = Object.freeze({
   enabled: true,
   platform: 'slack',
-  slackTeamId: TEAM,
-  environment: 'dev',
+  workspaces: [
+    {
+      platform: 'slack',
+      workspaceId: TEAM,
+      nativeChannelIds: [PROPOSAL_CHANNEL, BOARD_CHANNEL],
+    },
+  ],
   proposalChannelIds: [PROPOSAL_CHANNEL],
   boardChannelIds: [BOARD_CHANNEL],
-  supabaseUrlEnvVar: URL_ENV,
-  supabaseServiceKeyEnvVar: KEY_ENV,
+  backendApiBaseUrlEnvVar: BASE_URL_ENV,
+  agentCallerIdEnvVar: CALLER_ENV,
+  agentCredentialEnvVar: CREDENTIAL_ENV,
+});
+
+/** The server environment a real installation would carry: names in config, values only here. */
+const backendEnv = Object.freeze({
+  [BASE_URL_ENV]: 'https://backend.rein.example',
+  [CALLER_ENV]: 'rein-agent',
+  [CREDENTIAL_ENV]: SECRET,
 });
 
 const memberResult = (overrides = {}) => ({
@@ -131,15 +143,27 @@ function build({ config = baseConfig, reader, writer, ctx: overrides = {}, env }
     },
     ...overrides,
   };
-  const registration = createGovernanceReadToolRegistration({ config, reader, writer, env });
+  const registration = createGovernanceReadToolRegistration({ config, reader, writer, env: env ?? backendEnv });
   const tools = registration.create(ctx);
   return { registration, tools, guard, ctx, tool: name => tools.find(item => item.name === name) };
 }
 
+/**
+ * A direct, single-workspace context. The platform is derived from `messageChannel`, so a test that
+ * changes it stays inside the same approved channel until it also changes the workspace allowlist.
+ */
+const ctxFor = (overrides = {}) => ({
+  messageChannel: 'slack',
+  nativeChannelId: BOARD_CHANNEL,
+  requesterSenderId: SENDER,
+  assertInvocationCurrent() {},
+  ...overrides,
+});
+
 test('no v0.1 read tool registers without an explicit enabled block', () => {
   for (const config of [undefined, {}, { enabled: false }, { enabled: 'true' }]) {
     const { reader } = createFakeReader();
-    const registration = createGovernanceReadToolRegistration({ config, reader });
+    const registration = createGovernanceReadToolRegistration({ config, reader, env: backendEnv });
     assert.equal(registration.create({ messageChannel: 'slack' }), null);
     assert.equal(registration.contextVersion, 2);
   }
@@ -154,118 +178,63 @@ test('no v0.1 read tool registers without an explicit enabled block', () => {
 test('an enabled but incomplete foundationDb block fails loudly instead of registering silently', () => {
   const { reader } = createFakeReader();
   const cases = [
-    [{ ...baseConfig, platform: 'discord' }, /platform must be "slack"/],
-    [{ ...baseConfig, platform: undefined }, /platform must be "slack"/],
-    [{ ...baseConfig, slackTeamId: 'not a team id' }, /slackTeamId must be one Slack team ID/],
-    [{ ...baseConfig, slackTeamId: undefined }, /slackTeamId must be one Slack team ID/],
+    [{ ...baseConfig, platform: 'Not A Platform' }, /platform must name the governance platform/],
+    [{ ...baseConfig, platform: 'discord' }, /platform must name a platform the foundationDb.workspaces list enrolls/],
+    [{ ...baseConfig, workspaces: [] }, /workspaces must list at least one approved workspace/],
+    [{ ...baseConfig, workspaces: 'slack' }, /workspaces must list at least one approved workspace/],
+    [
+      { ...baseConfig, workspaces: [{ platform: 'slack', workspaceId: '', nativeChannelIds: [BOARD_CHANNEL] }] },
+      /workspaceId/,
+    ],
+    [
+      { ...baseConfig, workspaces: [{ platform: 'slack', workspaceId: TEAM, nativeChannelIds: [] }] },
+      /nativeChannelIds must list at least one/,
+    ],
     [{ ...baseConfig, proposalChannelIds: [] }, /proposalChannelIds must list at least one/],
     [{ ...baseConfig, boardChannelIds: ['  '] }, /boardChannelIds must contain non-empty/],
-    [{ ...baseConfig, environment: 'staging' }, /environment must be 'dev' or 'prod'/],
-    [{ ...baseConfig, supabaseUrlEnvVar: undefined }, /supabaseUrlEnvVar must name a server environment variable/],
-    [{ ...baseConfig, supabaseServiceKeyEnvVar: 'NOT A NAME' }, /supabaseServiceKeyEnvVar must name a server environment variable/],
+    [{ ...baseConfig, boardChannelIds: ['C_OTHER'] }, /must appear in some workspaces/],
+    [{ ...baseConfig, backendApiBaseUrlEnvVar: undefined }, /backendApiBaseUrlEnvVar must name a server environment variable/],
+    [{ ...baseConfig, agentCredentialEnvVar: 'NOT A NAME' }, /agentCredentialEnvVar must name a server environment variable/],
   ];
   for (const [config, expected] of cases) {
-    assert.throws(() => createGovernanceReadToolRegistration({ config, reader }), expected);
+    assert.throws(() => createGovernanceReadToolRegistration({ config, reader, env: backendEnv }), expected);
   }
 });
 
-test('the Supabase key is read from the server environment and never appears in the failure or the tools', () => {
-  const missing = {};
-  assert.throws(
-    () => createGovernanceReadToolRegistration({ config: baseConfig, env: missing }),
-    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(URL_ENV),
-  );
-  assert.throws(
-    () => createGovernanceReadToolRegistration({ config: baseConfig, env: { [URL_ENV]: 'https://project-ref.supabase.co' } }),
-    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(KEY_ENV),
-  );
-
-  const registration = createGovernanceReadToolRegistration({
-    config: baseConfig,
-    env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET },
-  });
-  const tools = registration.create({
-    messageChannel: 'slack',
-    nativeChannelId: BOARD_CHANNEL,
-    requesterSenderId: SENDER,
-    assertInvocationCurrent() {},
-  });
-  assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_READ_TOOL_NAMES]);
-  assert.ok(!JSON.stringify(tools).includes(SECRET));
-  assert.ok(!JSON.stringify(tools).includes(URL_ENV));
-});
-
-test('email identity matching is off by default and needs no Slack bot token', () => {
-  for (const config of [baseConfig, { ...baseConfig, identityEmailMatch: 'disabled' }]) {
-    const { reader } = createFakeReader();
-    const registration = createGovernanceReadToolRegistration({ config, reader });
-    const tools = registration.create({
-      messageChannel: 'slack',
-      nativeChannelId: BOARD_CHANNEL,
-      requesterSenderId: SENDER,
-      assertInvocationCurrent() {},
-    });
-    assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_READ_TOOL_NAMES]);
-  }
-});
-
-test('an unknown identityEmailMatch value fails loudly instead of being ignored', () => {
+test('the earlier database-shaped keys are refused instead of being read as a fallback', () => {
   const { reader } = createFakeReader();
-  for (const value of ['yes', 'true', 1]) {
+  for (const key of [
+    'slackTeamId',
+    'environment',
+    'supabaseUrlEnvVar',
+    'supabaseServiceKeyEnvVar',
+    'identityEmailMatch',
+    'slackBotTokenEnvVar',
+  ]) {
     assert.throws(
-      () => createGovernanceReadToolRegistration({ config: { ...baseConfig, identityEmailMatch: value }, reader }),
-      /identityEmailMatch must be "enabled" or "disabled"/,
+      () => createGovernanceReadToolRegistration({ config: { ...baseConfig, [key]: 'anything' }, reader }),
+      new RegExp(`foundationDb\\.${key} is no longer accepted`),
     );
   }
 });
 
-test('an injected reader needs no bot token even with email identity matching enabled', () => {
-  const { reader, calls } = createFakeReader();
-  const registration = createGovernanceReadToolRegistration({
-    config: { ...baseConfig, identityEmailMatch: 'enabled' },
-    reader,
-  });
-  const tools = registration.create({
-    messageChannel: 'slack',
-    nativeChannelId: BOARD_CHANNEL,
-    requesterSenderId: SENDER,
-    assertInvocationCurrent() {},
-  });
-  assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_READ_TOOL_NAMES]);
-  assert.equal(calls.member.length, 0);
-});
-
-test('email identity matching names the bot token variable and never echoes its value', () => {
-  const enabled = { ...baseConfig, identityEmailMatch: 'enabled' };
-  // No variable name at all: enabling the option without it is an operator error.
+test('the backend base URL, caller ID and credential are read from the server environment and never appear in the failure or the tools', () => {
+  const missing = {};
   assert.throws(
-    () => createGovernanceReadToolRegistration({ config: enabled, env: {} }),
-    /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
+    () => createGovernanceReadToolRegistration({ config: baseConfig, env: missing }),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(BASE_URL_ENV),
   );
-  // A name that is present but malformed fails the same way, without quoting the value.
   assert.throws(
-    () =>
-      createGovernanceReadToolRegistration({ config: { ...enabled, slackBotTokenEnvVar: 'NOT A NAME' }, env: {} }),
-    /foundationDb\.slackBotTokenEnvVar must name a server environment variable/,
-  );
-  // The name is valid but the server environment holds no value: the failure names the variable,
-  // never a credential.
-  const named = { ...enabled, slackBotTokenEnvVar: BOT_TOKEN_ENV };
-  assert.throws(
-    () =>
-      createGovernanceReadToolRegistration({
-        config: named,
-        env: { [URL_ENV]: 'https://project-ref.supabase.co', [KEY_ENV]: SECRET },
-      }),
-    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(BOT_TOKEN_ENV),
+    () => createGovernanceReadToolRegistration({ config: baseConfig, env: { [BASE_URL_ENV]: 'https://backend.rein.example' } }),
+    error => error.code === 'foundation_db_env_value_missing' && error.message.includes(CALLER_ENV),
   );
 
   const registration = createGovernanceReadToolRegistration({
-    config: named,
+    config: baseConfig,
     env: {
-      [URL_ENV]: 'https://project-ref.supabase.co',
-      [KEY_ENV]: SECRET,
-      [BOT_TOKEN_ENV]: BOT_TOKEN,
+      [BASE_URL_ENV]: 'https://backend.rein.example',
+      [CALLER_ENV]: 'rein-agent',
+      [CREDENTIAL_ENV]: SECRET,
     },
   });
   const tools = registration.create({
@@ -275,54 +244,9 @@ test('email identity matching names the bot token variable and never echoes its 
     assertInvocationCurrent() {},
   });
   assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_READ_TOOL_NAMES]);
-  assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN), 'the bot token never appears in a tool');
-  assert.ok(!JSON.stringify(tools).includes(BOT_TOKEN_ENV), 'the variable name never appears in a tool');
+  assert.ok(!JSON.stringify(tools).includes(SECRET));
+  assert.ok(!JSON.stringify(tools).includes(BASE_URL_ENV));
 });
-
-test('enabled email matching builds one lookup that presents the bot token only as a header', async () => {
-  const requests = [];
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (url, init = {}) => {
-    requests.push({ url: String(url), headers: init.headers ?? {} });
-    // The link table is empty and the Slack provider reports no such user, so the sender resolves
-    // as unlinked without a second database read.
-    if (String(url).startsWith('https://slack.com/')) {
-      return new Response(JSON.stringify({ ok: false, error: 'user_not_found' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    }
-    return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
-  };
-  try {
-    const registration = createGovernanceReadToolRegistration({
-      config: { ...baseConfig, identityEmailMatch: 'enabled', slackBotTokenEnvVar: BOT_TOKEN_ENV },
-      env: {
-        [URL_ENV]: 'https://project-ref.supabase.co',
-        [KEY_ENV]: SECRET,
-        [BOT_TOKEN_ENV]: BOT_TOKEN,
-      },
-    });
-    const tools = registration.create({
-      messageChannel: 'slack',
-      nativeChannelId: BOARD_CHANNEL,
-      requesterSenderId: SENDER,
-      assertInvocationCurrent() {},
-    });
-    const result = await tools.find(tool => tool.name === 'rein_member_status').execute('call-1', {});
-
-    assert.equal(result.details.status, 'identity_not_linked');
-    assert.equal(result.details.reason, 'identity_email_user_not_found');
-    const slackRequest = requests.find(request => request.url.startsWith('https://slack.com/api/users.info?'));
-    assert.ok(slackRequest, 'the enabled email matching must probe the Slack profile');
-    assert.equal(slackRequest.headers.authorization, `Bearer ${BOT_TOKEN}`);
-    assert.ok(requests.every(request => !request.url.includes(BOT_TOKEN)), 'the token never travels in a URL');
-    assert.ok(!JSON.stringify(result.details).includes(BOT_TOKEN));
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
 test('my status reports the trusted sender without leaking the private contact ID', async () => {
   const { reader, calls } = createFakeReader();
   const { tool, guard } = build({ reader });
@@ -777,10 +701,26 @@ test('a reader with no candidate source reports the source as unavailable, never
 
   const result = await tool('rein_poll_candidates').execute('call-1', { voteType: VOTE_TYPE });
 
+  // Without an injected writer the backend supplies both the type table and the candidate pool, so
+  // the call reaches it and is refused as the closed `identity_check_unavailable` of a fake reader
+  // standing in for a backend that has no data behind it. Either way it is never an empty pool.
   assert.equal(result.details.ok, false);
-  assert.equal(result.details.error, 'candidate_source_unavailable');
-  assert.equal(result.details.candidateCount, undefined);
   assert.ok(!result.content[0].text.includes('[]'));
+  assert.equal(result.details.candidateCount, undefined);
+});
+
+test('a channel missing from every configured workspace reports the identity source as unavailable', async () => {
+  const { tool } = build({
+    config: {
+      ...baseConfig,
+      workspaces: [{ platform: 'slack', workspaceId: TEAM, nativeChannelIds: [PROPOSAL_CHANNEL, BOARD_CHANNEL, 'C_EXTRA'] }],
+    },
+    reader: createFakeReader().reader,
+    ctx: { nativeChannelId: 'C_EXTRA' },
+  });
+  const result = await tool('rein_poll_candidates').execute('call-1', { voteType: VOTE_TYPE });
+  assert.equal(result.details.ok, false);
+  assert.equal(result.details.error, 'channel_out_of_scope');
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -987,7 +927,9 @@ test('resolve refuses a caller with no type source rather than answering from co
   const { tool } = build({ config: labelConfig(), reader: labelReader() });
   const result = await tool('rein_vote_type_resolve').execute('call-1', { phrase: 'single event' });
   assert.equal(result.details.ok, false);
-  assert.equal(result.details.error, 'vote_type_source_unavailable');
+  // Without an injected writer the backend supplies the type table, so the refusal is its own
+  // closed reason rather than a claim that no type source exists.
+  assert.equal(result.details.error, 'vote_type_configuration_unavailable');
   assert.equal(result.details.voteType, undefined);
 });
 
@@ -1131,7 +1073,7 @@ test('an enabled block with a malformed voteTypeAliases map fails loudly at regi
     [{ event_single: { displayName: 'Single event', aliases: Array.from({ length: 33 }, (_, i) => `a${i}`) } }, /event_single\.aliases must list at most 32 names/],
   ]) {
     assert.throws(
-      () => createGovernanceReadToolRegistration({ config: labelConfig(labels), reader: labelReader() }),
+      () => createGovernanceReadToolRegistration({ config: labelConfig(labels), reader: labelReader(), env: backendEnv }),
       error => error.code === 'foundation_db_config_invalid' && expected.test(error.message),
       `expected a loud config failure for ${JSON.stringify(labels)}`,
     );
@@ -1141,6 +1083,7 @@ test('an enabled block with a malformed voteTypeAliases map fails loudly at regi
     const registration = createGovernanceReadToolRegistration({
       config: labels === undefined ? baseConfig : { ...baseConfig, voteTypeAliases: labels },
       reader: labelReader(),
+      env: backendEnv,
     });
     assert.deepEqual(registration.create({
       messageChannel: 'slack',
@@ -1170,7 +1113,44 @@ test('an injected writer that is missing a read method fails the configuration l
       config: baseConfig,
       reader: createFakeReader().reader,
       writer: { listVoteTypes: async () => ({ ok: true, status: 'found', reason: 'vote_types', voteTypes: [], httpStatus: 200 }) },
+      env: backendEnv,
     }),
     /the injected writer must implement listVoteTypes and listCandidateProposals/,
   );
+});
+
+test('an absent foundationDb.platform is a legacy default, and the enrolled workspaces decide the platforms', async () => {
+  const { platform: _unused, ...withoutPlatform } = baseConfig;
+  const { reader, calls } = createFakeReader();
+  const registration = createGovernanceReadToolRegistration({ config: withoutPlatform, reader, env: backendEnv });
+  const tools = registration.create(ctxFor());
+  assert.deepEqual(tools.map(tool => tool.name), [...GOVERNANCE_READ_TOOL_NAMES]);
+  const status = await tools.find(tool => tool.name === 'rein_member_status').execute('call-1', {});
+  assert.equal(status.details.ok, true);
+  assert.deepEqual(calls.member, [SENDER]);
+});
+
+test('a second platform is admitted only through its own workspace entry', async () => {
+  const multi = {
+    ...baseConfig,
+    platform: undefined,
+    workspaces: [
+      { platform: 'slack', workspaceId: TEAM, nativeChannelIds: [PROPOSAL_CHANNEL, BOARD_CHANNEL] },
+      { platform: 'discord', workspaceId: 'G0GUILD', nativeChannelIds: ['C_DISCORD_BOARD'] },
+    ],
+    boardChannelIds: [BOARD_CHANNEL, 'C_DISCORD_BOARD'],
+  };
+  const { reader, calls } = createFakeReader();
+  const registration = createGovernanceReadToolRegistration({ config: multi, reader, env: backendEnv });
+  const onSlack = registration.create(ctxFor());
+  assert.equal((await onSlack.find(tool => tool.name === 'rein_member_status').execute('call-1', {})).details.ok, true);
+  const onDiscord = registration.create(ctxFor({ messageChannel: 'discord', nativeChannelId: 'C_DISCORD_BOARD' }));
+  assert.equal((await onDiscord.find(tool => tool.name === 'rein_member_status').execute('call-2', {})).details.ok, true);
+  assert.deepEqual(calls.member, [SENDER, SENDER]);
+  const unenrolled = registration.create(ctxFor({ messageChannel: 'discord', nativeChannelId: BOARD_CHANNEL }));
+  const refused = await unenrolled.find(tool => tool.name === 'rein_member_status').execute('call-3', {});
+  assert.equal(refused.details.error, 'channel_out_of_scope');
+  const unknownPlatform = registration.create(ctxFor({ messageChannel: 'teams', nativeChannelId: BOARD_CHANNEL }));
+  const unknown = await unknownPlatform.find(tool => tool.name === 'rein_member_status').execute('call-4', {});
+  assert.equal(unknown.details.error, 'platform_out_of_scope');
 });

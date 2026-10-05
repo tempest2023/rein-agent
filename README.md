@@ -17,24 +17,34 @@ status tool and synthetic proposal/vote simulation tools. Four proposal tools ar
 an operator explicitly configures one platform, approved native channels and local storage.
 Deterministic business modules plus a local ledger support development rehearsals.
 
-The confirmed P0 slice is one Slack vertical: link a Slack account to a community record, submit a
-simple Contributor proposal, run a simple Board vote with a posted result, and read a funds snapshot.
-The synthetic rehearsal cases ran through a real Slack provider (a test workspace, with synthetic
-test identities) and against a real Supabase provider (reading and writing the linked `dev_*` schema
-with synthetic rows). What has not happened is production use: no real member registry, no `prod_*`
-business-table write, and no production deployment.
-Twelve database-backed tools exist against the organization's own database — the reads
+The confirmed P0 slice is one Slack vertical: link a Slack account to a community record through a
+verified binding, submit a simple Contributor proposal, run a simple Board vote whose result the
+Agent records, and read a funds snapshot. The Agent holds no database credential and performs no
+database work: every governance read and write, identity resolution and identity binding goes
+through one authenticated Foundation backend API, and the Agent never resolves identity from a
+profile email. Earlier synthetic rehearsal cases ran through a real Slack provider (a test
+workspace, with synthetic test identities) and against the linked `dev_*` schema with synthetic
+rows; what has not happened is production use: no real member registry, no `prod_*` business-table
+write, and no production deployment.
+Twelve backend-backed tools talk to that backend API — the reads
 `rein_member_status`, `rein_funds`, `rein_poll_candidates` and `rein_vote_type_resolve`, the
 read-only field collector `rein_proposal_collect`, the writes `rein_governance_proposal_submit`,
 `rein_poll_open`, `rein_poll_vote` and `rein_poll_result`, and the post-result feedback tools
 `rein_proposal_comment_suggest`, `rein_revision_approve` and `rein_revision_apply`. They register
 **only** when an explicit `foundationDb` config block enables them, and enabling it hides the
-simulators and the legacy proposal tools.
+simulators and the legacy proposal tools. The block names the backend by environment variable
+(`backendApiBaseUrlEnvVar`, `agentCallerIdEnvVar`, `agentCredentialEnvVar`) together with
+`platform: 'slack'`, the `workspaces` list with each workspace's native channel IDs,
+`proposalChannelIds`, `boardChannelIds` and the optional `voteTypeAliases`. The backend signs a
+private proof bound to the platform, workspace, user, channel and event plus the calling Agent; the
+Agent presents that proof on every call, never as a tool argument, a tool result or a status field,
+and no tool accepts a model-supplied actor.
 
 The interface names are `rein_member_status`, `rein_funds`, `rein_poll_candidates`,
 `rein_vote_type_resolve`, `rein_governance_proposal_submit`, `rein_poll_open`, `rein_poll_vote`,
 `rein_poll_result`, `rein_proposal_collect`, `rein_proposal_comment_suggest`, `rein_revision_approve`
-and `rein_revision_apply`; the config block is `foundationDb`; the tables are
+and `rein_revision_apply`; the config block is `foundationDb`. The Agent never addresses a table
+directly, only backend operations; the backend owns the schema, whose tables are
 `<env>_rein_vote_types`, `<env>_rein_proposals`, `<env>_rein_polls`, `<env>_rein_ballots` and
 `<env>_rein_proposal_revisions`; and the RPCs are `<env>_rein_finalize_poll` and
 `<env>_rein_approve_revision`. These are the v0.1 initial-release names; earlier development builds
@@ -50,8 +60,8 @@ end-to-end verification is still absent.
 Two earlier database migrations for that slice are committed in the sibling Foundation repository and
 applied to the linked `BeneficenceProtocol` project (verified read-only 2026-09-27). Each defines both
 the `dev_*` and `prod_*` objects in one transaction, so the applied schema covers both prefixes. The
-rehearsal evidence shows the tools reading and writing the `dev_*` prefix with synthetic rows; the
-`prod_*` prefix stayed at zero rows. Nothing here claims production use or deployment.
+rehearsal evidence shows synthetic rows read and written in the `dev_*` prefix; the `prod_*` prefix
+stayed at zero rows. Nothing here claims production use or deployment.
 
 No real member registry, Discord, Foundation website or production data set is connected. Rehearsals
 run against a test Slack workspace and the linked `dev_*` schema only; the live evidence predates the
@@ -66,7 +76,7 @@ synthetic development evidence, and case 1 was skipped by the owner and is not p
 | Path | Purpose |
 | --- | --- |
 | `vendor/openclaw` | Official OpenClaw source as a git submodule, pinned to one reviewed commit. Upstream-owned; use it, do not edit it. |
-| `plugins/rein-operations` | Rein-owned business modules; three default status/simulation tools, four proposal tools, and twelve database-backed Slack tools (four reads, one read-only field collector, four writes, three result-feedback) that register only with explicit platform/channel/storage configuration. |
+| `plugins/rein-operations` | Rein-owned business modules; three default status/simulation tools, four proposal tools, and twelve backend-backed Slack tools (four reads, one read-only field collector, four writes, three result-feedback) that register only with explicit platform, workspace, channel and backend configuration. |
 | `workspace/` | OpenClaw-compatible agent workspace template: identity, policy and avatar. |
 | `config/operations.example.json` | Proposed business configuration. Not native OpenClaw config, and nothing loads it. |
 | `scripts/` | Local bootstrap, CLI wrapper and upstream update helpers. |

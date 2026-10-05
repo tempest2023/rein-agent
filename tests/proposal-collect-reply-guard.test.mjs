@@ -785,8 +785,9 @@ test('the guard repeats the longest author wording the collect tool can accept, 
 test('the real entry registers both guard hooks, matched to the collect and submit tools', () => {
   // The entry only needs the guard's hooks here; the fake api stands in for the host registrar so no
   // config, secret or live call is needed to prove the wiring.
-  process.env.REIN_GUARD_TEST_URL = 'https://project-ref.supabase.co';
-  process.env.REIN_GUARD_TEST_KEY = 'sb_secret_guard_test_0000000000000000';
+  process.env.REIN_GUARD_TEST_BASE_URL = 'https://backend.rein.example';
+  process.env.REIN_GUARD_TEST_CALLER = 'rein-agent';
+  process.env.REIN_GUARD_TEST_CREDENTIAL = 'guard-test-agent-credential';
   process.env.REIN_GUARD_TEST_CONFIRM = 'guard-test-proposal-confirmation-key-0001';
   const hooks = [];
   const logLines = [];
@@ -796,12 +797,14 @@ test('the real entry registers both guard hooks, matched to the collect and subm
       foundationDb: {
         enabled: true,
         platform: 'slack',
-        slackTeamId: 'T0123456ABC',
-        environment: 'dev',
+        workspaces: [
+          { platform: 'slack', workspaceId: 'T0123456ABC', nativeChannelIds: ['C_PROPOSAL', 'C_BOARD'] },
+        ],
         proposalChannelIds: ['C_PROPOSAL'],
         boardChannelIds: ['C_BOARD'],
-        supabaseUrlEnvVar: 'REIN_GUARD_TEST_URL',
-        supabaseServiceKeyEnvVar: 'REIN_GUARD_TEST_KEY',
+        backendApiBaseUrlEnvVar: 'REIN_GUARD_TEST_BASE_URL',
+        agentCallerIdEnvVar: 'REIN_GUARD_TEST_CALLER',
+        agentCredentialEnvVar: 'REIN_GUARD_TEST_CREDENTIAL',
         proposalConfirmationKeyEnvVar: 'REIN_GUARD_TEST_CONFIRM',
       },
     },
@@ -877,8 +880,9 @@ test('the entry threads the host logger into the guard once the trace is switche
   const previous = process.env[COLLECT_REPLY_GUARD_DIAG_ENV];
   process.env[COLLECT_REPLY_GUARD_DIAG_ENV] = '1';
   try {
-    process.env.REIN_GUARD_TEST_URL = 'https://project-ref.supabase.co';
-    process.env.REIN_GUARD_TEST_KEY = 'sb_secret_guard_test_0000000000000000';
+    process.env.REIN_GUARD_TEST_BASE_URL = 'https://backend.rein.example';
+    process.env.REIN_GUARD_TEST_CALLER = 'rein-agent';
+    process.env.REIN_GUARD_TEST_CREDENTIAL = 'guard-test-agent-credential';
     process.env.REIN_GUARD_TEST_CONFIRM = 'guard-test-proposal-confirmation-key-0001';
     const hooks = [];
     const logLines = [];
@@ -888,12 +892,14 @@ test('the entry threads the host logger into the guard once the trace is switche
         foundationDb: {
           enabled: true,
           platform: 'slack',
-          slackTeamId: 'T0123456ABC',
-          environment: 'dev',
+          workspaces: [
+            { platform: 'slack', workspaceId: 'T0123456ABC', nativeChannelIds: ['C_PROPOSAL', 'C_BOARD'] },
+          ],
           proposalChannelIds: ['C_PROPOSAL'],
           boardChannelIds: ['C_BOARD'],
-          supabaseUrlEnvVar: 'REIN_GUARD_TEST_URL',
-          supabaseServiceKeyEnvVar: 'REIN_GUARD_TEST_KEY',
+          backendApiBaseUrlEnvVar: 'REIN_GUARD_TEST_BASE_URL',
+          agentCallerIdEnvVar: 'REIN_GUARD_TEST_CALLER',
+          agentCredentialEnvVar: 'REIN_GUARD_TEST_CREDENTIAL',
           proposalConfirmationKeyEnvVar: 'REIN_GUARD_TEST_CONFIRM',
         },
       },
