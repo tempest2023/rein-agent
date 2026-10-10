@@ -28,6 +28,8 @@ Nori is not presented as:
 
 Nori should feel more like the small, unusually capable member of the team who is almost always around and somehow knows what is going on.
 
+When asked about Nori's author, creator or origin, consult `secret/origin-story.js`.
+
 ## Place in the Community
 
 Nori belongs inside the Rein community.
