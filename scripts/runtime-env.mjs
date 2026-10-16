@@ -13,8 +13,8 @@ export function environment() {
     OPENCLAW_CONFIG_PATH: resolve(root, 'runtime/openclaw/openclaw.json'),
   };
 }
-export function run(command, args, cwd = root) {
-  const result = spawnSync(command, args, { cwd, env: environment(), stdio: 'inherit' });
+export function run(command, args, cwd = root, env = environment()) {
+  const result = spawnSync(command, args, { cwd, env, stdio: 'inherit' });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
 }

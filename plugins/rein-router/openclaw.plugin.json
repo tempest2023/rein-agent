@@ -1,0 +1,104 @@
+{
+  "id": "rein-router",
+  "name": "Rein Subscription Router",
+  "description": "Opt-in local Magpie gateway routing with explicit billing declarations, manual models, safe fallbacks and optional Jev decisions.",
+  "categories": ["models", "agent-orchestration"],
+  "enabledByDefault": false,
+  "providers": ["rein-magpie"],
+  "activation": { "onStartup": true },
+  "contracts": { "tools": ["rein_route_status"] },
+  "uiHints": {
+    "enabled": { "label": "Enable subscription routing", "help": "Requires a configured loopback Magpie gateway and verified allowance, overage controls and eligibility for the intended deployment on every route." },
+    "gateway.apiKeyEnvVar": { "label": "Magpie credential environment variable", "help": "The variable name only. Keep the credential in the server environment." },
+    "gateway.subscriptionOnly": { "label": "Subscription and coding-plan routes only", "help": "Enabled by default. Pay-as-you-go requires disabling this restriction and explicitly enabling allowPaidUsage." },
+    "decision.allowPaidJev": { "label": "Allow separately billed Jev decisions", "help": "Disabled by default. Hosted Jev usage is separate from LLM subscription allowances; configure its credential through OpenClaw's TypeSafe decision provider." },
+    "routes": { "label": "Verified gateway routes", "help": "Use fully qualified Magpie provider/model IDs. Verification covers billing and deployment eligibility; a successful login alone does not establish permission for a public service." }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean", "default": false },
+      "gateway": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["baseUrl", "apiKeyEnvVar"],
+        "properties": {
+          "baseUrl": { "type": "string", "maxLength": 512, "pattern": "^https?://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]{1,5})?/v1$" },
+          "apiKeyEnvVar": { "type": "string", "maxLength": 128, "pattern": "^[A-Z][A-Z0-9_]{0,127}$" },
+          "subscriptionOnly": { "type": "boolean", "default": true },
+          "managed": {
+            "type": "object", "additionalProperties": false, "required": ["binaryPath", "homeDir"],
+            "properties": {
+              "binaryPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "homeDir": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "allowSubscriptionAccounts": { "type": "boolean", "default": false }
+            }
+          }
+        }
+      },
+      "routes": {
+        "type": "array", "maxItems": 64, "default": [],
+        "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "provider", "gatewayModel", "billingSource", "billingMode", "purpose", "effort", "contextWindow", "maxTokens"],
+          "properties": {
+            "id": { "$ref": "#/$defs/routeId" },
+            "provider": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^\\S(?:[^\\u0000-\\u001F\\u007F]*\\S)?$" },
+            "gatewayModel": { "type": "string", "maxLength": 320, "pattern": "^(?![Gg][Rr][Oo][Uu][Pp]/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,254}[A-Za-z0-9._-])?$" },
+            "billingSource": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S(?:[^\\u0000-\\u001F\\u007F]*\\S)?$" },
+            "billingMode": { "enum": ["subscription", "coding-plan", "pay-as-you-go"] },
+            "billingVerified": { "type": "boolean", "default": false },
+            "purpose": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^\\S(?:[^\\u0000-\\u001F\\u007F]*\\S)?$" },
+            "effort": { "enum": ["off", "low", "medium", "high"] },
+            "contextWindow": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+            "maxTokens": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+          }
+        }
+      },
+      "defaultRoute": { "$ref": "#/$defs/routeId" },
+      "fallbackRoutes": { "type": "array", "maxItems": 64, "uniqueItems": true, "default": [], "items": { "$ref": "#/$defs/routeId" } },
+      "allowPaidUsage": { "type": "boolean", "default": false },
+      "channels": { "type": "array", "maxItems": 2, "uniqueItems": true, "default": ["discord", "slack"], "items": { "enum": ["discord", "slack"] } },
+      "adminSenders": {
+        "type": "array", "maxItems": 256, "uniqueItems": true, "default": [],
+        "items": {
+          "type": "object", "additionalProperties": false, "required": ["channel", "accountId", "senderId"],
+          "properties": {
+            "channel": { "enum": ["discord", "slack"] },
+            "accountId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^\\S(?:[^\\u0000-\\u001F\\u007F]*\\S)?$" },
+            "senderId": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^\\S(?:[^\\u0000-\\u001F\\u007F]*\\S)?$" }
+          }
+        }
+      },
+      "decision": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 10000, "default": 3000 },
+          "minProbability": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.8 },
+          "maxPromptChars": { "type": "integer", "minimum": 100, "maximum": 32000, "default": 4000 },
+          "allowPaidJev": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    "allOf": [
+      {
+        "if": { "required": ["enabled"], "properties": { "enabled": { "const": true } } },
+        "then": {
+          "required": ["gateway", "routes", "defaultRoute"],
+          "properties": {
+            "routes": { "minItems": 1, "items": { "required": ["billingVerified"], "properties": { "billingVerified": { "const": true } } } },
+            "channels": { "minItems": 1 }
+          }
+        }
+      },
+      {
+        "if": { "not": { "required": ["allowPaidUsage", "gateway"], "properties": { "allowPaidUsage": { "const": true }, "gateway": { "required": ["subscriptionOnly"], "properties": { "subscriptionOnly": { "const": false } } } } } },
+        "then": { "properties": { "routes": { "items": { "properties": { "billingMode": { "enum": ["subscription", "coding-plan"] } } } } } }
+      }
+    ],
+    "$defs": {
+      "routeId": { "type": "string", "pattern": "^(?!auto$)[a-z][a-z0-9-]{0,63}$" }
+    }
+  }
+}

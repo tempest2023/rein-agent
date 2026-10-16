@@ -4,6 +4,9 @@
 
 [中文说明](README-zh.md)
 
+[Model Router & Dynamic Router: 中文快速上手](docs/model-router-quickstart-zh.md) — installation,
+copyable configuration, manual model selection and Jev automatic routing.
+
 Rein Protocol Foundation's operations agent: an administrator, secretary, and online facilitator.
 
 Rein Agent helps members turn activity ideas into real-world action. It receives proposals,
@@ -92,6 +95,7 @@ remains restricted to its acceptance account. Public course data was operator-su
 | --- | --- |
 | `vendor/openclaw` | Official OpenClaw source as a git submodule, pinned to one reviewed commit. Upstream-owned; use it, do not edit it. |
 | `plugins/rein-operations` | Rein-owned business modules; three default status/simulation tools, four proposal tools, and twelve backend-backed Slack tools (four reads, one read-only field collector, four writes, three result-feedback) that register only with explicit platform, workspace, channel and backend configuration. |
+| `plugins/rein-router` | Optional subscription router, pinned project-local Magpie dependency, gateway lifecycle and scoped route status. |
 | `workspace/` | OpenClaw-compatible agent workspace template: identity, policy, avatar and Discord conversation guidance with an initially unconfigured public directory. |
 | `config/operations.example.json` | Proposed business configuration. Not native OpenClaw config, and nothing loads it. |
 | `scripts/` | Local bootstrap, CLI wrapper and upstream update helpers. |
@@ -99,6 +103,28 @@ remains restricted to its acceptance account. Public course data was operator-su
 | `docs/` | PRDs, architecture, decision register, setup and upstream-update runbooks. |
 
 ## Plugin-first development rule
+
+An opt-in [Magpie subscription gateway and Jev routing plugin](docs/unified-subscription-access.md)
+adds declared model/effort routes, explicit fallback controls and session-scoped manual selection.
+Magpie is prepared as a pinned project-local headless dependency; the plugin can manage its
+process without a global installation or runtime build. The existing China Bailian Token Plan
+has a matching native Magpie preset. OpenAI's official SIWC route is available through Magpie's
+`chatgpt-api` provider. Provider authentication, plan compatibility and token refresh stay in Magpie;
+Rein configures the gateway routes, model selection, fallback and billing labels.
+Native synthetic probes cover Discord and Slack ingress; an optional probe exercises the pinned
+Magpie gateway with local fixture providers. Its
+[synthetic example](config/subscription-router.example.json) is disabled. Live subscription
+compatibility and billing acceptance remain pending. Nori serves the public using operator-owned
+connections across channels. Claude support is plan-agnostic (including Pro/Max/Team),
+with operator-verified account model access and limits; no Claude account is currently connected. Existing
+profiles are not changed by installing the source.
+
+The existing China Token Plan passed a [live Bailian tool-call round trip](docs/bailian-subscription-acceptance-2026-10-15.md)
+through the production router and managed Magpie gateway, with two capped requests and no Jev or fallback.
+
+An authorized [60-call hosted Jev evaluation](docs/subscription-routing-evaluation-2026-10-15.md)
+selected 21 of 24 proposed economical opportunities with no unsafe economical selections against
+the synthetic labels. Label review, paired answer-quality evaluation and net savings remain pending.
 
 Rein functionality is implemented as Rein-owned plugins under `plugins/`, loaded through the
 documented plugin SDK and manifest. `vendor/openclaw` stays byte-identical to upstream so the
@@ -122,6 +148,24 @@ directory is missing. Run pnpm through the pinned local toolchain with `npm run 
 npm run toolchain:pnpm -- --version   # expect 12.4.2
 npm run toolchain:pnpm -- exec node -v   # expect v24.16.x
 ```
+
+The optional subscription gateway also needs Git and Go for explicit bootstrap:
+
+```sh
+npm run toolchain:pnpm -- run magpie:setup
+npm run toolchain:pnpm -- run magpie -- version
+npm run toolchain:pnpm -- run magpie:ui
+```
+
+Bootstrap builds the pinned headless binary under `.toolchain/magpie-bin`; the wrapper uses
+protected stores under `runtime/magpie`. A configured `rein-router` managed gateway starts and
+stops that prepared process with OpenClaw. It performs no runtime build or global installation.
+See the [subscription setup and billing boundaries](docs/unified-subscription-access.md) before
+configuring accounts or activating a profile.
+
+`magpie:ui` opens Magpie's own loopback configuration page using the project-private profile.
+The launcher disables native automatic updates to preserve the pinned binary. Connect providers
+there, then close it before starting the OpenClaw-managed gateway.
 
 ## Quick start
 

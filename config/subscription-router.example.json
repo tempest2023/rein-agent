@@ -1,0 +1,85 @@
+{
+  "enabled": false,
+  "gateway": {
+    "baseUrl": "http://127.0.0.1:3425/v1",
+    "apiKeyEnvVar": "REIN_MAGPIE_GATEWAY_KEY",
+    "subscriptionOnly": true,
+    "managed": {
+      "binaryPath": "/absolute/path/rein-agent/.toolchain/magpie-bin/magpie",
+      "homeDir": "/absolute/path/rein-agent/runtime/magpie/home",
+      "allowSubscriptionAccounts": false
+    }
+  },
+  "routes": [
+    {
+      "id": "openai-general",
+      "provider": "OpenAI",
+      "gatewayModel": "chatgpt-api/example-subscription-model",
+      "billingSource": "chatgpt-subscription-allowance",
+      "billingMode": "subscription",
+      "billingVerified": false,
+      "purpose": "Capable default for ambiguous requests, context-dependent follow-ups, research and web summaries. Synthetic model placeholder: replace after verification.",
+      "effort": "medium",
+      "contextWindow": 32768,
+      "maxTokens": 4096
+    },
+    {
+      "id": "google-quick",
+      "provider": "Google",
+      "gatewayModel": "gemini/example-flash-model",
+      "billingSource": "google-subscription-allowance",
+      "billingMode": "subscription",
+      "billingVerified": false,
+      "purpose": "Short self-contained general questions and simple transformations requiring little context. Synthetic placeholder: consumer Google plan compatibility is unverified.",
+      "effort": "off",
+      "contextWindow": 32768,
+      "maxTokens": 4096
+    },
+    {
+      "id": "claude-coding",
+      "provider": "Anthropic",
+      "gatewayModel": "claude/example-subscription-model",
+      "billingSource": "claude-subscription-allowance",
+      "billingMode": "subscription",
+      "billingVerified": false,
+      "purpose": "Complex code development, debugging, architecture and administrator-assigned coding tasks. Synthetic model placeholder: replace after verification.",
+      "effort": "high",
+      "contextWindow": 32768,
+      "maxTokens": 4096
+    },
+    {
+      "id": "bailian-quick",
+      "provider": "Alibaba Cloud Bailian",
+      "gatewayModel": "bailian-token-plan/example-subscription-model",
+      "billingSource": "bailian-token-plan-china-allowance",
+      "billingMode": "subscription",
+      "billingVerified": false,
+      "purpose": "Short self-contained general questions and simple transformations requiring little context. Synthetic model placeholder: replace after verifying the China Token Plan endpoint, model and tool compatibility.",
+      "effort": "off",
+      "contextWindow": 32768,
+      "maxTokens": 4096
+    }
+  ],
+  "defaultRoute": "openai-general",
+  "fallbackRoutes": [],
+  "allowPaidUsage": false,
+  "channels": ["discord", "slack"],
+  "adminSenders": [
+    {
+      "channel": "discord",
+      "accountId": "example-openclaw-account",
+      "senderId": "example-discord-sender"
+    },
+    {
+      "channel": "slack",
+      "accountId": "example-openclaw-account",
+      "senderId": "example-slack-sender"
+    }
+  ],
+  "decision": {
+    "timeoutMs": 3000,
+    "minProbability": 0.8,
+    "maxPromptChars": 4000,
+    "allowPaidJev": false
+  }
+}

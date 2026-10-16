@@ -1,6 +1,7 @@
 import { definePluginEntry } from 'openclaw/plugin-sdk/plugin-entry';
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/plugin-entry';
 import { buildJsonChannelConfigSchema } from 'openclaw/plugin-sdk/channel-config-schema';
+import { applyModelOverrideToSessionEntry } from 'openclaw/plugin-sdk/model-session-runtime';
 import { validateIsolationConfig, assertIsolationRuntime, MEMORY_TOOLS } from './isolation.mjs';
 import { createMemberMemory } from './memory.mjs';
 import { createMemoryToolFactory } from './memory-tools.mjs';
@@ -39,7 +40,9 @@ export function registerReinDiscord(api: OpenClawPluginApi, transport: DiscordTr
         async startAccount(ctx) {
           if (!ctx.channelRuntime) throw new Error('Host-owned channel runtime required');
           return await transport({ config, cfg: ctx.cfg, runtime: ctx.channelRuntime,
-            memory: getMemory(), turns, signal: ctx.abortSignal, status: ctx.setStatus, log: ctx.log });
+            memory: getMemory(), turns, sessionStore: { ...api.runtime.agent.session,
+              applyModelOverride: applyModelOverrideToSessionEntry },
+            signal: ctx.abortSignal, status: ctx.setStatus, log: ctx.log });
         },
       },
     });

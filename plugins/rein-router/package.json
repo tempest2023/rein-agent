@@ -1,0 +1,10 @@
+{
+  "name": "@rein-protocol/openclaw-rein-router",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": ["index.ts", "policy.mjs", "runtime.mjs", "quota.mjs", "provenance.mjs", "upstream-errors.mjs", "managed-gateway.mjs", "service-bridge.mjs", "process-tree.mjs", "spend-policy.mjs", "magpie.lock.json", "openclaw.plugin.json"],
+  "devDependencies": { "openclaw": "link:../../vendor/openclaw" },
+  "peerDependencies": { "openclaw": "2026.9.5" },
+  "openclaw": { "extensions": ["./index.ts"], "compat": { "pluginApi": ">=2026.9.5", "minGatewayVersion": "2026.9.5" } }
+}

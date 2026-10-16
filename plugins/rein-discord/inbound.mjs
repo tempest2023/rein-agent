@@ -1,7 +1,8 @@
-import { resolveOwner, sessionKey, PUBLIC_TOOLS, PRIVATE_TOOLS, createOwnerQueue } from './isolation.mjs';
+import { resolveOwner, sessionKey, isolatedToolsForAudience, createOwnerQueue } from './isolation.mjs';
 import { createTurnControl } from './turn-control.mjs';
+import { configuredModelRoutes, handleModelSelection } from './model-selection.mjs';
 
-export function createIsolatedReceiver({ config, cfg, runtime, memory, send, signal, turns = createTurnControl(), trace = () => {} }) {
+export function createIsolatedReceiver({ config, cfg, runtime, memory, send, signal, sessionStore, turns = createTurnControl(), trace = () => {} }) {
   const queue = createOwnerQueue();
   const seen = new Set();
   return async event => {
@@ -24,10 +25,12 @@ export function createIsolatedReceiver({ config, cfg, runtime, memory, send, sig
         await send(owner.channelId, command === '/forget' ? '已删除你在这段对话中的记忆，并开始新对话。' : '已为你开始新对话。保存的记忆仍保留。', event.id);
         return { dispatched: false, handled: true };
       }
+      const modelCommand = /^\/model(?:\s|$)/.test(command) && configuredModelRoutes(cfg) !== null;
       // No inherited global/admin/plugin commands, thread bindings, quoted
       // messages, channel history, attachments or reply-to content are loaded.
-      if (command.startsWith('/')) return { dispatched: false };
-      const key = sessionKey(owner, memory.generation(owner));
+      if (command.startsWith('/') && !modelCommand) return { dispatched: false };
+      const generation = memory.generation(owner);
+      const key = sessionKey(owner, generation);
       const kind = owner.audience === 'public' ? 'channel' : 'direct';
       const ingress = await runtime.inbound.ingress.resolveStable({
         channelId: 'discord', accountId: 'default', cfg,
@@ -39,6 +42,19 @@ export function createIsolatedReceiver({ config, cfg, runtime, memory, send, sig
         groupPolicy: 'allowlist', groupAllowFrom: [owner.senderId],
       });
       if (signal.aborted || ingress.ingress.admission !== 'dispatch') return { dispatched: false };
+      if (modelCommand) {
+        const turn = turns.open(key, signal);
+        try {
+          const reply = await handleModelSelection({ command, cfg, owner, key, sessionStore, signal: turn.signal,
+            assertCurrent() {
+              turn.assertCurrent();
+              if (memory.generation(owner) !== generation) throw new Error('Isolated model selection scope changed');
+            } });
+          turn.assertCurrent();
+          if (reply) await send(owner.channelId, reply, event.id);
+          return { dispatched: false, handled: true };
+        } finally { turn.close(); }
+      }
       const target = `channel:${owner.channelId}`;
       const ctxPayload = runtime.inbound.buildContext({
         channel: 'discord', accountId: 'default', channelIngress: ingress,
@@ -59,7 +75,7 @@ export function createIsolatedReceiver({ config, cfg, runtime, memory, send, sig
       try { result = await runtime.inbound.dispatch({
         cfg, channel: 'discord', accountId: 'default', route: { agentId: owner.agentId, sessionKey: key, dmScope: 'per-account-channel-peer' },
         ctxPayload, messageId: event.id,
-        toolsAllow: owner.audience === 'public' ? PUBLIC_TOOLS : PRIVATE_TOOLS,
+        toolsAllow: isolatedToolsForAudience(cfg, owner.audience),
         record: { onRecordError: () => { throw new Error('Isolated session recording failed'); } },
         replyOptions: { abortSignal: turn.signal },
         delivery: {

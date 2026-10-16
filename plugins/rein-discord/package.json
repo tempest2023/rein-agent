@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "files": ["index.ts", "isolation.mjs", "memory.mjs", "memory-tools.mjs", "turn-control.mjs", "inbound.mjs", "gateway.mjs", "reply-chunks.mjs", "openclaw.plugin.json"],
+  "files": ["index.ts", "isolation.mjs", "memory.mjs", "memory-tools.mjs", "turn-control.mjs", "inbound.mjs", "model-selection.mjs", "gateway.mjs", "reply-chunks.mjs", "openclaw.plugin.json"],
   "dependencies": { "discord.js": "14.27.0", "typebox": "1.3.30" },
   "devDependencies": { "openclaw": "link:../../vendor/openclaw" },
   "peerDependencies": { "openclaw": "2026.9.5" },

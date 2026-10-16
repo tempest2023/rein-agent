@@ -189,6 +189,12 @@ importers:
         specifier: link:../../vendor/openclaw
         version: link:../../vendor/openclaw
 
+  plugins/rein-router:
+    devDependencies:
+      openclaw:
+        specifier: link:../../vendor/openclaw
+        version: link:../../vendor/openclaw
+
 packages:
 
   '@discordjs/builders@1.14.1':

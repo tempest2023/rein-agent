@@ -2,7 +2,7 @@ import { Client, GatewayIntentBits, Partials, Events, Options, ChannelType } fro
 import { createIsolatedReceiver } from './inbound.mjs';
 import { splitDiscordReply } from './reply-chunks.mjs';
 
-export async function startIsolatedDiscord({ config, cfg, runtime, memory, turns, signal, status, log }) {
+export async function startIsolatedDiscord({ config, cfg, runtime, memory, turns, sessionStore, signal, status, log }) {
   const token = process.env[config.tokenEnv];
   if (!token) throw new Error('Configured Discord bot token environment variable is empty');
   const client = new Client({
@@ -20,7 +20,7 @@ export async function startIsolatedDiscord({ config, cfg, runtime, memory, turns
       } });
     }
   };
-  const receive = createIsolatedReceiver({ config, cfg, runtime, memory, turns, send, signal });
+  const receive = createIsolatedReceiver({ config, cfg, runtime, memory, turns, sessionStore, send, signal });
   client.on(Events.MessageCreate, message => {
     if (client.user?.id !== config.botUserId) return;
     // Discord's authenticated author/guild/channel, never embed author fields

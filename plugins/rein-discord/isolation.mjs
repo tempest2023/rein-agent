@@ -1,12 +1,18 @@
 import { createHash } from 'node:crypto';
 import { isAbsolute, relative, sep, dirname, join } from 'node:path';
 import { existsSync, realpathSync, readdirSync, lstatSync } from 'node:fs';
+import { configuredRouterStatusTool, ROUTE_STATUS_TOOL } from './model-selection.mjs';
 
 const snowflake = value => typeof value === 'string' && /^[0-9]{17,20}$/.test(value);
 export const MEMORY_TOOLS = ['rein_memory_read', 'rein_memory_remember', 'rein_memory_forget'];
 export const PUBLIC_TOOLS = ['read', 'web_search', 'web_fetch', 'rein_status', 'rein_member_status',
   'rein_identity_bind_start', 'rein_identity_bind_status', 'rein_identity_bind_complete', ...MEMORY_TOOLS];
 export const PRIVATE_TOOLS = ['read', 'web_search', 'web_fetch', 'rein_status', ...MEMORY_TOOLS];
+
+export function isolatedToolsForAudience(cfg, audience) {
+  const defaults = audience === 'public' ? PUBLIC_TOOLS : PRIVATE_TOOLS;
+  return configuredRouterStatusTool(cfg) ? [...defaults, ROUTE_STATUS_TOOL] : defaults;
+}
 
 export function validateIsolationConfig(config) {
   if (!config || !snowflake(config.botUserId) || !/^[a-z][a-z0-9-]{0,50}$/.test(config.agentId ?? '') ||
@@ -43,7 +49,8 @@ export function assertIsolationRuntime(cfg, config, workspaceDir) {
   if (cfg.tools?.fs?.workspaceOnly !== true || cfg.tools?.sessions?.visibility !== 'self' || cfg.tools?.agentToAgent?.enabled !== false) {
     throw new Error('Rein Discord requires confined filesystem and session tools');
   }
-  if (!Array.isArray(cfg.tools?.allow) || cfg.tools.allow.some(name => !PUBLIC_TOOLS.includes(name))) {
+  const allowedTools = isolatedToolsForAudience(cfg, 'public');
+  if (!Array.isArray(cfg.tools?.allow) || cfg.tools.allow.some(name => !allowedTools.includes(name))) {
     throw new Error('Rein Discord requires an explicit onboarding-only tool allowlist');
   }
   if (cfg.tools?.alsoAllow?.length || cfg.tools?.byProvider || cfg.skills?.load?.extraDirs?.length ||

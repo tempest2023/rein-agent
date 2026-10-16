@@ -8,6 +8,7 @@ on:
       - plugins/**
       - scripts/**
       - tests/**
+      - evals/**
       - package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
@@ -19,6 +20,7 @@ on:
       - plugins/**
       - scripts/**
       - tests/**
+      - evals/**
       - package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
@@ -46,8 +48,66 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm test
+      - name: Validate routing evaluation corpus without hosted calls
+        run: pnpm eval:subscriptions
       - run: pnpm setup:local
       - name: Validate runtime plugin loading
         run: pnpm verify:plugin
-      - name: Confirm upstream tracked files remain unchanged
-        run: test -z "$(git -C vendor/openclaw status --porcelain)"
+      - name: Verify subscription routing with local synthetic endpoints
+        run: pnpm verify:subscriptions
+      - name: Verify Slack subscription routing with local synthetic endpoints
+        run: pnpm verify:subscriptions:slack
+      - name: Read pinned Magpie dependency
+        id: magpie-pin
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const pin = JSON.parse(fs.readFileSync('plugins/rein-router/magpie.lock.json', 'utf8'));
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'revision=' + pin.revision + '\n' + 'go_version=' + pin.goVersion + '\n');
+          JS
+      - name: Fetch reviewed Magpie source for hermetic compatibility verification
+        uses: actions/checkout@v4
+        with:
+          repository: yetone/magpie
+          ref: ${{ steps.magpie-pin.outputs.revision }}
+          path: runtime/magpie-fixture
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.magpie-pin.outputs.go_version }}
+          cache: false
+      - name: Verify pinned Magpie subscription token refresh with offline fixtures
+        working-directory: runtime/magpie-fixture
+        run: |
+          env -i PATH="$PATH" LANG=C.UTF-8 HOME="$RUNNER_TEMP" USERPROFILE="$RUNNER_TEMP" TMPDIR="$RUNNER_TEMP" \
+            CGO_ENABLED=0 GOTOOLCHAIN=local GOENV=off GOWORK=off GOFLAGS= GOEXPERIMENT= \
+            GOPATH="$GITHUB_WORKSPACE/.toolchain/magpie-go-path" \
+            GOCACHE="$GITHUB_WORKSPACE/.toolchain/magpie-go-cache" GOMODCACHE="$GITHUB_WORKSPACE/.toolchain/magpie-go-mod" \
+            go test -mod=readonly -tags nogui -count=1 -timeout=60s -v ./internal/provider \
+              -run '^(TestCodexRefreshFlushesAuthJSONBeforeReplacingIt|TestCodexRefreshOutlivesItsCaller|TestRevokedCodexRefreshedFirst|TestClaudeRefusalHoldsForItsCredentialOnly|TestGeminiOwnLoginRefreshesInMemory)$'
+      - name: Verify pinned Magpie Claude bridge continuity with offline fixtures
+        working-directory: runtime/magpie-fixture
+        run: |
+          env -i PATH="$PATH" LANG=C.UTF-8 HOME="$RUNNER_TEMP" USERPROFILE="$RUNNER_TEMP" TMPDIR="$RUNNER_TEMP" \
+            CGO_ENABLED=0 GOTOOLCHAIN=local GOENV=off GOWORK=off GOFLAGS= GOEXPERIMENT= \
+            GOPATH="$GITHUB_WORKSPACE/.toolchain/magpie-go-path" \
+            GOCACHE="$GITHUB_WORKSPACE/.toolchain/magpie-go-cache" GOMODCACHE="$GITHUB_WORKSPACE/.toolchain/magpie-go-mod" \
+            go test -mod=readonly -tags nogui -count=1 -timeout=60s -v ./internal/gateway \
+              -run '^(TestClaudeRunKeptForTheNextTurn|TestClaudeRunKeptAcrossEffort|TestClaudeLetGoConversationResumesItsSession|TestClaudeToolResultsKeepTheSelectedAccount|TestClaudeCLIEffortXHigh|TestCleanClaudeEnvRemovesGatewayOverrides)$'
+      - name: Verify actual Magpie gateway with synthetic upstream providers
+        run: pnpm verify:subscriptions --magpie-checkout runtime/magpie-fixture
+      - name: Prepare pinned headless Magpie dependency
+        run: pnpm magpie:setup
+      - name: Verify project-local Magpie configuration UI without inference
+        env:
+          REIN_RUN_NATIVE_MAGPIE_UI: '1'
+        run: node --test tests/magpie-ui-native.test.mjs
+      - name: Verify native managed Magpie lifecycle without inference
+        run: pnpm verify:subscriptions:managed
+      - name: Verify managed Magpie inference and tool continuation with synthetic upstream
+        env:
+          REIN_RUN_NATIVE_BAILIAN_SYNTHETIC: '1'
+        run: node --test tests/bailian-subscription-probe-native.test.mjs
+      - name: Confirm upstream source checkouts remain unchanged
+        run: |
+          test -z "$(git -C vendor/openclaw status --porcelain)"
+          test -z "$(git -C runtime/magpie-fixture status --porcelain --untracked-files=all)"
