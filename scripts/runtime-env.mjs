@@ -8,7 +8,7 @@ export function environment() {
   const localBin = resolve(root, '.toolchain/node_modules/.bin');
   return {
     ...process.env,
-    PATH: [existsSync(localBin) ? localBin : '', process.env.PATH].filter(Boolean).join(delimiter),
+    PATH: [resolve(root, 'bin'), existsSync(localBin) ? localBin : '', process.env.PATH].filter(Boolean).join(delimiter),
     OPENCLAW_STATE_DIR: resolve(root, 'runtime/openclaw'),
     OPENCLAW_CONFIG_PATH: resolve(root, 'runtime/openclaw/openclaw.json'),
   };

@@ -1,5 +1,10 @@
 # Rein Agent
 
+Nori 已接入固定版本的官方 agent-browser CLI 与 Skill，支持操作员授权的网页任务、
+本地加密凭证库、加密会话复用，以及登录失效后的单次恢复。见
+[安装、凭证录入与验证说明](docs/agent-browser.md)。凭证只在本地终端录入，
+这项集成不会扩大公共频道的工具权限；MFA、验证码等仍可能需要人工完成。
+
 <img src="workspace/avatars/rein-agent.png" alt="Nori official avatar" width="192" height="192">
 
 [English](README.md)

@@ -8,6 +8,9 @@
   },
   "packageManager": "pnpm@12.4.2",
   "scripts": {
+    "browser:setup": "node scripts/agent-browser-dependency.mjs",
+    "browser": "node scripts/agent-browser.mjs",
+    "verify:browser": "node scripts/verify-agent-browser.mjs",
     "check": "node scripts/check.mjs",
     "test": "node --test tests/*.test.mjs",
     "audit:discord-privacy": "node scripts/discord-privacy.mjs",

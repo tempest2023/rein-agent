@@ -1,0 +1,28 @@
+name: Nori browser integration
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/agent-browser*.mjs
+      - scripts/verify-agent-browser.mjs
+      - tests/agent-browser.test.mjs
+      - config/agent-browser*
+      - bin/agent-browser
+      - workspace/skills/agent-browser/**
+      - workspace/skills/nori-browser/**
+      - .github/workflows/browser.yml
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - run: node --test tests/agent-browser.test.mjs
+      - run: node scripts/agent-browser-dependency.mjs
+      - run: node scripts/agent-browser.mjs install
+      - run: node scripts/verify-agent-browser.mjs

@@ -368,6 +368,9 @@ the agent only for drafts and demonstrations with synthetic data.
 
 ## Updating the runtime
 
+For the optional pinned browser CLI, official Skill, local credential enrollment and
+session recovery workflow, see [Nori browser automation](agent-browser.md).
+
 See [upstream](upstream.md) for the reviewed pin update, the post-update checklist and rollback.
 
 ## Verified baseline
