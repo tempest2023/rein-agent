@@ -15,6 +15,7 @@ import { POLL_REPLY_GUARD_TOOL_NAMES, createPollReplyGuard } from "./poll-reply-
 import { VOTE_REPLY_GUARD_TOOL_NAMES, createVoteReplyGuard } from "./vote-reply-guard.ts";
 import { createBackendRuntime } from "./backend-runtime.ts";
 import { IDENTITY_BIND_TOOL_NAMES, createIdentityToolsRegistration } from "./identity-tools.ts";
+import { COMMUNITY_TOOL_NAMES, createCommunityToolsRegistration } from "./community-tools.ts";
 
 // This first tool proves the external-plugin boundary without enabling business actions.
 export default definePluginEntry({
@@ -42,6 +43,7 @@ export default definePluginEntry({
         throw new Error('foundationDb is enabled but the backend runtime could not be constructed');
       }
       const proofProvider = runtime.proofProvider;
+      api.registerTool(createCommunityToolsRegistration({ runtime }), { names: [...COMMUNITY_TOOL_NAMES] });
       // Field collection answers the model with structured detail that names internal vocabulary
       // (the configured vote type code, missing-field names, the sealed draft token). Prompt text
       // alone did not stop that vocabulary reaching the member, so the member-facing boundary is
@@ -175,7 +177,7 @@ export default definePluginEntry({
         const details = {
           stage: "development",
           implemented: governanceToolsEnabled
-            ? ["rein_status", ...GOVERNANCE_READ_TOOL_NAMES, ...GOVERNANCE_WRITE_TOOL_NAMES, ...GOVERNANCE_COLLECT_TOOL_NAMES, ...GOVERNANCE_FEEDBACK_TOOL_NAMES, ...IDENTITY_BIND_TOOL_NAMES]
+            ? ["rein_status", ...GOVERNANCE_READ_TOOL_NAMES, ...GOVERNANCE_WRITE_TOOL_NAMES, ...GOVERNANCE_COLLECT_TOOL_NAMES, ...GOVERNANCE_FEEDBACK_TOOL_NAMES, ...IDENTITY_BIND_TOOL_NAMES, ...COMMUNITY_TOOL_NAMES]
             : ["rein_status", "rein_simulate_vote", "rein_simulate_proposal", ...(proposalEnabled ? [...PROPOSAL_TOOL_NAMES] : [])],
           automationEnabled: false,
           foundationDbReadToolsEnabled: governanceToolsEnabled,
@@ -184,12 +186,13 @@ export default definePluginEntry({
           foundationDbCollectToolsEnabled: governanceToolsEnabled,
           foundationDbFeedbackToolsEnabled: governanceToolsEnabled,
           identityBindToolsEnabled: governanceToolsEnabled,
+          communityQueryToolsEnabled: governanceToolsEnabled,
           proposalToolsEnabled: proposalEnabled && !governanceToolsEnabled,
           formalProposalActionsEnabled: false,
           integrations: {
             chat: governanceToolsEnabled ? "host-context-only" : proposalEnabled ? "host-context-only" : "not-connected",
             memberRegistry: governanceToolsEnabled ? "backend-read-only" : "not-connected",
-            website: "not-connected",
+            website: governanceToolsEnabled ? "backend-catalog-read-only" : "not-connected",
             finance: governanceToolsEnabled ? "backend-snapshot-read-only" : "not-connected",
             identityBinding: governanceToolsEnabled ? "backend-host-context-only" : "not-connected",
           },

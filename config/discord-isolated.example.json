@@ -7,7 +7,7 @@
   "memory": { "search": { "enabled": false, "rememberAcrossConversations": false } },
   "session": { "dmScope": "per-account-channel-peer", "groupScope": "per-group" },
   "tools": {
-    "allow": ["read", "web_search", "web_fetch", "rein_status", "rein_member_status", "rein_identity_bind_start", "rein_identity_bind_status", "rein_identity_bind_complete", "rein_memory_read", "rein_memory_remember", "rein_memory_forget"],
+    "allow": ["read", "web_search", "web_fetch", "rein_status", "rein_member_status", "rein_identity_bind_start", "rein_identity_bind_status", "rein_identity_bind_complete", "rein_resources_search", "rein_resource_get", "rein_events_search", "rein_event_get", "rein_memory_read", "rein_memory_remember", "rein_memory_forget"],
     "fs": { "workspaceOnly": true }, "sessions": { "visibility": "self" }, "agentToAgent": { "enabled": false }
   },
   "channels": { "discord": { "enabled": true } },

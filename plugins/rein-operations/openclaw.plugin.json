@@ -1,7 +1,7 @@
 {
   "id": "rein-operations",
   "name": "Rein Operations",
-  "description": "Foundation operations extension; status, synthetic rehearsals and explicitly configured proposal tools, plus the database-backed Slack governance slice for identity status, available funds, Contributor proposals and Board polls.",
+  "description": "Foundation operations, verified identity linking, member-only published resource/event queries and explicitly configured governance tools.",
   "categories": [
     "other"
   ],
@@ -28,7 +28,11 @@
       "rein_revision_apply",
       "rein_identity_bind_start",
       "rein_identity_bind_status",
-      "rein_identity_bind_complete"
+      "rein_identity_bind_complete",
+      "rein_resources_search",
+      "rein_resource_get",
+      "rein_events_search",
+      "rein_event_get"
     ]
   },
   "activation": {

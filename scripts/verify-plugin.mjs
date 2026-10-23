@@ -101,6 +101,7 @@ try {
   assert.deepEqual(
     governance.report.tools.flatMap(tool => tool.names),
     [
+      'rein_resources_search', 'rein_resource_get', 'rein_events_search', 'rein_event_get',
       'rein_member_status', 'rein_funds', 'rein_poll_candidates', 'rein_vote_type_resolve',
       'rein_governance_proposal_submit', 'rein_poll_open', 'rein_poll_vote', 'rein_poll_result',
       'rein_proposal_collect',

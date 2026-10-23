@@ -75,9 +75,13 @@ oversight remain deferred. See the [implementation and deployment record](docs/i
 and the [v0.1 governance acceptance record](docs/governance-acceptance-2026-09-28.md): cases 2-10 are accepted on
 synthetic development evidence, and case 1 was skipped by the owner and is not passed.
 
-Discord onboarding guidance now ships in the workspace: optional introductions and peer interaction,
-course discovery, public in-person events and resource contributions. Its public directory starts
-unconfigured. A separate operator-configured local run tested real Discord conversations and a DEV
+Discord onboarding guidance ships in the workspace: optional introductions and peer interaction,
+course discovery, public in-person events and resource contributions. The
+[community discovery tools and skill](docs/community-discovery.md) query the Website's published
+catalog through the authenticated Foundation backend. Each call requires a current Discord/Slack
+Community Member link and the caller's `community.read` scope; permission failures return explicit
+errors without a web/history/directory fallback. The public navigation directory starts unconfigured.
+A separate operator-configured local run tested real Discord conversations and a DEV
 community identity link with thinking enabled: eight cases, all accepted after owner review, with wording improvements and coverage limits retained.
 The [redacted acceptance summary and limitations](docs/discord-onboarding-live-acceptance-2026-10-13.md)
 do not establish production readiness. These workspace files do not enable integrations by themselves.
@@ -88,7 +92,7 @@ Product-case acceptance does not establish multi-user privacy. The
 are channel-shared in the original profile. An opt-in [Rein Discord adapter](docs/discord-user-isolation.md)
 now implements per-sender/per-audience sessions and scoped persistent notes, with a native pipeline
 probe using synthetic senders. Real two-account acceptance is pending; the original local instance
-remains restricted to its acceptance account. Public course data was operator-supplied.
+remains restricted to its acceptance account. Public course data in that earlier acceptance was operator-supplied.
 
 Slack now has an opt-in [isolated adapter](docs/slack-user-isolation.md), stacked on the Discord
 isolation change. Both adapters reuse a [channel-neutral scope/memory/dispatch core](docs/channel-user-isolation.md);

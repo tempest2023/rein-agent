@@ -178,6 +178,23 @@ test('startup requires closed native recall, no bindings, confined tools and pub
     assert.throws(()=>assertIsolationRuntime(modified,c,workspace));
   mkdirSync(join(workspace,'memory'));assert.throws(()=>assertIsolationRuntime(cfg,c,workspace),/public reference/);
 });
+test('only the reviewed discovery skill may be staged in a confined public workspace',t=>{
+  const {c,dir}=fixture(t);const workspace=join(dir,'public');mkdirSync(workspace);
+  const cfg=baseRuntime(c);const skill=join(workspace,'skills','rein-community-discovery');
+  mkdirSync(skill,{recursive:true});writeFileSync(join(skill,'SKILL.md'),'public instructions');
+  assert.doesNotThrow(()=>assertIsolationRuntime(cfg,c,workspace));
+  writeFileSync(join(skill,'private.json'),'private');
+  assert.throws(()=>assertIsolationRuntime(cfg,c,workspace),/public reference/);
+  rmSync(join(skill,'private.json'));rmSync(join(skill,'SKILL.md'));
+  const privateFile=join(dir,'private.txt');writeFileSync(privateFile,'private');
+  symlinkSync(privateFile,join(skill,'SKILL.md'));
+  assert.throws(()=>assertIsolationRuntime(cfg,c,workspace),/public reference/);
+  rmSync(join(skill,'SKILL.md'));linkSync(privateFile,join(skill,'SKILL.md'));
+  assert.throws(()=>assertIsolationRuntime(cfg,c,workspace),/public reference/);
+  rmSync(skill,{recursive:true});symlinkSync(dir,skill);
+  assert.throws(()=>assertIsolationRuntime(cfg,c,workspace),/public reference/);
+});
+
 test('private memory cannot hide inside a model-readable path with a dot-dot prefix or symlink',t=>{
   const {c,dir}=fixture(t);const workspace=join(dir,'public');mkdirSync(workspace);const cfg=baseRuntime(c);
   assert.throws(()=>assertIsolationRuntime(cfg,{...c,memoryPath:join(workspace,'..hidden/data.sqlite')},workspace),/outside/);

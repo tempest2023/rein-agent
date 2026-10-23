@@ -47,6 +47,13 @@ unsolicited direct messages, member tagging or scheduled follow-ups.
 
 ## Sources and truthful outcomes
 
+Organization course/resource/event discovery now uses the
+[member-only Foundation query tools and onboarding skill](community-discovery.md). Every call
+rechecks the current Discord/Slack Community Member link and the caller's `community.read` scope.
+Failure is reported as failure and never replaced by web search, a static directory or history.
+The directory described below remains a source for public channel/discussion/contribution navigation;
+its course/event arrays are legacy rehearsal data, not the current organization query source.
+
 The workspace's [AGENTS.md](../workspace/AGENTS.md) routes Discord turns to
 [DISCORD_ONBOARDING.md](../workspace/DISCORD_ONBOARDING.md). The Agent reads
 [community-directory.json](../workspace/community-directory.json) for public entries from exactly

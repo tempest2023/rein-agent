@@ -151,6 +151,7 @@ test('governance mode registers the database-backed read tools instead of the si
     });
 
     assert.deepEqual(registrations.map(entry => entry.tool.name ?? entry.options.names.join(',')), [
+      'rein_resources_search,rein_resource_get,rein_events_search,rein_event_get',
       'rein_member_status,rein_funds,rein_poll_candidates,rein_vote_type_resolve',
       'rein_governance_proposal_submit,rein_poll_open,rein_poll_vote,rein_poll_result',
       'rein_proposal_collect',
@@ -245,12 +246,14 @@ test('governance mode registers the database-backed read tools instead of the si
       'rein_proposal_collect',
       'rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply',
       'rein_identity_bind_start', 'rein_identity_bind_status', 'rein_identity_bind_complete',
+      'rein_resources_search', 'rein_resource_get', 'rein_events_search', 'rein_event_get',
     ]);
     assert.equal(result.details.foundationDbReadToolsEnabled, true);
     assert.equal(result.details.foundationDbWriteToolsEnabled, true);
     assert.equal(result.details.foundationDbCollectToolsEnabled, true);
     assert.equal(result.details.foundationDbFeedbackToolsEnabled, true);
     assert.equal(result.details.identityBindToolsEnabled, true);
+    assert.equal(result.details.communityQueryToolsEnabled, true);
     assert.equal(result.details.proposalToolsEnabled, false);
     assert.equal(result.details.automationEnabled, false);
     assert.equal(result.details.formalProposalActionsEnabled, false);

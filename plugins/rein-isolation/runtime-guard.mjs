@@ -1,7 +1,7 @@
 import { isAbsolute, relative, sep, dirname, join } from 'node:path';
 import { existsSync, realpathSync, readdirSync, lstatSync } from 'node:fs';
 
-export function assertIsolatedRuntime(cfg, config, workspaceDir, { platform, publicTools, publicReferences = [] }) {
+export function assertIsolatedRuntime(cfg, config, workspaceDir, { platform, publicTools, publicReferences = [], publicSkills = [] }) {
   let parent = dirname(config.memoryPath);
   const suffix = [];
   while (!existsSync(parent)) { suffix.unshift(parent.split(sep).at(-1)); parent = dirname(parent); }
@@ -43,6 +43,23 @@ export function assertIsolatedRuntime(cfg, config, workspaceDir, { platform, pub
     'USER.md', 'community-directory.json', ...publicReferences]);
   for (const file of readdirSync(workspaceDir)) {
     const stat = lstatSync(join(workspaceDir, file));
+    if (file === 'skills' && publicSkills.length) {
+      // Only explicitly reviewed public skill instructions may enter a channel workspace.
+      const skills = join(workspaceDir, file);
+      if (!stat.isDirectory() || stat.isSymbolicLink() ||
+          readdirSync(skills).sort().join() !== [...publicSkills].sort().join())
+        throw new Error('Workspace must contain only approved public reference files');
+      for (const name of publicSkills) {
+        const skill = join(skills, name);
+        const directory = lstatSync(skill);
+        if (!directory.isDirectory() || directory.isSymbolicLink() || readdirSync(skill).join() !== 'SKILL.md')
+          throw new Error('Workspace must contain only approved public reference files');
+        const leaf = lstatSync(join(skill, 'SKILL.md'));
+        if (!leaf.isFile() || leaf.isSymbolicLink() || leaf.nlink !== 1)
+          throw new Error('Workspace must contain only approved public reference files');
+      }
+      continue;
+    }
     if (!publicFiles.has(file) || !stat.isFile() || stat.nlink !== 1) throw new Error('Workspace must contain only approved public reference files');
   }
 }

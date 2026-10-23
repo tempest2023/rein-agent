@@ -18,9 +18,15 @@ export type BackendFailureReason =
   | 'http_error'
   | 'response_malformed';
 
+// Only these machine codes may cross a failed HTTP response. Never forward provider text.
+export const BACKEND_REFUSAL_REASONS = ['binding_not_verified', 'identity_revoked', 'scope_missing',
+  'caller_disabled', 'caller_revoked', 'channel_not_allowed', 'platform_not_allowed',
+  'proof_expired', 'proof_unknown', 'invalid_request', 'invalid_operation', 'unavailable'] as const;
+export type BackendRefusalReason = (typeof BACKEND_REFUSAL_REASONS)[number];
+
 export type BackendResponse =
   | { ok: true; body: unknown; httpStatus: number }
-  | { ok: false; reason: BackendFailureReason; httpStatus: number | null };
+  | { ok: false; reason: BackendFailureReason; httpStatus: number | null; refusalReason?: BackendRefusalReason };
 
 export interface BackendIngressTuple {
   platform: string;
@@ -121,10 +127,19 @@ export function createBackendTransport(config: BackendTransportConfig): BackendT
     }
     const httpStatus = typeof response?.status === 'number' ? response.status : null;
     if (!response || response.ok !== true) {
+      let refusalReason: BackendRefusalReason | undefined;
+      try {
+        const body: unknown = await response?.json();
+        if (isPlainObject(body) && body.ok === false &&
+            (BACKEND_REFUSAL_REASONS as readonly unknown[]).includes(body.reason)) {
+          refusalReason = body.reason as BackendRefusalReason;
+        }
+      } catch { /* A non-JSON failure remains a closed transport error. */ }
+      const refusal = refusalReason ? { refusalReason } : {};
       if (httpStatus === 401 || httpStatus === 403) {
-        return { ok: false, reason: 'auth_error', httpStatus };
+        return { ok: false, reason: 'auth_error', httpStatus, ...refusal };
       }
-      return { ok: false, reason: 'http_error', httpStatus };
+      return { ok: false, reason: 'http_error', httpStatus, ...refusal };
     }
     let parsed: unknown;
     try {

@@ -20,6 +20,7 @@
     "ingress-proof.ts",
     "backend-runtime.ts",
     "identity-tools.ts",
+    "community-tools.ts",
     "vote-tally.ts",
     "governance-write-tools.ts",
     "vote-type-resolve.ts",

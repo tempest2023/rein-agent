@@ -11,6 +11,7 @@ for (const p of ['README.md', 'README-zh.md', 'AGENTS.md', 'workspace/AGENTS.md'
 }
 // These are readable public references, not plugin configuration or a live integration check.
 const communityDirectory = JSON.parse(read('workspace/community-directory.json'));
+assert.ok(read('workspace/skills/rein-community-discovery/SKILL.md').trim(), 'Missing community discovery skill');
 validateCommunityDirectory(communityDirectory);
 const communityFixture = JSON.parse(read('templates/discord-community-directory.example.json'));
 assert.equal(communityFixture.status, 'fixture');
@@ -46,6 +47,7 @@ assert.deepEqual(manifest.contracts.tools, [
   'rein_proposal_collect',
   'rein_proposal_comment_suggest', 'rein_revision_approve', 'rein_revision_apply',
   'rein_identity_bind_start', 'rein_identity_bind_status', 'rein_identity_bind_complete',
+  'rein_resources_search', 'rein_resource_get', 'rein_events_search', 'rein_event_get',
 ]);
 // Every backend-backed tool registers only from explicit configuration, and that block names an
 // authenticated backend service by environment variable: the Agent holds no database credential and
